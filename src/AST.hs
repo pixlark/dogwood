@@ -6,5 +6,10 @@
 
 module AST where
 
+import Data.Text (Text)
+
 data BuiltinType = Void | Bool | Int
+  deriving (Eq, Show)
+
+newtype NamespacedIdentifier = NamespacedIdentifier [Text]
   deriving (Eq, Show)

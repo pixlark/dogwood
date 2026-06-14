@@ -6,6 +6,7 @@
 
 module Main where
 
+import Control.Monad.Except
 import Control.Monad.State.Lazy
 import Lexer
 import Parser
@@ -25,4 +26,4 @@ main = case makeParser lexer of
   Right parser -> print $ run parser
   where
     lexer = makeLexer "bool"
-    run = runState parseBuiltinType
+    run = runState $ runExceptT parseBuiltinType
