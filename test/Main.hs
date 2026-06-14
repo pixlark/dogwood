@@ -7,6 +7,7 @@
 module Main where
 
 import qualified AST as A
+import Control.Monad.Except
 import Control.Monad.State.Lazy
 import Data.Either
 import Data.Text (Text)
@@ -17,13 +18,29 @@ import Test.Hspec
 
 type ParserResult a = Parser.Internal.Result a
 
-runParse :: Text -> ParserM (ParserResult a) -> ParserResult a
+runParse :: Text -> ParserM a -> ParserResult a
 runParse source f = case makeParser lexer of
   Left e -> Left e
   Right parser -> run parser
   where
     lexer = makeLexer source
     run = evalState f
+
+runParseN :: Text -> ParserN a -> Maybe a
+runParseN source f = case makeParser lexer of
+  Left e -> Nothing
+  Right parser -> run parser
+  where
+    lexer = makeLexer source
+    run = evalState f
+
+consumeSymbol = runExceptT $ do
+  current <- gets Parser.Internal.current
+  case current of
+    Symbol sym -> do ExceptT Parser.Internal.advance; return $ Just sym
+    _ -> return Nothing
+
+parseCommas trailing = parseSeparatedSequence (SeparatorConfig {trailing, separator = Glyph ",", consume = consumeSymbol})
 
 main :: IO ()
 main = hspec $ do
@@ -33,3 +50,16 @@ main = hspec $ do
       runParse "bool" parseBuiltinType `shouldBe` Right A.Bool
       runParse "int" parseBuiltinType `shouldBe` Right A.Int
       runParse "asdf" parseBuiltinType `shouldSatisfy` isLeft
+    it "fooN" $ do
+      runParseN "&&" parseFooN `shouldBe` Just "foo"
+      runParseN "&" parseFooN `shouldBe` Nothing
+    it "foo" $ do
+      runParse "&&" parseFoo `shouldBe` Right "foo"
+      runParse "&" parseFoo `shouldSatisfy` isLeft
+    it "can parse separated sequences" $ do
+      runParse "a, b, c" (parseCommas False) `shouldBe` Right ["a", "b", "c"]
+      runParse "a, b, c," (parseCommas False) `shouldSatisfy` isLeft
+      runParse "a, b, c," (parseCommas True) `shouldBe` Right ["a", "b", "c"]
+      runParse "a,, b, c" (parseCommas False) `shouldSatisfy` isLeft
+      runParse "a" (parseCommas True) `shouldBe` Right ["a"]
+      runParse "" (parseCommas True) `shouldBe` Right []
