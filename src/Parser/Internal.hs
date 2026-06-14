@@ -20,7 +20,7 @@ import Text.Printf
 data Parser = Parser {current :: Token, lexer :: Lexer}
   deriving (Show)
 
-type ParserM a = State Parser (Result a)
+type ParserM a = ExceptT String (State Parser) a
 
 -- type ParserM a = StateT Parser (Either String) a
 -- type ParserN a = ExceptT String (State Parser) a
@@ -40,63 +40,63 @@ type ParserM a = State Parser (Result a)
 type Result a = Either String a
 
 advance :: ParserM ()
-advance = state $ \parser -> case runState nextToken parser.lexer of
+advance = ExceptT $ state $ \parser -> case runState nextToken parser.lexer of
   (Right tok, lexer') -> (Right (), parser {current = tok, lexer = lexer'})
   (Left e, lexer') -> (Left e, parser {lexer = lexer'})
 
-advanceThen :: a -> ParserM a
-advanceThen x = advance <&> (x <$)
+-- advanceThen :: a -> ParserM a
+-- advanceThen x = advance <&> (x <$)
 
 makeParser :: Lexer -> Result Parser
 makeParser lexer = parser' <$ result
   where
     parser = Parser {current = Eof, lexer}
     -- "prime the pump"
-    (result, parser') = runState advance parser
+    (result, parser') = runState (runExceptT advance) parser
 
 expectKeyword :: Text -> ParserM ()
 expectKeyword keyword = do
   current <- gets current
   if current == Keyword keyword
     then advance
-    else return $ Left $ printf "Expected keyword %s" keyword
+    else throwE $ printf "Expected keyword %s" keyword
 
 expectGlyph :: Text -> ParserM ()
 expectGlyph glyph = do
   current <- gets current
   if current == Glyph glyph
     then advance
-    else return $ Left $ printf "Expected glyph %s" glyph
+    else throwE $ printf "Expected glyph %s" glyph
 
 readSymbol :: ParserM Text
 readSymbol = do
   current <- gets current
   case current of
-    Symbol sym -> advance <&> (sym <$)
-    _ -> return $ Left "Expected symbol"
+    Symbol sym -> do advance; return sym
+    _ -> throwE "Expected symbol"
 
 matchKeyword :: Text -> ParserM Bool
 matchKeyword keyword = do
   current <- gets current
   if current == Keyword keyword
-    then advanceThen True
-    else return $ Right False
+    then do advance; return True
+    else return False
 
 matchGlyph :: Text -> ParserM Bool
 matchGlyph glyph = do
   current <- gets current
   if current == Glyph glyph
-    then advanceThen True
-    else return $ Right False
+    then do advance; return True
+    else return False
 
 parseBuiltinType :: ParserM A.BuiltinType
 parseBuiltinType = do
   current <- gets current
-  return $ case current of
-    Keyword "void" -> Right A.Void
-    Keyword "bool" -> Right A.Bool
-    Keyword "int" -> Right A.Int
-    _ -> Left "Expected builtin type"
+  case current of
+    Keyword "void" -> return A.Void
+    Keyword "bool" -> return A.Bool
+    Keyword "int" -> return A.Int
+    _ -> throwE "Expected builtin type"
 
 data SeparatorConfig a = SeparatorConfig
   { trailing :: Bool,
@@ -109,41 +109,41 @@ data SeparatorConfig a = SeparatorConfig
 --   _ <- ExceptT advance
 --   return "foo"
 
-type ParserN a = State Parser (Maybe a)
+-- type ParserN a = State Parser (Maybe a)
 
-advanceN :: ParserN ()
-advanceN = state $ \parser -> case runState advance parser of
-  (Left _, parser') -> (Nothing, parser')
-  (Right x, parser') -> (Just x, parser')
+-- advanceN :: ParserN ()
+-- advanceN = state $ \parser -> case runState advance parser of
+--   (Left _, parser') -> (Nothing, parser')
+--   (Right x, parser') -> (Just x, parser')
 
-parseFooN :: ParserN String
-parseFooN = runMaybeT $ do
-  _ <- MaybeT advanceN
-  return "foo"
+-- parseFooN :: ParserN String
+-- parseFooN = runMaybeT $ do
+--   _ <- MaybeT advanceN
+--   return "foo"
 
-parseFoo :: ParserM String
-parseFoo = runExceptT $ do
-  _ <- ExceptT advance
-  return "foo"
+-- parseFoo :: ParserM String
+-- parseFoo = runExceptT $ do
+--   _ <- ExceptT advance
+--   return "foo"
 
 parseSeparatedSequence :: forall a. SeparatorConfig a -> ParserM [a]
 parseSeparatedSequence SeparatorConfig {trailing, separator, consume} = parseSeparatedSequence' [] False
   where
     parseSeparatedSequence' :: [a] -> Bool -> ParserM [a]
-    parseSeparatedSequence' sequence expecting = runExceptT $ do
-      consumed <- ExceptT consume
+    parseSeparatedSequence' sequence expecting = do
+      consumed <- consume
       current <- gets current
       case consumed of
         Nothing ->
           if expecting
             then throwE "Expected another element of sequence"
-            else if trailing && current == separator then do ExceptT advance; return sequence else return sequence
+            else if trailing && current == separator then do advance; return sequence else return sequence
         Just x ->
           let sequence' = sequence ++ [x]
            in if current == separator
                 then do
-                  _ <- ExceptT advance
-                  ExceptT $ parseSeparatedSequence' sequence' (not trailing)
+                  _ <- advance
+                  parseSeparatedSequence' sequence' (not trailing)
                 else return sequence'
 
 -- before integrating ExceptT

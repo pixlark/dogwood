@@ -24,20 +24,20 @@ runParse source f = case makeParser lexer of
   Right parser -> run parser
   where
     lexer = makeLexer source
-    run = evalState f
+    run = evalState $ runExceptT f
 
-runParseN :: Text -> ParserN a -> Maybe a
-runParseN source f = case makeParser lexer of
-  Left e -> Nothing
-  Right parser -> run parser
-  where
-    lexer = makeLexer source
-    run = evalState f
+-- runParseN :: Text -> ParserN a -> Maybe a
+-- runParseN source f = case makeParser lexer of
+--   Left e -> Nothing
+--   Right parser -> run parser
+--   where
+--     lexer = makeLexer source
+--     run = evalState f
 
-consumeSymbol = runExceptT $ do
+consumeSymbol = do
   current <- gets Parser.Internal.current
   case current of
-    Symbol sym -> do ExceptT Parser.Internal.advance; return $ Just sym
+    Symbol sym -> do Parser.Internal.advance; return $ Just sym
     _ -> return Nothing
 
 parseCommas trailing = parseSeparatedSequence (SeparatorConfig {trailing, separator = Glyph ",", consume = consumeSymbol})
@@ -50,12 +50,12 @@ main = hspec $ do
       runParse "bool" parseBuiltinType `shouldBe` Right A.Bool
       runParse "int" parseBuiltinType `shouldBe` Right A.Int
       runParse "asdf" parseBuiltinType `shouldSatisfy` isLeft
-    it "fooN" $ do
-      runParseN "&&" parseFooN `shouldBe` Just "foo"
-      runParseN "&" parseFooN `shouldBe` Nothing
-    it "foo" $ do
-      runParse "&&" parseFoo `shouldBe` Right "foo"
-      runParse "&" parseFoo `shouldSatisfy` isLeft
+    -- it "fooN" $ do
+    --   runParseN "&&" parseFooN `shouldBe` Just "foo"
+    --   runParseN "&" parseFooN `shouldBe` Nothing
+    -- it "foo" $ do
+    --   runParse "&&" parseFoo `shouldBe` Right "foo"
+    --   runParse "&" parseFoo `shouldSatisfy` isLeft
     it "can parse separated sequences" $ do
       runParse "a, b, c" (parseCommas False) `shouldBe` Right ["a", "b", "c"]
       runParse "a, b, c," (parseCommas False) `shouldSatisfy` isLeft
