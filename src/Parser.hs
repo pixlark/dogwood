@@ -4,6 +4,6 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parser (makeParser, parseBuiltinType) where
+module Parser (makeParser) where
 
 import Parser.Internal

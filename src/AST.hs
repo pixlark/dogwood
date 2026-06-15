@@ -8,8 +8,14 @@ module AST where
 
 import Data.Text (Text)
 
-data BuiltinType = Void | Bool | Int
+data ValueTypeExpr = Void | Bool | Int | NamespacedIdentifier [Text]
   deriving (Eq, Show)
 
-newtype NamespacedIdentifier = NamespacedIdentifier [Text]
+data TypeExpr = TypeExpr {reference :: Bool, valueExpr :: ValueTypeExpr}
   deriving (Eq, Show)
+
+makeValueExpr :: ValueTypeExpr -> TypeExpr
+makeValueExpr valueExpr = TypeExpr {reference = False, valueExpr}
+
+makeReferenceExpr :: ValueTypeExpr -> TypeExpr
+makeReferenceExpr valueExpr = TypeExpr {reference = True, valueExpr}

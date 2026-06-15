@@ -7,7 +7,7 @@
 
 module Parser.Internal where
 
-import AST (NamespacedIdentifier)
+import AST
 import qualified AST as A
 import Control.Monad.State.Lazy
 import Control.Monad.Trans.Except
@@ -71,15 +71,6 @@ matchGlyph glyph = do
     then do advance; return True
     else return False
 
-parseBuiltinType :: ParserM A.BuiltinType
-parseBuiltinType = do
-  current <- gets current
-  case current of
-    Keyword "void" -> return A.Void
-    Keyword "bool" -> return A.Bool
-    Keyword "int" -> return A.Int
-    _ -> throwE ExpectedBuiltinType
-
 data SeparatorConfig a = SeparatorConfig
   { trailing :: Bool,
     separator :: Token,
@@ -109,7 +100,7 @@ parseSeparatedSequence SeparatorConfig {trailing, separator, consume} = parseSep
                   parseSeparatedSequence' sequence' (not trailing)
                 else return sequence'
 
-parseNamespacedIdentifier :: ParserM NamespacedIdentifier
+parseNamespacedIdentifier :: ParserM ValueTypeExpr
 parseNamespacedIdentifier = do
   pieces <- parseSeparatedSequence SeparatorConfig {trailing = False, separator = Glyph "::", consume = consumeSymbol}
   return $ A.NamespacedIdentifier pieces
@@ -119,3 +110,15 @@ parseNamespacedIdentifier = do
       case current of
         Symbol sym -> do advance; return (Just sym)
         _ -> return Nothing
+
+parseTypeExpr :: ParserM TypeExpr
+parseTypeExpr = do
+  reference <- matchGlyph "&"
+  current <- gets current
+  valueExpr <- case current of
+    Keyword "void" -> return A.Void
+    Keyword "bool" -> return A.Bool
+    Keyword "int" -> return A.Int
+    Symbol _ -> parseNamespacedIdentifier
+    _ -> throwE ExpectedTypeExpr
+  return TypeExpr {reference, valueExpr}

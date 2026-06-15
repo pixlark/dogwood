@@ -20,10 +20,13 @@ import Parser
 --     run = runState nextToken
 --     (result, lexer') = run lexer
 
+-- main :: IO ()
+-- main = case makeParser lexer of
+--   Left e -> print e
+--   Right parser -> print $ run parser
+--   where
+--     lexer = makeLexer "bool"
+--     run = runState $ runExceptT parseBuiltinType
+
 main :: IO ()
-main = case makeParser lexer of
-  Left e -> print e
-  Right parser -> print $ run parser
-  where
-    lexer = makeLexer "bool"
-    run = runState $ runExceptT parseBuiltinType
+main = putStrLn "hello"

@@ -8,8 +8,8 @@ data ParseError
   | ExpectedKeyword Text
   | ExpectedGlyph Text
   | ExpectedSymbol
-  | ExpectedBuiltinType
   | ExpectedAnotherElementOfSequence
+  | ExpectedTypeExpr
   deriving (Eq)
 
 instance Show ParseError where
@@ -17,7 +17,7 @@ instance Show ParseError where
   show (ExpectedKeyword keyword) = printf "Expected keyword %s" keyword
   show (ExpectedGlyph glyph) = printf "Expected glyph %s" glyph
   show ExpectedSymbol = "Expected symbol"
-  show ExpectedBuiltinType = "Expected builtin type (void, bool, int, etc)"
   show ExpectedAnotherElementOfSequence = "Expected another element of sequence"
+  show ExpectedTypeExpr = "Expected type expression"
 
 type Result a = Either ParseError a
