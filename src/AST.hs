@@ -18,6 +18,8 @@ data ValueTypeExpr = Void | Bool | Int | NamespacedIdentifier [Text]
 data TypeExpr = TypeExpr {reference :: Bool, valueExpr :: ValueTypeExpr}
   deriving (Eq, Show)
 
+data Expr = VoidLit | TrueLit | FalseLit
+
 makeValueExpr :: ValueTypeExpr -> TypeExpr
 makeValueExpr valueExpr = TypeExpr {reference = False, valueExpr}
 

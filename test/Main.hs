@@ -45,11 +45,14 @@ consumeSymbol = do
 
 parseCommas trailing = parseSeparatedSequence SeparatorConfig {trailing, separator = Glyph ",", consume = consumeSymbol}
 
+expectAST :: Int -> Int -> a -> Result (AST a)
+expectAST start length inner = Right $ AST inner (Span start length)
+
 main :: IO ()
 main = hspec $ do
   describe "the Lexer module" $ do
     it "tracks source spans correctly" $ do
-      runLex "asdf, void"
+      runLex "asdf, void "
         `shouldBe` Right
           [ Token (Symbol "asdf") (Span 0 4),
             Token (Glyph ",") (Span 4 1),
@@ -64,10 +67,10 @@ main = hspec $ do
       runParse "a" (parseCommas True) `shouldBe` Right ["a"]
       runParse "" (parseCommas True) `shouldBe` Right []
     it "can parse type expressions" $ do
-      runParse "void" parseTypeExpr `shouldBe` Right (AST (makeValueExpr A.Void) (Span 0 4))
-      runParse "bool" parseTypeExpr `shouldBe` Right (AST (makeValueExpr A.Bool) (Span 0 4))
-      runParse "int" parseTypeExpr `shouldBe` Right (AST (makeValueExpr A.Int) (Span 0 3))
-      runParse "asdf" parseTypeExpr `shouldBe` Right (AST (makeValueExpr $ NamespacedIdentifier ["asdf"]) (Span 0 4))
-      runParse "asdf::foo" parseTypeExpr `shouldBe` Right (AST (makeValueExpr $ NamespacedIdentifier ["asdf", "foo"]) (Span 0 9))
-      runParse "&bool" parseTypeExpr `shouldBe` Right (AST (makeReferenceExpr A.Bool) (Span 0 5))
+      runParse "void" parseTypeExpr `shouldBe` expectAST 0 4 (makeValueExpr A.Void)
+      runParse "bool" parseTypeExpr `shouldBe` expectAST 0 4 (makeValueExpr A.Bool)
+      runParse "int" parseTypeExpr `shouldBe` expectAST 0 3 (makeValueExpr A.Int)
+      runParse "asdf" parseTypeExpr `shouldBe` expectAST 0 4 (makeValueExpr $ NamespacedIdentifier ["asdf"])
+      runParse " asdf::foo " parseTypeExpr `shouldBe` expectAST 1 9 (makeValueExpr $ NamespacedIdentifier ["asdf", "foo"])
+      runParse "&bool" parseTypeExpr `shouldBe` expectAST 0 5 (makeReferenceExpr A.Bool)
       runParse "&&bool" parseTypeExpr `shouldBe` Left ExpectedTypeExpr

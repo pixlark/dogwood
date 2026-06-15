@@ -7,6 +7,7 @@
 module Lexer.Internal where
 
 import Control.Monad
+import Control.Monad.Except
 import Control.Monad.State.Lazy
 import Control.Monad.Trans.Maybe
 import Data.Char
@@ -146,7 +147,7 @@ nextToken = do
       if isAlpha c || c == '_'
         then do
           (src, cur) <- gets ((,) <$> source <*> cursor)
-          let symbol = T.takeWhile (\c -> isAlpha c || c == ' ') $ T.drop cur src
+          let symbol = T.takeWhile (\c -> isAlpha c || c == '_') $ T.drop cur src
           let length = T.length symbol
           advanceBy length
           Right

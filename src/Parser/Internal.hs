@@ -15,24 +15,28 @@ import Control.Monad.Trans.Maybe
 import Data.Functor
 import Data.Text (Text)
 import qualified Data.Text as T
+import Debug.Trace
 import Error
 import Lexer
 import Text.Printf
 
-data Parser = Parser {current :: Token, lexer :: Lexer}
+data Parser = Parser {current :: Token, lexer :: Lexer, lastTokenEnd :: Int}
   deriving (Show)
 
 type ParserM a = ExceptT ParseError (State Parser) a
 
 advance :: ParserM ()
-advance = ExceptT $ state $ \parser -> case runState nextToken parser.lexer of
-  (Right tok, lexer') -> (Right (), parser {current = tok, lexer = lexer'})
-  (Left e, lexer') -> (Left e, parser {lexer = lexer'})
+advance = ExceptT $ state $ \parser ->
+  let (Token _ (Span lastTokenStart lastTokenLength)) = parser.current
+      lastTokenEnd = lastTokenStart + lastTokenLength
+   in case runState nextToken parser.lexer of
+        (Right tok, lexer') -> (Right (), parser {current = tok, lexer = lexer', lastTokenEnd})
+        (Left e, lexer') -> (Left e, parser {lexer = lexer', lastTokenEnd})
 
 makeParser :: Lexer -> Result Parser
 makeParser lexer = parser' <$ result
   where
-    parser = Parser {current = Token {kind = Eof, span = Span 0 0}, lexer}
+    parser = Parser {current = Token {kind = Eof, span = Span 0 0}, lexer, lastTokenEnd = 0}
     -- "prime the pump"
     (result, parser') = runState (runExceptT advance) parser
 
@@ -77,10 +81,9 @@ spanStart = do
   return start
 
 makeSpan :: Int -> ParserM Span
-{- HLINT ignore -}
 makeSpan start = do
-  end <- spanStart
-  return $ Span start end
+  end <- gets lastTokenEnd
+  return $ Span start (end - start)
 
 data SeparatorConfig a = SeparatorConfig
   { trailing :: Bool,
@@ -135,3 +138,7 @@ parseTypeExpr = do
     _ -> throwE ExpectedTypeExpr
   span <- makeSpan spanStart
   return $ AST (A.TypeExpr {reference, valueExpr}) span
+
+parseExpr :: ParserM (AST A.Expr)
+parseExpr = do
+  undefined
