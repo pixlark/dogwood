@@ -12,6 +12,7 @@ import Data.Char
 import qualified Data.List as List
 import Data.Text (Text)
 import qualified Data.Text as T
+import Error
 import Text.Printf
 import Util
 
@@ -44,8 +45,6 @@ current = gets current'
 
 makeLexer :: T.Text -> Lexer
 makeLexer source = Lexer {cursor = 0, source}
-
-type Result a = Either String a
 
 keywords :: [T.Text]
 keywords =
@@ -137,9 +136,9 @@ nextToken = do
               advance
               c' <- current
               case c' of
-                Nothing -> return $ eitherFromMaybe (unrecognizedCharacter c) (tryMakeSingleGlyph c)
-                Just c' -> eitherFromMaybe (unrecognizedCharacter c) <$> tryMakeDoubleOrSingleGlyph c c'
-            else return $ Left (unrecognizedCharacter c)
+                Nothing -> return $ eitherFromMaybe (UnrecognizedCharacter c) (tryMakeSingleGlyph c)
+                Just c' -> eitherFromMaybe (UnrecognizedCharacter c) <$> tryMakeDoubleOrSingleGlyph c c'
+            else return $ Left (UnrecognizedCharacter c)
   where
     skipWhitespace = do
       c <- current
@@ -147,5 +146,3 @@ nextToken = do
     tryMakeDoubleOrSingleGlyph c c' = case tryMakeDoubleGlyph c c' of
       Nothing -> return $ tryMakeSingleGlyph c
       j@(Just _) -> advance >> return j
-    unrecognizedCharacter :: Char -> String
-    unrecognizedCharacter = printf "Unrecognized character %c"

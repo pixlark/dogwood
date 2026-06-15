@@ -15,15 +15,14 @@ import Control.Monad.Trans.Maybe
 import Data.Functor
 import Data.Text (Text)
 import qualified Data.Text as T
+import Error
 import Lexer
 import Text.Printf
 
 data Parser = Parser {current :: Token, lexer :: Lexer}
   deriving (Show)
 
-type ParserM a = ExceptT String (State Parser) a
-
-type Result a = Either String a
+type ParserM a = ExceptT ParseError (State Parser) a
 
 advance :: ParserM ()
 advance = ExceptT $ state $ \parser -> case runState nextToken parser.lexer of
@@ -42,21 +41,21 @@ expectKeyword keyword = do
   current <- gets current
   if current == Keyword keyword
     then advance
-    else throwE $ printf "Expected keyword %s" keyword
+    else throwE $ ExpectedKeyword keyword
 
 expectGlyph :: Text -> ParserM ()
 expectGlyph glyph = do
   current <- gets current
   if current == Glyph glyph
     then advance
-    else throwE $ printf "Expected glyph %s" glyph
+    else throwE $ ExpectedGlyph glyph
 
 readSymbol :: ParserM Text
 readSymbol = do
   current <- gets current
   case current of
     Symbol sym -> do advance; return sym
-    _ -> throwE "Expected symbol"
+    _ -> throwE ExpectedSymbol
 
 matchKeyword :: Text -> ParserM Bool
 matchKeyword keyword = do
@@ -79,7 +78,7 @@ parseBuiltinType = do
     Keyword "void" -> return A.Void
     Keyword "bool" -> return A.Bool
     Keyword "int" -> return A.Int
-    _ -> throwE "Expected builtin type"
+    _ -> throwE ExpectedBuiltinType
 
 data SeparatorConfig a = SeparatorConfig
   { trailing :: Bool,
@@ -97,7 +96,7 @@ parseSeparatedSequence SeparatorConfig {trailing, separator, consume} = parseSep
       case consumed of
         Nothing ->
           if expecting
-            then throwE "Expected another element of sequence"
+            then throwE ExpectedAnotherElementOfSequence
             else
               if trailing && current == separator
                 then do advance; return sequence

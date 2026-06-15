@@ -13,13 +13,12 @@ import Control.Monad.State.Lazy
 import Data.Either
 import Data.Text (Text)
 import qualified Data.Text as T
+import Error
 import Lexer.Internal
 import Parser.Internal
 import Test.Hspec
 
-type ParserResult a = Parser.Internal.Result a
-
-runParse :: Text -> ParserM a -> ParserResult a
+runParse :: Text -> ParserM a -> Result a
 runParse source f = case makeParser lexer of
   Left e -> Left e
   Right parser -> run parser
@@ -42,15 +41,15 @@ main = hspec $ do
       runParse "void" parseBuiltinType `shouldBe` Right A.Void
       runParse "bool" parseBuiltinType `shouldBe` Right A.Bool
       runParse "int" parseBuiltinType `shouldBe` Right A.Int
-      runParse "asdf" parseBuiltinType `shouldSatisfy` isLeft
+      runParse "asdf" parseBuiltinType `shouldBe` Left ExpectedBuiltinType
     it "can parse separated sequences" $ do
       runParse "a, b, c" (parseCommas False) `shouldBe` Right ["a", "b", "c"]
-      runParse "a, b, c," (parseCommas False) `shouldSatisfy` isLeft
+      runParse "a, b, c," (parseCommas False) `shouldBe` Left ExpectedAnotherElementOfSequence
       runParse "a, b, c," (parseCommas True) `shouldBe` Right ["a", "b", "c"]
-      runParse "a,, b, c" (parseCommas False) `shouldSatisfy` isLeft
+      runParse "a,, b, c" (parseCommas False) `shouldBe` Left ExpectedAnotherElementOfSequence
       runParse "a" (parseCommas True) `shouldBe` Right ["a"]
       runParse "" (parseCommas True) `shouldBe` Right []
     it "can parse namespaced identifiers" $ do
       runParse "foo::bar" parseNamespacedIdentifier `shouldBe` Right (NamespacedIdentifier ["foo", "bar"])
-      runParse "foo::bar::" parseNamespacedIdentifier `shouldSatisfy` isLeft
+      runParse "foo::bar::" parseNamespacedIdentifier `shouldBe` Left ExpectedAnotherElementOfSequence
       runParse "foo" parseNamespacedIdentifier `shouldBe` Right (NamespacedIdentifier ["foo"])

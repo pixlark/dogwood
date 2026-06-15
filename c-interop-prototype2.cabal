@@ -79,7 +79,7 @@ library prototype-core
     -- Import common warning flags.
     import:           warnings
 
-    exposed-modules:    AST, Parser, Parser.Internal, Lexer, Lexer.Internal, Util
+    exposed-modules:    AST, Parser, Parser.Internal, Lexer, Lexer.Internal, Util, Error
 
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.18.3.0,
