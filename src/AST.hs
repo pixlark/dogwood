@@ -7,6 +7,10 @@
 module AST where
 
 import Data.Text (Text)
+import Lexer (Span)
+
+data AST a = AST a Span
+  deriving (Eq, Show)
 
 data ValueTypeExpr = Void | Bool | Int | NamespacedIdentifier [Text]
   deriving (Eq, Show)

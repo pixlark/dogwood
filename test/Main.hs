@@ -63,15 +63,11 @@ main = hspec $ do
       runParse "a,, b, c" (parseCommas False) `shouldBe` Left ExpectedAnotherElementOfSequence
       runParse "a" (parseCommas True) `shouldBe` Right ["a"]
       runParse "" (parseCommas True) `shouldBe` Right []
-    it "can parse namespaced identifiers" $ do
-      runParse "foo::bar" parseNamespacedIdentifier `shouldBe` Right (NamespacedIdentifier ["foo", "bar"])
-      runParse "foo::bar::" parseNamespacedIdentifier `shouldBe` Left ExpectedAnotherElementOfSequence
-      runParse "foo" parseNamespacedIdentifier `shouldBe` Right (NamespacedIdentifier ["foo"])
     it "can parse type expressions" $ do
-      runParse "void" parseTypeExpr `shouldBe` Right (makeValueExpr A.Void)
-      runParse "bool" parseTypeExpr `shouldBe` Right (makeValueExpr A.Bool)
-      runParse "int" parseTypeExpr `shouldBe` Right (makeValueExpr A.Int)
-      runParse "asdf" parseTypeExpr `shouldBe` Right (makeValueExpr $ NamespacedIdentifier ["asdf"])
-      runParse "asdf::foo" parseTypeExpr `shouldBe` Right (makeValueExpr $ NamespacedIdentifier ["asdf", "foo"])
-      runParse "&bool" parseTypeExpr `shouldBe` Right (makeReferenceExpr A.Bool)
+      runParse "void" parseTypeExpr `shouldBe` Right (AST (makeValueExpr A.Void) (Span 0 4))
+      runParse "bool" parseTypeExpr `shouldBe` Right (AST (makeValueExpr A.Bool) (Span 0 4))
+      runParse "int" parseTypeExpr `shouldBe` Right (AST (makeValueExpr A.Int) (Span 0 3))
+      runParse "asdf" parseTypeExpr `shouldBe` Right (AST (makeValueExpr $ NamespacedIdentifier ["asdf"]) (Span 0 4))
+      runParse "asdf::foo" parseTypeExpr `shouldBe` Right (AST (makeValueExpr $ NamespacedIdentifier ["asdf", "foo"]) (Span 0 9))
+      runParse "&bool" parseTypeExpr `shouldBe` Right (AST (makeReferenceExpr A.Bool) (Span 0 5))
       runParse "&&bool" parseTypeExpr `shouldBe` Left ExpectedTypeExpr

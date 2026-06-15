@@ -7,7 +7,7 @@
 
 module Parser.Internal where
 
-import AST
+import AST (AST (..))
 import qualified AST as A
 import Control.Monad.State.Lazy
 import Control.Monad.Trans.Except
@@ -71,6 +71,17 @@ matchGlyph glyph = do
     then do advance; return True
     else return False
 
+spanStart :: ParserM Int
+spanStart = do
+  (Token _ (Span start _)) <- gets current
+  return start
+
+makeSpan :: Int -> ParserM Span
+{- HLINT ignore -}
+makeSpan start = do
+  end <- spanStart
+  return $ Span start end
+
 data SeparatorConfig a = SeparatorConfig
   { trailing :: Bool,
     separator :: TokenKind,
@@ -100,7 +111,7 @@ parseSeparatedSequence SeparatorConfig {trailing, separator, consume} = parseSep
                   parseSeparatedSequence' sequence' (not trailing)
                 else return sequence'
 
-parseNamespacedIdentifier :: ParserM ValueTypeExpr
+parseNamespacedIdentifier :: ParserM A.ValueTypeExpr
 parseNamespacedIdentifier = do
   pieces <- parseSeparatedSequence SeparatorConfig {trailing = False, separator = Glyph "::", consume = consumeSymbol}
   return $ A.NamespacedIdentifier pieces
@@ -111,14 +122,16 @@ parseNamespacedIdentifier = do
         Symbol sym -> do advance; return (Just sym)
         _ -> return Nothing
 
-parseTypeExpr :: ParserM TypeExpr
+parseTypeExpr :: ParserM (AST A.TypeExpr)
 parseTypeExpr = do
+  spanStart <- spanStart
   reference <- matchGlyph "&"
   current <- gets current
   valueExpr <- case current.kind of
-    Keyword "void" -> return A.Void
-    Keyword "bool" -> return A.Bool
-    Keyword "int" -> return A.Int
+    Keyword "void" -> do advance; return A.Void
+    Keyword "bool" -> do advance; return A.Bool
+    Keyword "int" -> do advance; return A.Int
     Symbol _ -> parseNamespacedIdentifier
     _ -> throwE ExpectedTypeExpr
-  return TypeExpr {reference, valueExpr}
+  span <- makeSpan spanStart
+  return $ AST (A.TypeExpr {reference, valueExpr}) span
