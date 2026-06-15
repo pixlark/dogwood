@@ -8,6 +8,7 @@ module Lexer.Internal where
 
 import Control.Monad
 import Control.Monad.State.Lazy
+import Control.Monad.Trans.Maybe
 import Data.Char
 import qualified Data.List as List
 import Data.Text (Text)
@@ -16,7 +17,13 @@ import Error
 import Text.Printf
 import Util
 
-data Token = Eof | Symbol Text | Keyword Text | Glyph Text
+data TokenKind = Eof | Symbol Text | Keyword Text | Glyph Text
+  deriving (Eq, Show)
+
+data Span = Span Int Int
+  deriving (Eq, Show)
+
+data Token = Token {kind :: TokenKind, span :: Span}
   deriving (Eq, Show)
 
 data Lexer = Lexer {cursor :: Int, source :: Text}
@@ -104,46 +111,64 @@ validGlyphs =
 validGlyphStarts :: [Char]
 validGlyphStarts = List.nub $ map T.head validGlyphs
 
-tryMakeSingleGlyph :: Char -> Maybe Token
-tryMakeSingleGlyph c = if s `elem` validGlyphs then Just $ Glyph s else Nothing
+tryMakeSingleGlyph :: Char -> LexerM (Maybe Token)
+tryMakeSingleGlyph c =
+  if s `elem` validGlyphs
+    then do
+      token <- makeToken 1 (Glyph s)
+      return $ Just token
+    else return Nothing
   where
     s = T.pack [c]
 
-tryMakeDoubleGlyph :: Char -> Char -> Maybe Token
-tryMakeDoubleGlyph c1 c2 = if s `elem` validGlyphs then Just $ Glyph s else Nothing
+tryMakeDoubleGlyph :: Char -> Char -> LexerM (Maybe Token)
+tryMakeDoubleGlyph c1 c2 =
+  if s `elem` validGlyphs
+    then do
+      token <- makeToken 2 (Glyph s)
+      return $ Just token
+    else return Nothing
   where
     s = T.pack [c1, c2]
+
+makeToken :: Int -> TokenKind -> LexerM Token
+makeToken length kind = do
+  cursor <- gets cursor
+  return $ Token kind $ Span (cursor - length) length
 
 nextToken :: LexerM (Result Token)
 nextToken = do
   skipWhitespace
   c <- current
   case c of
-    Nothing -> return $ Right Eof
+    Nothing -> Right <$> makeToken 0 Eof
     Just c ->
       if isAlpha c || c == '_'
         then do
           (src, cur) <- gets ((,) <$> source <*> cursor)
           let symbol = T.takeWhile (\c -> isAlpha c || c == ' ') $ T.drop cur src
-          advanceBy $ T.length symbol
-          return $
-            Right $
-              if symbol `elem` keywords
-                then Keyword symbol
-                else Symbol symbol
+          let length = T.length symbol
+          advanceBy length
+          Right
+            <$> if symbol `elem` keywords
+              then makeToken length $ Keyword symbol
+              else makeToken length $ Symbol symbol
         else
           if c `elem` validGlyphStarts
             then do
               advance
               c' <- current
               case c' of
-                Nothing -> return $ eitherFromMaybe (UnrecognizedCharacter c) (tryMakeSingleGlyph c)
+                Nothing -> eitherFromMaybe (UnrecognizedCharacter c) <$> tryMakeSingleGlyph c
                 Just c' -> eitherFromMaybe (UnrecognizedCharacter c) <$> tryMakeDoubleOrSingleGlyph c c'
             else return $ Left (UnrecognizedCharacter c)
   where
     skipWhitespace = do
       c <- current
       when (c == Just ' ' || c == Just '\n') (advance >> skipWhitespace)
-    tryMakeDoubleOrSingleGlyph c c' = case tryMakeDoubleGlyph c c' of
-      Nothing -> return $ tryMakeSingleGlyph c
-      j@(Just _) -> advance >> return j
+    tryMakeDoubleOrSingleGlyph :: Char -> Char -> LexerM (Maybe Token)
+    tryMakeDoubleOrSingleGlyph c c' = do
+      doubleGlyph <- tryMakeDoubleGlyph c c'
+      case doubleGlyph of
+        Nothing -> tryMakeSingleGlyph c
+        j@(Just _) -> do advance; return j

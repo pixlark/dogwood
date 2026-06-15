@@ -4,6 +4,6 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Lexer (Lexer, Token (..), makeLexer, nextToken) where
+module Lexer (Lexer, Token (..), TokenKind (..), Span (..), makeLexer, nextToken) where
 
 import Lexer.Internal

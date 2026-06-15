@@ -3,12 +3,14 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Main where
 
 import AST
 import qualified AST as A
 import Control.Monad.Except
+import Control.Monad.Loops
 import Control.Monad.State.Lazy
 import Data.Either
 import Data.Text (Text)
@@ -17,6 +19,15 @@ import Error
 import Lexer.Internal
 import Parser.Internal
 import Test.Hspec
+
+runLex :: Text -> Result [Token]
+runLex source = run lexer
+  where
+    lexer = makeLexer source
+    maybeNextToken = do
+      tok <- ExceptT nextToken
+      return $ if tok.kind == Eof then Nothing else Just tok
+    run = evalState $ runExceptT $ unfoldM maybeNextToken
 
 runParse :: Text -> ParserM a -> Result a
 runParse source f = case makeParser lexer of
@@ -28,7 +39,7 @@ runParse source f = case makeParser lexer of
 
 consumeSymbol = do
   current <- gets Parser.Internal.current
-  case current of
+  case current.kind of
     Symbol sym -> do Parser.Internal.advance; return $ Just sym
     _ -> return Nothing
 
@@ -36,6 +47,14 @@ parseCommas trailing = parseSeparatedSequence SeparatorConfig {trailing, separat
 
 main :: IO ()
 main = hspec $ do
+  describe "the Lexer module" $ do
+    it "tracks source spans correctly" $ do
+      runLex "asdf, void"
+        `shouldBe` Right
+          [ Token (Symbol "asdf") (Span 0 4),
+            Token (Glyph ",") (Span 4 1),
+            Token (Keyword "void") (Span 6 4)
+          ]
   describe "the Parser module" $ do
     it "can parse separated sequences" $ do
       runParse "a, b, c" (parseCommas False) `shouldBe` Right ["a", "b", "c"]

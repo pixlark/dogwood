@@ -32,48 +32,48 @@ advance = ExceptT $ state $ \parser -> case runState nextToken parser.lexer of
 makeParser :: Lexer -> Result Parser
 makeParser lexer = parser' <$ result
   where
-    parser = Parser {current = Eof, lexer}
+    parser = Parser {current = Token {kind = Eof, span = Span 0 0}, lexer}
     -- "prime the pump"
     (result, parser') = runState (runExceptT advance) parser
 
 expectKeyword :: Text -> ParserM ()
 expectKeyword keyword = do
   current <- gets current
-  if current == Keyword keyword
+  if current.kind == Keyword keyword
     then advance
     else throwE $ ExpectedKeyword keyword
 
 expectGlyph :: Text -> ParserM ()
 expectGlyph glyph = do
   current <- gets current
-  if current == Glyph glyph
+  if current.kind == Glyph glyph
     then advance
     else throwE $ ExpectedGlyph glyph
 
 readSymbol :: ParserM Text
 readSymbol = do
   current <- gets current
-  case current of
+  case current.kind of
     Symbol sym -> do advance; return sym
     _ -> throwE ExpectedSymbol
 
 matchKeyword :: Text -> ParserM Bool
 matchKeyword keyword = do
   current <- gets current
-  if current == Keyword keyword
+  if current.kind == Keyword keyword
     then do advance; return True
     else return False
 
 matchGlyph :: Text -> ParserM Bool
 matchGlyph glyph = do
   current <- gets current
-  if current == Glyph glyph
+  if current.kind == Glyph glyph
     then do advance; return True
     else return False
 
 data SeparatorConfig a = SeparatorConfig
   { trailing :: Bool,
-    separator :: Token,
+    separator :: TokenKind,
     consume :: ParserM (Maybe a)
   }
 
@@ -89,12 +89,12 @@ parseSeparatedSequence SeparatorConfig {trailing, separator, consume} = parseSep
           if expecting
             then throwE ExpectedAnotherElementOfSequence
             else
-              if trailing && current == separator
+              if trailing && current.kind == separator
                 then do advance; return sequence
                 else return sequence
         Just x ->
           let sequence' = sequence ++ [x]
-           in if current == separator
+           in if current.kind == separator
                 then do
                   advance
                   parseSeparatedSequence' sequence' (not trailing)
@@ -107,7 +107,7 @@ parseNamespacedIdentifier = do
   where
     consumeSymbol = do
       current <- gets current
-      case current of
+      case current.kind of
         Symbol sym -> do advance; return (Just sym)
         _ -> return Nothing
 
@@ -115,7 +115,7 @@ parseTypeExpr :: ParserM TypeExpr
 parseTypeExpr = do
   reference <- matchGlyph "&"
   current <- gets current
-  valueExpr <- case current of
+  valueExpr <- case current.kind of
     Keyword "void" -> return A.Void
     Keyword "bool" -> return A.Bool
     Keyword "int" -> return A.Int

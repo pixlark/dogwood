@@ -105,4 +105,5 @@ test-suite prototype-tests
                       text ^>=2.1.4,
                       mtl ^>=2.3.2,
                       hspec ^>=2.11.17,
+                      monad-loops ^>=0.4.3,
                       prototype-core
