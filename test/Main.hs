@@ -95,3 +95,9 @@ main = hspec $ do
     it "can parse variable declarations" $ do
       runParse "let x: void = void" parseStmt `shouldBe` expectAST 0 18 (A.Let {name = buildAST 4 1 "x", type_ = buildAST 7 4 $ A.makeValueExpr A.Void, value = buildAST 14 4 A.VoidLit})
       (show <$> runParse "let x: foo::bar = true || false" parseStmt) `shouldBe` Right "let x: foo::bar = (true || false)"
+    it "can parse variable assignments" $ do
+      runParse "f = 5" parseStmt `shouldBe` expectAST 0 5 (A.Assign {lvalue = buildAST 0 1 $ A.LVariable "f", value = buildAST 4 1 $ A.IntLit 5})
+      -- parsing variable assignment requires speculative lookahead, and if it fails it falls back to parsing a statement-level expression
+      -- so make sure that works
+      runParse "5" parseStmt `shouldBe` expectAST 0 1 (A.ExprStmt (buildAST 0 1 $ A.IntLit 5))
+      (show <$> runParse "asdf = 5 + 6" parseStmt) `shouldBe` Right "asdf = (5 + 6)"

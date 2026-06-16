@@ -14,6 +14,9 @@ import Text.Printf
 data AST a = AST a Span
   deriving (Eq)
 
+instance Functor AST where
+  fmap f (AST x span) = AST (f x) span
+
 data ValueTypeExpr = Void | Bool | Int | NamespacedIdentifier [Text]
   deriving (Eq)
 
@@ -44,7 +47,13 @@ data Expr
   | UnaryOperator Operator (AST Expr)
   deriving (Eq)
 
-data Stmt = Let {name :: AST T.Text, type_ :: AST TypeExpr, value :: AST Expr}
+data LValue = LVariable T.Text
+  deriving (Eq)
+
+data Stmt
+  = Let {name :: AST T.Text, type_ :: AST TypeExpr, value :: AST Expr}
+  | Assign {lvalue :: AST LValue, value :: AST Expr}
+  | ExprStmt (AST Expr)
   deriving (Eq)
 
 makeValueExpr :: ValueTypeExpr -> TypeExpr
@@ -87,5 +96,10 @@ instance Show Expr where
   show (BinaryOperator op a b) = printf "(%s %s %s)" (show a) (show op) (show b)
   show (UnaryOperator op e) = printf "(%s%s)" (show op) (show e)
 
+instance Show LValue where
+  show (LVariable name) = T.unpack name
+
 instance Show Stmt where
   show (Let {name = (AST name _), type_, value}) = printf "let %s: %s = %s" (T.unpack name) (show type_) (show value)
+  show (Assign {lvalue, value}) = printf "%s = %s" (show lvalue) (show value)
+  show (ExprStmt expr) = printf "%s" (show expr)

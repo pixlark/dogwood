@@ -12,14 +12,11 @@ import qualified AST as A
 import Control.Monad
 import Control.Monad.State.Lazy
 import Control.Monad.Trans.Except
-import Control.Monad.Trans.Maybe
-import Data.Functor
 import Data.Text (Text)
 import qualified Data.Text as T
 import Debug.Trace
 import Error
 import Lexer
-import Text.Printf
 
 data Parser = Parser {current :: Token, lexer :: Lexer, lastTokenEnd :: Int}
   deriving (Show)
@@ -271,9 +268,50 @@ parseLet = produceSpannedAST $ do
   value <- parseExpr
   returnWrap $ A.Let {name, type_, value}
 
+attempt :: ParserM (Maybe a) -> ParserM (Maybe a)
+attempt f = do
+  parser <- get
+  let (result, parser') = run parser
+  case result of
+    Left e -> do put parser'; throwE e
+    Right Nothing -> do return Nothing
+    Right j -> do put parser'; return j
+  where
+    run = runState $ runExceptT f
+
+tryParseLValue :: ParserM (Maybe (AST A.LValue))
+tryParseLValue =
+  fmap invert $ produceSpannedAST $ do
+    cur <- gets current
+    case cur.kind of
+      Symbol sym -> do
+        advance
+        cur <- gets current
+        if cur.kind == Glyph "="
+          then
+            returnWrap $ Just $ A.LVariable sym
+          else returnWrap Nothing
+      _ -> returnWrap Nothing
+  where
+    invert (AST (Just x) span) = Just (AST x span)
+    invert (AST Nothing _) = Nothing
+
 parseStmt :: ParserM (AST A.Stmt)
-parseStmt = do
+parseStmt = produceSpannedAST $ do
   current <- gets current
   case current.kind of
-    Keyword "let" -> parseLet
-    _ -> throwE ExpectedStatement
+    Keyword "let" -> parseLet >>= returnDirect
+    _ -> do
+      -- clone the parser and attempt to parse an lvalue followed by an equals sign
+      -- if it works, we continue with that parser
+      -- otherwise, we abort and continue with our existing parser
+      -- this basically is just an easy way to get some lookahead
+      -- TODO: make sure that Data.Text optimizes the clone of the source into a pointer
+      --       copy instead of literally copying all the text over
+      lvalue <- attempt tryParseLValue
+      case lvalue of
+        Just lvalue -> do
+          expectGlyph "="
+          value <- parseExpr
+          returnWrap $ A.Assign {lvalue, value}
+        Nothing -> do expr <- parseExpr; returnWrap $ A.ExprStmt expr
