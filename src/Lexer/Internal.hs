@@ -78,7 +78,8 @@ keywords =
     "typeclass",
     "instance",
     "true",
-    "false"
+    "false",
+    "break"
   ]
 
 validGlyphs :: [T.Text]
@@ -110,7 +111,8 @@ validGlyphs =
     ",",
     ",",
     ":",
-    "::"
+    "::",
+    ";"
   ]
 
 validGlyphStarts :: [Char]

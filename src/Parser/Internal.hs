@@ -296,11 +296,53 @@ tryParseLValue =
     invert (AST (Just x) span) = Just (AST x span)
     invert (AST Nothing _) = Nothing
 
+parseBody :: ParserM (AST A.Body)
+parseBody = produceSpannedAST $ do
+  expectGlyph "{"
+  (stmts, finalExpr) <- parseStmts []
+  expectGlyph "}"
+  returnWrap $ A.Body stmts finalExpr
+  where
+    parseStmts :: [AST A.Stmt] -> ParserM (([AST A.Stmt], Maybe (AST A.Expr)))
+    parseStmts stmts = do
+      cur <- gets current
+      if cur.kind == Glyph "}"
+        then return (stmts, Nothing)
+        else do
+          stmt <- parseStmt
+          stmtOrExpr <- case stmt of
+            (AST (A.ExprStmt expr) _) -> do
+              matched <- matchGlyph ";"
+              if matched then return $ Left stmt else return $ Right expr
+            _ -> return $ Left stmt
+          case stmtOrExpr of
+            Left stmt -> parseStmts $ stmts ++ [stmt]
+            Right expr -> return (stmts, Just expr)
+
 parseStmt :: ParserM (AST A.Stmt)
 parseStmt = produceSpannedAST $ do
-  current <- gets current
-  case current.kind of
-    Keyword "let" -> parseLet >>= returnDirect
+  cur <- gets current
+  case cur.kind of
+    Keyword "let" -> do
+      let_ <- parseLet
+      expectGlyph ";"
+      returnDirect let_
+    Keyword "return" -> do
+      advance
+      matched <- matchGlyph ";"
+      if matched
+        then returnWrap $ A.Return Nothing
+        else do
+          value <- parseExpr
+          expectGlyph ";"
+          returnWrap $ A.Return $ Just value
+    Keyword "break" -> do
+      advance
+      expectGlyph ";"
+      returnWrap A.Break
+    Glyph "{" -> do
+      body <- parseBody
+      returnWrap $ A.StmtBody body
     _ -> do
       -- clone the parser and attempt to parse an lvalue followed by an equals sign
       -- if it works, we continue with that parser
@@ -313,5 +355,6 @@ parseStmt = produceSpannedAST $ do
         Just lvalue -> do
           expectGlyph "="
           value <- parseExpr
+          expectGlyph ";"
           returnWrap $ A.Assign {lvalue, value}
         Nothing -> do expr <- parseExpr; returnWrap $ A.ExprStmt expr
