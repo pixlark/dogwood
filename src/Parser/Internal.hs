@@ -176,6 +176,22 @@ parseAtom = produceSpannedAST $ do
       returnWrap expr
     _ -> throwE ExpectedExpr
 
+parseUnary :: ParserM (AST A.Expr)
+parseUnary = produceSpannedAST $ do
+  current <- gets current
+  let operator =
+        case current.kind of
+          Glyph "+" -> Just A.Plus
+          Glyph "-" -> Just A.Minus
+          Glyph "!" -> Just A.Not
+          _ -> Nothing
+  case operator of
+    Just op -> do
+      advance
+      inner <- parseUnary
+      returnWrap $ A.UnaryOperator op inner
+    _ -> do expr <- parseAtom; returnDirect expr
+
 parseBinary :: ParserM (AST A.Expr) -> [(TokenKind, AST A.Expr -> AST A.Expr -> A.Expr)] -> ParserM (AST A.Expr)
 parseBinary nextParser operators = produceSpannedAST $ do
   left <- nextParser
@@ -197,49 +213,49 @@ parseBinary nextParser operators = produceSpannedAST $ do
 parseBinaryMultiplicative :: ParserM (AST A.Expr)
 parseBinaryMultiplicative =
   parseBinary
-    parseAtom
-    [ (Glyph "*", A.Operator A.Multiply),
-      (Glyph "/", A.Operator A.Divide)
+    parseUnary
+    [ (Glyph "*", A.BinaryOperator A.Multiply),
+      (Glyph "/", A.BinaryOperator A.Divide)
     ]
 
 parseBinaryAdditive :: ParserM (AST A.Expr)
 parseBinaryAdditive =
   parseBinary
     parseBinaryMultiplicative
-    [ (Glyph "+", A.Operator A.Plus),
-      (Glyph "-", A.Operator A.Minus)
+    [ (Glyph "+", A.BinaryOperator A.Plus),
+      (Glyph "-", A.BinaryOperator A.Minus)
     ]
 
 parseBinaryComparison :: ParserM (AST A.Expr)
 parseBinaryComparison =
   parseBinary
     parseBinaryAdditive
-    [ (Glyph "<", A.Operator A.LessThan),
-      (Glyph "<=", A.Operator A.LessThanOrEqual),
-      (Glyph ">", A.Operator A.GreaterThan),
-      (Glyph ">=", A.Operator A.GreaterThanOrEqual)
+    [ (Glyph "<", A.BinaryOperator A.LessThan),
+      (Glyph "<=", A.BinaryOperator A.LessThanOrEqual),
+      (Glyph ">", A.BinaryOperator A.GreaterThan),
+      (Glyph ">=", A.BinaryOperator A.GreaterThanOrEqual)
     ]
 
 parseBinaryEquality :: ParserM (AST A.Expr)
 parseBinaryEquality =
   parseBinary
     parseBinaryComparison
-    [ (Glyph "==", A.Operator A.Equal),
-      (Glyph "!=", A.Operator A.NotEqual)
+    [ (Glyph "==", A.BinaryOperator A.Equal),
+      (Glyph "!=", A.BinaryOperator A.NotEqual)
     ]
 
 parseBinaryAnd :: ParserM (AST A.Expr)
 parseBinaryAnd =
   parseBinary
     parseBinaryEquality
-    [ (Glyph "&&", A.Operator A.And)
+    [ (Glyph "&&", A.BinaryOperator A.And)
     ]
 
 parseBinaryOr :: ParserM (AST A.Expr)
 parseBinaryOr =
   parseBinary
     parseBinaryAnd
-    [ (Glyph "||", A.Operator A.Or)
+    [ (Glyph "||", A.BinaryOperator A.Or)
     ]
 
 parseExpr :: ParserM (AST A.Expr)

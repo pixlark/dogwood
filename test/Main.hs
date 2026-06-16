@@ -83,8 +83,12 @@ main = hspec $ do
       runParse "true" parseExpr `shouldBe` expectAST 0 4 (A.BoolLit True)
       runParse "((15))" parseExpr `shouldBe` expectAST 0 6 (A.IntLit 15)
     it "can parse binary expressions" $ do
-      runParse "true || false" parseExpr `shouldBe` expectAST 0 13 (A.Operator A.Or (buildAST 0 4 $ A.BoolLit True) (buildAST 8 5 $ A.BoolLit False))
+      runParse "true || false" parseExpr `shouldBe` expectAST 0 13 (A.BinaryOperator A.Or (buildAST 0 4 $ A.BoolLit True) (buildAST 8 5 $ A.BoolLit False))
       (show <$> runParse "true || false && true" parseExpr) `shouldBe` Right "(true || (false && true))"
       (show <$> runParse "true && true || false" parseExpr) `shouldBe` Right "((true && true) || false)"
       (show <$> runParse "1 * 2 + 3 * 4" parseExpr) `shouldBe` Right "((1 * 2) + (3 * 4))"
       (show <$> runParse "1 * 2 > 3 - 2 * 3 + 4" parseExpr) `shouldBe` Right "((1 * 2) > (3 - ((2 * 3) + 4)))"
+    it "can parse unary expressions" $ do
+      runParse "-+3" parseExpr `shouldBe` expectAST 0 3 (A.UnaryOperator A.Minus (buildAST 1 2 $ A.UnaryOperator A.Plus (buildAST 2 1 $ A.IntLit 3)))
+      (show <$> runParse "15 + -3" parseExpr) `shouldBe` Right "(15 + (-3))"
+      (show <$> runParse "!true || !false && !true" parseExpr) `shouldBe` Right "((!true) || ((!false) && (!true)))"

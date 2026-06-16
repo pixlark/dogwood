@@ -33,13 +33,15 @@ data Operator
   | Minus
   | Multiply
   | Divide
+  | Not
   deriving (Eq)
 
 data Expr
   = VoidLit
   | BoolLit Bool
   | IntLit Int
-  | Operator Operator (AST Expr) (AST Expr)
+  | BinaryOperator Operator (AST Expr) (AST Expr)
+  | UnaryOperator Operator (AST Expr)
   deriving (Eq)
 
 makeValueExpr :: ValueTypeExpr -> TypeExpr
@@ -73,9 +75,11 @@ instance Show Operator where
   show Minus = "-"
   show Multiply = "*"
   show Divide = "/"
+  show Not = "!"
 
 instance Show Expr where
   show VoidLit = "void"
   show (BoolLit b) = if b then "true" else "false"
   show (IntLit n) = show n
-  show (Operator op a b) = printf "(%s %s %s)" (show a) (show op) (show b)
+  show (BinaryOperator op a b) = printf "(%s %s %s)" (show a) (show op) (show b)
+  show (UnaryOperator op e) = printf "(%s%s)" (show op) (show e)
