@@ -1,5 +1,6 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -46,6 +47,11 @@ buildAST start length inner = AST inner (Span start length)
 expectAST :: Int -> Int -> a -> Result (AST a)
 expectAST start length inner = Right $ buildAST start length inner
 
+isErrorKind :: ParseErrorKind -> (Result a -> Bool)
+isErrorKind kind = \case
+  Left (ParseError kind' _) -> kind == kind'
+  Right _ -> False
+
 main :: IO ()
 main = hspec $ do
   describe "the Lexer module" $ do
@@ -59,9 +65,9 @@ main = hspec $ do
   describe "the Parser module" $ do
     it "can parse separated sequences" $ do
       runParse "a, b, c" (parseCommas False) `shouldBe` Right ["a", "b", "c"]
-      runParse "a, b, c," (parseCommas False) `shouldBe` Left ExpectedAnotherElementOfSequence
+      runParse "a, b, c," (parseCommas False) `shouldSatisfy` isErrorKind ExpectedAnotherElementOfSequence
       runParse "a, b, c," (parseCommas True) `shouldBe` Right ["a", "b", "c"]
-      runParse "a,, b, c" (parseCommas False) `shouldBe` Left ExpectedAnotherElementOfSequence
+      runParse "a,, b, c" (parseCommas False) `shouldSatisfy` isErrorKind ExpectedAnotherElementOfSequence
       runParse "a" (parseCommas True) `shouldBe` Right ["a"]
       runParse "" (parseCommas True) `shouldBe` Right []
     it "can parse type expressions" $ do
@@ -71,7 +77,7 @@ main = hspec $ do
       runParse "asdf" parseTypeExpr `shouldBe` expectAST 0 4 (A.makeValueExpr $ A.NamespacedIdentifier ["asdf"])
       runParse " asdf::foo " parseTypeExpr `shouldBe` expectAST 1 9 (A.makeValueExpr $ A.NamespacedIdentifier ["asdf", "foo"])
       runParse "&bool" parseTypeExpr `shouldBe` expectAST 0 5 (A.makeReferenceExpr A.Bool)
-      runParse "&&bool" parseTypeExpr `shouldBe` Left ExpectedTypeExpr
+      runParse "&&bool" parseTypeExpr `shouldSatisfy` isErrorKind ExpectedTypeExpr
     describe "can parse expressions" $ do
       it "can parse basic expressions" $ do
         runParse "15" parseExpr `shouldBe` expectAST 0 2 (A.IntLit 15)
@@ -103,23 +109,23 @@ main = hspec $ do
       it "can parse function calls" $ do
         (show <$> runParse "foo(1, 2)" parseExpr) `shouldBe` Right "foo(1, 2)"
         (show <$> runParse "foo(1, 2,)" parseExpr) `shouldBe` Right "foo(1, 2)"
-        (show <$> runParse "foo(1, 2,,)" parseExpr) `shouldBe` Left ExpectedExpr
+        (show <$> runParse "foo(1, 2,,)" parseExpr) `shouldSatisfy` isErrorKind ExpectedExpr
         (show <$> runParse "(1 + 2)(5)" parseExpr) `shouldBe` Right "((1 + 2))(5)"
       it "can parse statement bodies" $ do
         (show <$> runParse "{ let x: int = 5; 15 }" parseExpr) `shouldBe` Right "{\nlet x: int = 5;\n15\n}"
         (show <$> runParse "{ let x: int = 5; 15; }" parseExpr) `shouldBe` Right "{\nlet x: int = 5;\n15;\n}"
         (show <$> runParse "{ break; 5; void }" parseExpr) `shouldBe` Right "{\nbreak;\n5;\nvoid\n}"
-        (show <$> runParse "{ break 5 }" parseExpr) `shouldBe` Left (ExpectedGlyph ";")
+        (show <$> runParse "{ break 5 }" parseExpr) `shouldSatisfy` isErrorKind (ExpectedGlyph ";")
       it "can omit semicolon after certain expressions" $ do
         (show <$> runParse "{ if true {} false }" parseExpr) `shouldBe` Right "{\nif true {\n}\nfalse\n}"
     describe "can parse statements" $ do
       it "can parse basic statements" $ do
         (show <$> runParse "return;" parseStmt) `shouldBe` Right "return;"
-        runParse "return" parseStmt `shouldBe` Left ExpectedExpr
+        runParse "return" parseStmt `shouldSatisfy` isErrorKind ExpectedExpr
         (show <$> runParse "return void;" parseStmt) `shouldBe` Right "return void;"
-        runParse "return void" parseStmt `shouldBe` Left (ExpectedGlyph ";")
+        runParse "return void" parseStmt `shouldSatisfy` isErrorKind (ExpectedGlyph ";")
         (show <$> runParse "break;" parseStmt) `shouldBe` Right "break;"
-        runParse "break" parseStmt `shouldBe` Left (ExpectedGlyph ";")
+        runParse "break" parseStmt `shouldSatisfy` isErrorKind (ExpectedGlyph ";")
       it "can parse variable declarations" $ do
         runParse "let x: void = void;" parseStmt `shouldBe` expectAST 0 18 (A.Let {name = buildAST 4 1 "x", type_ = buildAST 7 4 $ A.makeValueExpr A.Void, value = buildAST 14 4 A.VoidLit})
         (show <$> runParse "let x: foo::bar = true || false;" parseStmt) `shouldBe` Right "let x: foo::bar = (true || false);"

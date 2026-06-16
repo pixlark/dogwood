@@ -23,9 +23,6 @@ import Util
 data TokenKind = Eof | Symbol Text | Keyword Text | Glyph Text | IntLiteral Int
   deriving (Eq, Show)
 
-data Span = Span Int Int
-  deriving (Eq, Show)
-
 data Token = Token {kind :: TokenKind, span :: Span}
   deriving (Eq, Show)
 
@@ -147,32 +144,34 @@ nextToken :: LexerM Token
 nextToken = do
   skipWhitespace
   c <- current
+  cur <- gets cursor
   case c of
     Nothing -> makeToken 0 Eof
     Just c ->
-      if
-        | isDigit c -> do
-            (src, cur) <- gets ((,) <$> source <*> cursor)
-            let numberString = T.takeWhile isDigit $ T.drop cur src
-            let length = T.length numberString
-            advanceBy length
-            makeToken length $ IntLiteral $ read $ T.unpack numberString
-        | isAlpha c || c == '_' -> do
-            (src, cur) <- gets ((,) <$> source <*> cursor)
-            let symbol = T.takeWhile (\c -> isAlpha c || c == '_') $ T.drop cur src
-            let length = T.length symbol
-            advanceBy length
-            if symbol `elem` keywords
-              then makeToken length $ Keyword symbol
-              else makeToken length $ Symbol symbol
-        | c `elem` validGlyphStarts -> do
-            advance
-            c' <- current
-            case c' of
-              {- HLINT ignore -}
-              Nothing -> eitherFromMaybe (UnrecognizedCharacter c) <$> tryMakeSingleGlyph c >>= except
-              Just c' -> eitherFromMaybe (UnrecognizedCharacter c) <$> tryMakeDoubleOrSingleGlyph c c' >>= except
-        | otherwise -> throwE $ UnrecognizedCharacter c
+      let unrecognizedCharacter = ParseError (UnrecognizedCharacter c) (Span cur 1)
+       in if
+            | isDigit c -> do
+                (src, cur) <- gets ((,) <$> source <*> cursor)
+                let numberString = T.takeWhile isDigit $ T.drop cur src
+                let length = T.length numberString
+                advanceBy length
+                makeToken length $ IntLiteral $ read $ T.unpack numberString
+            | isAlpha c || c == '_' -> do
+                (src, cur) <- gets ((,) <$> source <*> cursor)
+                let symbol = T.takeWhile (\c -> isAlpha c || c == '_') $ T.drop cur src
+                let length = T.length symbol
+                advanceBy length
+                if symbol `elem` keywords
+                  then makeToken length $ Keyword symbol
+                  else makeToken length $ Symbol symbol
+            | c `elem` validGlyphStarts -> do
+                advance
+                c' <- current
+                case c' of
+                  {- HLINT ignore -}
+                  Nothing -> eitherFromMaybe unrecognizedCharacter <$> tryMakeSingleGlyph c >>= except
+                  Just c' -> eitherFromMaybe unrecognizedCharacter <$> tryMakeDoubleOrSingleGlyph c c' >>= except
+            | otherwise -> throwE unrecognizedCharacter
   where
     skipWhitespace = do
       c <- current

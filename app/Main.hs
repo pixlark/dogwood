@@ -8,25 +8,14 @@ module Main where
 
 import Control.Monad.Except
 import Control.Monad.State.Lazy
+import qualified Data.Text as T
+import Error
 import Lexer
 import Parser
 
--- main :: IO ()
--- main = do
---   print result
---   print lexer'
---   where
---     lexer = makeLexer "&"
---     run = runState nextToken
---     (result, lexer') = run lexer
-
--- main :: IO ()
--- main = case makeParser lexer of
---   Left e -> print e
---   Right parser -> print $ run parser
---   where
---     lexer = makeLexer "bool"
---     run = runState $ runExceptT parseBuiltinType
-
 main :: IO ()
-main = putStrLn "hello"
+main = case runParse source parseExpr of
+  Left e -> putStrLn $ T.unpack $ displayError source e
+  Right a -> print a
+  where
+    source = "\n\nfoo(1, 2, 3, return)"

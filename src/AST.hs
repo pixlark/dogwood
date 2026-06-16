@@ -16,7 +16,7 @@ import Data.List (intercalate)
 import qualified Data.List.NonEmpty as NE
 import Data.Text (Text)
 import qualified Data.Text as T
-import Lexer (Span)
+import Error
 import Text.Printf
 
 data AST a = AST a Span

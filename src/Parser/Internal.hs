@@ -41,26 +41,29 @@ makeParser lexer = parser' <$ result
     -- "prime the pump"
     (result, parser') = runState (runExceptT advance) parser
 
+throwSpan :: Span -> ParseErrorKind -> ParserM a
+throwSpan span kind = throwE $ ParseError kind span
+
 expectKeyword :: Text -> ParserM ()
 expectKeyword keyword = do
   current <- gets current
   if current.kind == Keyword keyword
     then advance
-    else throwE $ ExpectedKeyword keyword
+    else throwSpan (current.span) $ ExpectedKeyword keyword
 
 expectGlyph :: Text -> ParserM ()
 expectGlyph glyph = do
   current <- gets current
   if current.kind == Glyph glyph
     then advance
-    else throwE $ ExpectedGlyph glyph
+    else throwSpan (current.span) $ ExpectedGlyph glyph
 
 readSymbol :: ParserM (AST Text)
 readSymbol = produceSpannedAST $ do
   current <- gets current
   case current.kind of
     Symbol sym -> do advance; returnWrap sym
-    _ -> throwE ExpectedSymbol
+    _ -> throwSpan (current.span) $ ExpectedSymbol
 
 matchKeyword :: Text -> ParserM Bool
 matchKeyword keyword = do
@@ -102,7 +105,7 @@ parseSeparatedSequence SeparatorConfig {trailing, separator, consume} = parseSep
       case consumed of
         Nothing ->
           if expecting
-            then throwE ExpectedAnotherElementOfSequence
+            then throwSpan (current.span) ExpectedAnotherElementOfSequence
             else
               if trailing && current.kind == separator
                 then do advance; return sequence
@@ -158,7 +161,7 @@ parseTypeExpr = produceSpannedAST $ do
     Keyword "bool" -> do advance; return A.Bool
     Keyword "int" -> do advance; return A.Int
     Symbol _ -> parseNamespacedIdentifier
-    _ -> throwE ExpectedTypeExpr
+    _ -> throwSpan (current.span) ExpectedTypeExpr
   return $ NotSpanned A.TypeExpr {reference, valueExpr}
 
 parseAtom :: ParserM (AST A.Expr)
@@ -175,7 +178,7 @@ parseAtom = produceSpannedAST $ do
       (AST expr _) <- parseExpr
       expectGlyph ")"
       returnWrap expr
-    _ -> throwE ExpectedExpr
+    _ -> throwSpan (current.span) ExpectedExpr
 
 parsePostfix :: ParserM (AST A.Expr)
 parsePostfix = produceSpannedAST $ do
@@ -309,7 +312,6 @@ parseIfExpr = produceSpannedAST $ do
 parseExpr :: ParserM (AST A.Expr)
 parseExpr = do
   cur <- gets current
-  {-trace (show cur)-}
   case cur.kind of
     Keyword "if" -> do parseIfExpr
     Glyph "{" -> do
@@ -361,10 +363,6 @@ parseBody = produceSpannedAST $ do
   stmts <- parseStmts []
   returnWrap $ A.Body stmts
   where
-    -- TODO: if you forget to place a semicolon in the middle of a body,
-    --       then instead of the error message saying "missing semicolon",
-    --       it assumes the block ended and errors here instead.
-    --       at some point we should improve this.
     parseStmts stmts = do
       matched <- matchGlyph "}"
       if matched
