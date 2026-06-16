@@ -12,6 +12,8 @@ import qualified AST as A
 import Control.Monad
 import Control.Monad.State.Lazy
 import Control.Monad.Trans.Except
+import Data.List.NonEmpty (NonEmpty (..), (<|))
+import qualified Data.List.NonEmpty as NE
 import Data.Text (Text)
 import qualified Data.Text as T
 import Debug.Trace
@@ -137,6 +139,12 @@ returnDirect = return . direct
 returnWrap :: a -> ParserM (MaybeSpanned a)
 returnWrap = return . wrap
 
+-- deriveSpan :: AST a -> b -> AST b
+-- deriveSpan (AST _ span) x = AST x span
+
+-- liftSpan :: AST a -> (a -> b) -> AST b
+-- liftSpan (AST x span) y = AST
+
 produceSpannedAST :: ParserM (MaybeSpanned a) -> ParserM (AST a)
 produceSpannedAST f = do
   spanStart <- spanStart
@@ -255,8 +263,39 @@ parseBinaryOr =
     [ (Glyph "||", A.BinaryOperator A.Or)
     ]
 
+parseIfExpr :: ParserM (AST A.Expr)
+parseIfExpr = produceSpannedAST $ do
+  (bodies, elseBody) <- parseIfPart
+  returnWrap $ A.IfChain bodies elseBody
+  where
+    parseIfPart :: ParserM (NonEmpty (AST A.Expr, AST A.Expr), Maybe (AST A.Expr))
+    parseIfPart = do
+      expectKeyword "if"
+      condition <- parseExpr
+      body <- parseExpr
+      hasElse <- matchKeyword "else"
+      if hasElse
+        then do
+          cur <- gets current
+          if cur.kind == Keyword "if"
+            then do
+              (bodies, elseBody) <- parseIfPart
+              let bodies' = (condition, body) <| bodies
+              return (bodies', elseBody)
+            else do
+              elseBody <- parseExpr
+              return (NE.singleton (condition, body), Just elseBody)
+        else return (NE.singleton (condition, body), Nothing)
+
 parseExpr :: ParserM (AST A.Expr)
-parseExpr = parseBinaryOr
+parseExpr = do
+  cur <- gets current
+  case cur.kind of
+    Keyword "if" -> do parseIfExpr
+    Glyph "{" -> do
+      body <- parseBody
+      return $ A.ExprBody <$> body
+    _ -> parseBinaryOr
 
 parseLet :: ParserM (AST A.Stmt)
 parseLet = produceSpannedAST $ do
@@ -340,9 +379,10 @@ parseStmt = produceSpannedAST $ do
       advance
       expectGlyph ";"
       returnWrap A.Break
-    Glyph "{" -> do
+    Keyword "loop" -> do
+      advance
       body <- parseBody
-      returnWrap $ A.StmtBody body
+      returnWrap $ A.Loop body
     _ -> do
       -- clone the parser and attempt to parse an lvalue followed by an equals sign
       -- if it works, we continue with that parser
@@ -358,3 +398,11 @@ parseStmt = produceSpannedAST $ do
           expectGlyph ";"
           returnWrap $ A.Assign {lvalue, value}
         Nothing -> do expr <- parseExpr; returnWrap $ A.ExprStmt expr
+
+runParse :: Text -> ParserM a -> Result a
+runParse source f = case makeParser lexer of
+  Left e -> Left e
+  Right parser -> run parser
+  where
+    lexer = makeLexer source
+    run = evalState $ runExceptT f

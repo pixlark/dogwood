@@ -9,35 +9,33 @@
 
 module AST where
 
+import Control.Monad
+import Control.Monad.Writer
+import Data.Functor
 import Data.List (intercalate)
+import qualified Data.List.NonEmpty as NE
 import Data.Text (Text)
 import qualified Data.Text as T
 import Lexer (Span)
 import Text.Printf
 
 data AST a = AST a Span
-  deriving (Eq
-#ifdef USE_DERIVED_SHOW
-  , Show
-#endif
-  )
+  deriving
+    ( Eq
+    )
 
 instance Functor AST where
   fmap f (AST x span) = AST (f x) span
 
 data ValueTypeExpr = Void | Bool | Int | NamespacedIdentifier [Text]
-  deriving (Eq
-#ifdef USE_DERIVED_SHOW
-  , Show
-#endif
-  )
+  deriving
+    ( Eq
+    )
 
 data TypeExpr = TypeExpr {reference :: Bool, valueExpr :: ValueTypeExpr}
-  deriving (Eq
-#ifdef USE_DERIVED_SHOW
-  , Show
-#endif
-  )
+  deriving
+    ( Eq
+    )
 
 data Operator
   = Or
@@ -53,11 +51,9 @@ data Operator
   | Multiply
   | Divide
   | Not
-  deriving (Eq
-#ifdef USE_DERIVED_SHOW
-  , Show
-#endif
-  )
+  deriving
+    ( Eq
+    )
 
 data Expr
   = VoidLit
@@ -65,25 +61,21 @@ data Expr
   | IntLit Int
   | BinaryOperator Operator (AST Expr) (AST Expr)
   | UnaryOperator Operator (AST Expr)
-  deriving (Eq
-#ifdef USE_DERIVED_SHOW
-  , Show
-#endif
-  )
+  | ExprBody Body
+  | IfChain (NE.NonEmpty (AST Expr, AST Expr)) (Maybe (AST Expr))
+  deriving
+    ( Eq
+    )
 
 newtype LValue = LVariable T.Text
-  deriving (Eq
-#ifdef USE_DERIVED_SHOW
-  , Show
-#endif
-  )
+  deriving
+    ( Eq
+    )
 
 data Body = Body [AST Stmt] (Maybe (AST Expr))
-  deriving (Eq
-#ifdef USE_DERIVED_SHOW
-  , Show
-#endif
-  )
+  deriving
+    ( Eq
+    )
 
 data Stmt
   = Let {name :: AST T.Text, type_ :: AST TypeExpr, value :: AST Expr}
@@ -91,12 +83,10 @@ data Stmt
   | ExprStmt (AST Expr)
   | Return (Maybe (AST Expr))
   | Break
-  | StmtBody (AST Body)
-  deriving (Eq
-#ifdef USE_DERIVED_SHOW
-  , Show
-#endif
-  )
+  | Loop (AST Body)
+  deriving
+    ( Eq
+    )
 
 makeValueExpr :: ValueTypeExpr -> TypeExpr
 makeValueExpr valueExpr = TypeExpr {reference = False, valueExpr}
@@ -104,7 +94,6 @@ makeValueExpr valueExpr = TypeExpr {reference = False, valueExpr}
 makeReferenceExpr :: ValueTypeExpr -> TypeExpr
 makeReferenceExpr valueExpr = TypeExpr {reference = True, valueExpr}
 
-#ifndef USE_DERIVED_SHOW
 instance (Show a) => Show (AST a) where
   show (AST value _) = show value
 
@@ -138,18 +127,38 @@ instance Show Expr where
   show (IntLit n) = show n
   show (BinaryOperator op a b) = printf "(%s %s %s)" (show a) (show op) (show b)
   show (UnaryOperator op e) = printf "(%s%s)" (show op) (show e)
+  show (ExprBody body) = show body
+  show (IfChain bodies elseBody) = execWriter $ do
+    let first = NE.head bodies
+    writeIf first
+    let rest = NE.tail bodies
+    forM_ rest $ \body -> do
+      tell " else "
+      writeIf body
+    forM_ elseBody $ \body -> do
+      tell " else "
+      tell $ show body
+    where
+      writeIf :: (AST Expr, AST Expr) -> Writer String ()
+      writeIf (condition, body) = do
+        tell "if "
+        tell $ show condition
+        tell " "
+        tell $ show body
 
 instance Show LValue where
   show (LVariable name) = T.unpack name
 
 instance Show Body where
-  show (Body stmts finalExpr) =
-    printf
-      "{\n%s;%s\n}"
-      (intercalate ";\n" $ show <$> stmts)
-      $ case finalExpr of
-        Nothing -> []
-        Just expr -> "\n" ++ show expr
+  show (Body stmts finalExpr) = execWriter $ do
+    tell "{\n"
+    forM_ stmts $ \stmt -> do
+      tell (show stmt)
+      tell ";\n"
+    forM_ finalExpr $ \expr -> do
+      tell (show expr)
+      tell "\n"
+    tell "}"
 
 instance Show Stmt where
   show (Let {name = (AST name _), type_, value}) = printf "let %s: %s = %s" (T.unpack name) (show type_) (show value)
@@ -158,5 +167,4 @@ instance Show Stmt where
   show (Return Nothing) = "return"
   show (Return (Just value)) = printf "return %s" (show value)
   show Break = "break"
-  show (StmtBody body) = show body
-#endif
+  show (Loop body) = printf "loop %s" (show body)
