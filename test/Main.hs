@@ -7,7 +7,7 @@
 
 module Main where
 
-import AST
+import AST (AST (..))
 import qualified AST as A
 import Control.Monad.Except
 import Control.Monad.Loops
@@ -25,7 +25,7 @@ runLex source = run lexer
   where
     lexer = makeLexer source
     maybeNextToken = do
-      tok <- ExceptT nextToken
+      tok <- nextToken
       return $ if tok.kind == Eof then Nothing else Just tok
     run = evalState $ runExceptT $ unfoldM maybeNextToken
 
@@ -45,8 +45,11 @@ consumeSymbol = do
 
 parseCommas trailing = parseSeparatedSequence SeparatorConfig {trailing, separator = Glyph ",", consume = consumeSymbol}
 
+buildAST :: Int -> Int -> a -> AST a
+buildAST start length inner = AST inner (Span start length)
+
 expectAST :: Int -> Int -> a -> Result (AST a)
-expectAST start length inner = Right $ AST inner (Span start length)
+expectAST start length inner = Right $ buildAST start length inner
 
 main :: IO ()
 main = hspec $ do
@@ -67,10 +70,21 @@ main = hspec $ do
       runParse "a" (parseCommas True) `shouldBe` Right ["a"]
       runParse "" (parseCommas True) `shouldBe` Right []
     it "can parse type expressions" $ do
-      runParse "void" parseTypeExpr `shouldBe` expectAST 0 4 (makeValueExpr A.Void)
-      runParse "bool" parseTypeExpr `shouldBe` expectAST 0 4 (makeValueExpr A.Bool)
-      runParse "int" parseTypeExpr `shouldBe` expectAST 0 3 (makeValueExpr A.Int)
-      runParse "asdf" parseTypeExpr `shouldBe` expectAST 0 4 (makeValueExpr $ NamespacedIdentifier ["asdf"])
-      runParse " asdf::foo " parseTypeExpr `shouldBe` expectAST 1 9 (makeValueExpr $ NamespacedIdentifier ["asdf", "foo"])
-      runParse "&bool" parseTypeExpr `shouldBe` expectAST 0 5 (makeReferenceExpr A.Bool)
+      runParse "void" parseTypeExpr `shouldBe` expectAST 0 4 (A.makeValueExpr A.Void)
+      runParse "bool" parseTypeExpr `shouldBe` expectAST 0 4 (A.makeValueExpr A.Bool)
+      runParse "int" parseTypeExpr `shouldBe` expectAST 0 3 (A.makeValueExpr A.Int)
+      runParse "asdf" parseTypeExpr `shouldBe` expectAST 0 4 (A.makeValueExpr $ A.NamespacedIdentifier ["asdf"])
+      runParse " asdf::foo " parseTypeExpr `shouldBe` expectAST 1 9 (A.makeValueExpr $ A.NamespacedIdentifier ["asdf", "foo"])
+      runParse "&bool" parseTypeExpr `shouldBe` expectAST 0 5 (A.makeReferenceExpr A.Bool)
       runParse "&&bool" parseTypeExpr `shouldBe` Left ExpectedTypeExpr
+    it "can parse basic expressions" $ do
+      runParse "15" parseExpr `shouldBe` expectAST 0 2 (A.IntLit 15)
+      runParse "void" parseExpr `shouldBe` expectAST 0 4 A.VoidLit
+      runParse "true" parseExpr `shouldBe` expectAST 0 4 (A.BoolLit True)
+      runParse "((15))" parseExpr `shouldBe` expectAST 0 6 (A.IntLit 15)
+    it "can parse binary expressions" $ do
+      runParse "true || false" parseExpr `shouldBe` expectAST 0 13 (A.Operator A.Or (buildAST 0 4 $ A.BoolLit True) (buildAST 8 5 $ A.BoolLit False))
+      (show <$> runParse "true || false && true" parseExpr) `shouldBe` Right "(true || (false && true))"
+      (show <$> runParse "true && true || false" parseExpr) `shouldBe` Right "((true && true) || false)"
+      (show <$> runParse "1 * 2 + 3 * 4" parseExpr) `shouldBe` Right "((1 * 2) + (3 * 4))"
+      (show <$> runParse "1 * 2 > 3 - 2 * 3 + 4" parseExpr) `shouldBe` Right "((1 * 2) > (3 - ((2 * 3) + 4)))"

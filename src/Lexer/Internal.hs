@@ -1,5 +1,6 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -9,6 +10,7 @@ module Lexer.Internal where
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.State.Lazy
+import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import Data.Char
 import qualified Data.List as List
@@ -18,7 +20,7 @@ import Error
 import Text.Printf
 import Util
 
-data TokenKind = Eof | Symbol Text | Keyword Text | Glyph Text
+data TokenKind = Eof | Symbol Text | Keyword Text | Glyph Text | IntLiteral Int
   deriving (Eq, Show)
 
 data Span = Span Int Int
@@ -30,7 +32,7 @@ data Token = Token {kind :: TokenKind, span :: Span}
 data Lexer = Lexer {cursor :: Int, source :: Text}
   deriving (Show)
 
-type LexerM a = State Lexer a
+type LexerM a = ExceptT ParseError (State Lexer) a
 
 advance :: LexerM ()
 advance = modify advance'
@@ -74,7 +76,9 @@ keywords =
     "union",
     "enum",
     "typeclass",
-    "instance"
+    "instance",
+    "true",
+    "false"
   ]
 
 validGlyphs :: [T.Text]
@@ -137,36 +141,40 @@ makeToken length kind = do
   cursor <- gets cursor
   return $ Token kind $ Span (cursor - length) length
 
-nextToken :: LexerM (Result Token)
+nextToken :: LexerM Token
 nextToken = do
   skipWhitespace
   c <- current
   case c of
-    Nothing -> Right <$> makeToken 0 Eof
+    Nothing -> makeToken 0 Eof
     Just c ->
-      if isAlpha c || c == '_'
-        then do
-          (src, cur) <- gets ((,) <$> source <*> cursor)
-          let symbol = T.takeWhile (\c -> isAlpha c || c == '_') $ T.drop cur src
-          let length = T.length symbol
-          advanceBy length
-          Right
-            <$> if symbol `elem` keywords
+      if
+        | isDigit c -> do
+            (src, cur) <- gets ((,) <$> source <*> cursor)
+            let numberString = T.takeWhile isDigit $ T.drop cur src
+            let length = T.length numberString
+            advanceBy length
+            makeToken length $ IntLiteral $ read $ T.unpack numberString
+        | isAlpha c || c == '_' -> do
+            (src, cur) <- gets ((,) <$> source <*> cursor)
+            let symbol = T.takeWhile (\c -> isAlpha c || c == '_') $ T.drop cur src
+            let length = T.length symbol
+            advanceBy length
+            if symbol `elem` keywords
               then makeToken length $ Keyword symbol
               else makeToken length $ Symbol symbol
-        else
-          if c `elem` validGlyphStarts
-            then do
-              advance
-              c' <- current
-              case c' of
-                Nothing -> eitherFromMaybe (UnrecognizedCharacter c) <$> tryMakeSingleGlyph c
-                Just c' -> eitherFromMaybe (UnrecognizedCharacter c) <$> tryMakeDoubleOrSingleGlyph c c'
-            else return $ Left (UnrecognizedCharacter c)
+        | c `elem` validGlyphStarts -> do
+            advance
+            c' <- current
+            case c' of
+              {- HLINT ignore -}
+              Nothing -> eitherFromMaybe (UnrecognizedCharacter c) <$> tryMakeSingleGlyph c >>= except
+              Just c' -> eitherFromMaybe (UnrecognizedCharacter c) <$> tryMakeDoubleOrSingleGlyph c c' >>= except
+        | otherwise -> throwE $ UnrecognizedCharacter c
   where
     skipWhitespace = do
       c <- current
-      when (c == Just ' ' || c == Just '\n') (advance >> skipWhitespace)
+      when (c == Just ' ' || c == Just '\n') (do advance; skipWhitespace)
     tryMakeDoubleOrSingleGlyph :: Char -> Char -> LexerM (Maybe Token)
     tryMakeDoubleOrSingleGlyph c c' = do
       doubleGlyph <- tryMakeDoubleGlyph c c'

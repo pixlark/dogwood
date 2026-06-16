@@ -10,6 +10,7 @@ data ParseError
   | ExpectedSymbol
   | ExpectedAnotherElementOfSequence
   | ExpectedTypeExpr
+  | ExpectedExpr
   deriving (Eq)
 
 instance Show ParseError where
@@ -19,5 +20,6 @@ instance Show ParseError where
   show ExpectedSymbol = "Expected symbol"
   show ExpectedAnotherElementOfSequence = "Expected another element of sequence"
   show ExpectedTypeExpr = "Expected type expression"
+  show ExpectedExpr = "Expected expression"
 
 type Result a = Either ParseError a

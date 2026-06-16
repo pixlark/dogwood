@@ -9,6 +9,7 @@ module Parser.Internal where
 
 import AST (AST (..))
 import qualified AST as A
+import Control.Monad
 import Control.Monad.State.Lazy
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
@@ -29,7 +30,7 @@ advance :: ParserM ()
 advance = ExceptT $ state $ \parser ->
   let (Token _ (Span lastTokenStart lastTokenLength)) = parser.current
       lastTokenEnd = lastTokenStart + lastTokenLength
-   in case runState nextToken parser.lexer of
+   in case runState (runExceptT nextToken) parser.lexer of
         (Right tok, lexer') -> (Right (), parser {current = tok, lexer = lexer', lastTokenEnd})
         (Left e, lexer') -> (Left e, parser {lexer = lexer', lastTokenEnd})
 
@@ -125,9 +126,31 @@ parseNamespacedIdentifier = do
         Symbol sym -> do advance; return (Just sym)
         _ -> return Nothing
 
-parseTypeExpr :: ParserM (AST A.TypeExpr)
-parseTypeExpr = do
+data MaybeSpanned a = AlreadySpanned (AST a) | NotSpanned a
+
+direct :: AST a -> MaybeSpanned a
+direct = AlreadySpanned
+
+wrap :: a -> MaybeSpanned a
+wrap = NotSpanned
+
+returnDirect :: AST a -> ParserM (MaybeSpanned a)
+returnDirect = return . direct
+
+returnWrap :: a -> ParserM (MaybeSpanned a)
+returnWrap = return . wrap
+
+produceSpannedAST :: ParserM (MaybeSpanned a) -> ParserM (AST a)
+produceSpannedAST f = do
   spanStart <- spanStart
+  value <- f
+  span <- makeSpan spanStart
+  case value of
+    AlreadySpanned x -> return x
+    NotSpanned x -> return $ AST x span
+
+parseTypeExpr :: ParserM (AST A.TypeExpr)
+parseTypeExpr = produceSpannedAST $ do
   reference <- matchGlyph "&"
   current <- gets current
   valueExpr <- case current.kind of
@@ -136,9 +159,88 @@ parseTypeExpr = do
     Keyword "int" -> do advance; return A.Int
     Symbol _ -> parseNamespacedIdentifier
     _ -> throwE ExpectedTypeExpr
-  span <- makeSpan spanStart
-  return $ AST (A.TypeExpr {reference, valueExpr}) span
+  return $ NotSpanned A.TypeExpr {reference, valueExpr}
+
+parseAtom :: ParserM (AST A.Expr)
+parseAtom = produceSpannedAST $ do
+  current <- gets current
+  case current.kind of
+    Keyword "void" -> do advance; returnWrap A.VoidLit
+    Keyword "true" -> do advance; returnWrap (A.BoolLit True)
+    Keyword "false" -> do advance; returnWrap (A.BoolLit False)
+    IntLiteral n -> do advance; returnWrap (A.IntLit n)
+    Glyph "(" -> do
+      advance
+      (AST expr _) <- parseExpr
+      expectGlyph ")"
+      returnWrap expr
+    _ -> throwE ExpectedExpr
+
+parseBinary :: ParserM (AST A.Expr) -> [(TokenKind, AST A.Expr -> AST A.Expr -> A.Expr)] -> ParserM (AST A.Expr)
+parseBinary nextParser operators = produceSpannedAST $ do
+  left <- nextParser
+  current <- gets current
+  results <- forM operators $ \(operator, combiner) ->
+    if current.kind == operator
+      {- HLINT ignore -}
+      then do
+        advance
+        right <- recurse
+        return $ Just $ wrap $ combiner left right
+      else return Nothing
+  case msum results of
+    Just operator -> return operator
+    Nothing -> returnDirect left
+  where
+    recurse = parseBinary nextParser operators
+
+parseBinaryMultiplicative :: ParserM (AST A.Expr)
+parseBinaryMultiplicative =
+  parseBinary
+    parseAtom
+    [ (Glyph "*", A.Operator A.Multiply),
+      (Glyph "/", A.Operator A.Divide)
+    ]
+
+parseBinaryAdditive :: ParserM (AST A.Expr)
+parseBinaryAdditive =
+  parseBinary
+    parseBinaryMultiplicative
+    [ (Glyph "+", A.Operator A.Plus),
+      (Glyph "-", A.Operator A.Minus)
+    ]
+
+parseBinaryComparison :: ParserM (AST A.Expr)
+parseBinaryComparison =
+  parseBinary
+    parseBinaryAdditive
+    [ (Glyph "<", A.Operator A.LessThan),
+      (Glyph "<=", A.Operator A.LessThanOrEqual),
+      (Glyph ">", A.Operator A.GreaterThan),
+      (Glyph ">=", A.Operator A.GreaterThanOrEqual)
+    ]
+
+parseBinaryEquality :: ParserM (AST A.Expr)
+parseBinaryEquality =
+  parseBinary
+    parseBinaryComparison
+    [ (Glyph "==", A.Operator A.Equal),
+      (Glyph "!=", A.Operator A.NotEqual)
+    ]
+
+parseBinaryAnd :: ParserM (AST A.Expr)
+parseBinaryAnd =
+  parseBinary
+    parseBinaryEquality
+    [ (Glyph "&&", A.Operator A.And)
+    ]
+
+parseBinaryOr :: ParserM (AST A.Expr)
+parseBinaryOr =
+  parseBinary
+    parseBinaryAnd
+    [ (Glyph "||", A.Operator A.Or)
+    ]
 
 parseExpr :: ParserM (AST A.Expr)
-parseExpr = do
-  undefined
+parseExpr = parseBinaryOr
