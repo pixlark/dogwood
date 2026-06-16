@@ -175,7 +175,30 @@ parseAtom = produceSpannedAST $ do
       (AST expr _) <- parseExpr
       expectGlyph ")"
       returnWrap expr
-    _ -> {-trace (printf "unexpected: %s" $ show current)-} throwE ExpectedExpr
+    _ -> throwE ExpectedExpr
+
+parsePostfix :: ParserM (AST A.Expr)
+parsePostfix = produceSpannedAST $ do
+  left <- parseAtom
+  openParen <- matchGlyph "("
+  if not openParen
+    then returnDirect left
+    else do
+      arguments <-
+        parseSeparatedSequence
+          ( SeparatorConfig
+              { trailing = True,
+                separator = Glyph ",",
+                consume = do
+                  closeParen <- matchGlyph ")"
+                  if closeParen
+                    then return Nothing
+                    else do
+                      expr <- parseExpr
+                      return $ Just expr
+              }
+          )
+      returnWrap $ A.FunctionCall left arguments
 
 parseUnary :: ParserM (AST A.Expr)
 parseUnary = produceSpannedAST $ do
@@ -191,7 +214,7 @@ parseUnary = produceSpannedAST $ do
       advance
       inner <- parseUnary
       returnWrap $ A.UnaryOperator op inner
-    _ -> do expr <- parseAtom; returnDirect expr
+    _ -> do expr <- parsePostfix; returnDirect expr
 
 parseBinary :: ParserM (AST A.Expr) -> [(TokenKind, AST A.Expr -> AST A.Expr -> A.Expr)] -> ParserM (AST A.Expr)
 parseBinary nextParser operators = produceSpannedAST $ do

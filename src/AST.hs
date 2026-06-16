@@ -62,6 +62,7 @@ data Expr
   | Variable Text
   | BinaryOperator Operator (AST Expr) (AST Expr)
   | UnaryOperator Operator (AST Expr)
+  | FunctionCall {function :: AST Expr, arguments :: [AST Expr]}
   | ExprBody Body
   | IfChain (NE.NonEmpty (AST Expr, AST Expr)) (Maybe (AST Expr))
   deriving
@@ -128,6 +129,16 @@ instance Show Expr where
   show (IntLit n) = show n
   show (BinaryOperator op a b) = printf "(%s %s %s)" (show a) (show op) (show b)
   show (UnaryOperator op e) = printf "(%s%s)" (show op) (show e)
+  show (FunctionCall {function, arguments}) = execWriter $ do
+    case function of
+      (AST (Variable name) _) -> tell $ T.unpack name
+      _ -> tell $ printf "(%s)" (show function)
+    tell "("
+    forM_ (take (length arguments - 1) arguments) $ \arg -> do
+      tell $ show arg
+      tell ", "
+    tell $ show $ last arguments
+    tell ")"
   show (Variable sym) = T.unpack sym
   show (ExprBody body) = show body
   show (IfChain bodies elseBody) = execWriter $ do

@@ -100,6 +100,11 @@ main = hspec $ do
         (show <$> runParse "if true && false { return 5; } else if false { 6 }" parseExpr) `shouldBe` Right "if (true && false) {\nreturn 5;\n} else if false {\n6\n}"
         (show <$> runParse "if true false else if false true else 1500" parseExpr) `shouldBe` Right "if true false else if false true else 1500"
         (show <$> runParse "if true false" parseExpr) `shouldBe` Right "if true false"
+      it "can parse function calls" $ do
+        (show <$> runParse "foo(1, 2)" parseExpr) `shouldBe` Right "foo(1, 2)"
+        (show <$> runParse "foo(1, 2,)" parseExpr) `shouldBe` Right "foo(1, 2)"
+        (show <$> runParse "foo(1, 2,,)" parseExpr) `shouldBe` Left ExpectedExpr
+        (show <$> runParse "(1 + 2)(5)" parseExpr) `shouldBe` Right "((1 + 2))(5)"
       it "can parse statement bodies" $ do
         (show <$> runParse "{ let x: int = 5; 15 }" parseExpr) `shouldBe` Right "{\nlet x: int = 5;\n15\n}"
         (show <$> runParse "{ let x: int = 5; 15; }" parseExpr) `shouldBe` Right "{\nlet x: int = 5;\n15;\n}"
