@@ -3,6 +3,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Main where
@@ -18,6 +19,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Error
 import Lexer.Internal
+import NeatInterpolation
 import Parser.Internal
 import Test.Hspec
 
@@ -92,32 +94,66 @@ main = hspec $ do
             0
             24
             ( A.IfChain
-                (NE.fromList [(buildAST 3 4 $ A.BoolLit True, buildAST 8 5 (A.ExprBody $ A.Body [] (Just $ buildAST 10 1 $ A.IntLit 4)))])
-                (Just $ buildAST 19 5 (A.ExprBody $ A.Body [] (Just $ buildAST 21 1 $ A.IntLit 5)))
+                (NE.fromList [(buildAST 3 4 $ A.BoolLit True, buildAST 8 5 (A.ExprBody $ A.Body [buildAST 10 1 $ A.ExprStmt (buildAST 10 1 $ A.IntLit 4) False]))])
+                (Just $ buildAST 19 5 (A.ExprBody $ A.Body [buildAST 21 1 $ A.ExprStmt (buildAST 21 1 $ A.IntLit 5) False]))
             )
         (show <$> runParse "if true && false { return 5; } else if false { 6 }" parseExpr) `shouldBe` Right "if (true && false) {\nreturn 5;\n} else if false {\n6\n}"
         (show <$> runParse "if true false else if false true else 1500" parseExpr) `shouldBe` Right "if true false else if false true else 1500"
         (show <$> runParse "if true false" parseExpr) `shouldBe` Right "if true false"
+      it "can parse statement bodies" $ do
+        (show <$> runParse "{ let x: int = 5; 15 }" parseExpr) `shouldBe` Right "{\nlet x: int = 5;\n15\n}"
+        (show <$> runParse "{ let x: int = 5; 15; }" parseExpr) `shouldBe` Right "{\nlet x: int = 5;\n15;\n}"
+        (show <$> runParse "{ break; 5; void }" parseExpr) `shouldBe` Right "{\nbreak;\n5;\nvoid\n}"
+        (show <$> runParse "{ break 5 }" parseExpr) `shouldBe` Left (ExpectedGlyph ";")
+      it "can omit semicolon after certain expressions" $ do
+        (show <$> runParse "{ if true {} false }" parseExpr) `shouldBe` Right "{\nif true {\n}\nfalse\n}"
     describe "can parse statements" $ do
       it "can parse basic statements" $ do
-        (show <$> runParse "return;" parseStmt) `shouldBe` Right "return"
+        (show <$> runParse "return;" parseStmt) `shouldBe` Right "return;"
         runParse "return" parseStmt `shouldBe` Left ExpectedExpr
-        (show <$> runParse "return void;" parseStmt) `shouldBe` Right "return void"
+        (show <$> runParse "return void;" parseStmt) `shouldBe` Right "return void;"
         runParse "return void" parseStmt `shouldBe` Left (ExpectedGlyph ";")
-        (show <$> runParse "break;" parseStmt) `shouldBe` Right "break"
+        (show <$> runParse "break;" parseStmt) `shouldBe` Right "break;"
         runParse "break" parseStmt `shouldBe` Left (ExpectedGlyph ";")
       it "can parse variable declarations" $ do
         runParse "let x: void = void;" parseStmt `shouldBe` expectAST 0 18 (A.Let {name = buildAST 4 1 "x", type_ = buildAST 7 4 $ A.makeValueExpr A.Void, value = buildAST 14 4 A.VoidLit})
-        (show <$> runParse "let x: foo::bar = true || false;" parseStmt) `shouldBe` Right "let x: foo::bar = (true || false)"
+        (show <$> runParse "let x: foo::bar = true || false;" parseStmt) `shouldBe` Right "let x: foo::bar = (true || false);"
       it "can parse variable assignments" $ do
         runParse "f = 5;" parseStmt `shouldBe` expectAST 0 6 (A.Assign {lvalue = buildAST 0 1 $ A.LVariable "f", value = buildAST 4 1 $ A.IntLit 5})
         -- parsing variable assignment requires speculative lookahead, and if it fails it falls back to parsing a statement-level expression
         -- so make sure that works
-        runParse "5" parseStmt `shouldBe` expectAST 0 1 (A.ExprStmt (buildAST 0 1 $ A.IntLit 5))
-        (show <$> runParse "asdf = 5 + 6;" parseStmt) `shouldBe` Right "asdf = (5 + 6)"
-      it "can parse statement bodies" $ do
-        (show <$> runParse "{ let x: int = 5; 15 }" parseStmt) `shouldBe` Right "{\nlet x: int = 5;\n15\n}"
-        (show <$> runParse "{ let x: int = 5; 15; }" parseStmt) `shouldBe` Right "{\nlet x: int = 5;\n15;\n}"
-        (show <$> runParse "{ break; 5; void }" parseStmt) `shouldBe` Right "{\nbreak;\n5;\nvoid\n}"
+        runParse "5" parseStmt `shouldBe` expectAST 0 1 (A.ExprStmt {value = buildAST 0 1 $ A.IntLit 5, semicolon = False})
+        (show <$> runParse "asdf = 5 + 6;" parseStmt) `shouldBe` Right "asdf = (5 + 6);"
       it "can parse loop statements" $ do
         (show <$> runParse "loop { x = 5; break; }" parseStmt) `shouldBe` Right "loop {\nx = 5;\nbreak;\n}"
+    describe "can parse complex programs" $ do
+      let source =
+            [text|
+              {
+                let n: int = 5;
+                let acc: int = 1;
+                loop {
+                  if n == 0 {
+                    break;
+                  }
+                  acc = acc * n;
+                  n = n - 1;
+                }
+              }
+            |]
+          expected =
+            [text|
+              {
+              let n: int = 5;
+              let acc: int = 1;
+              loop {
+              if (n == 0) {
+              break;
+              }
+              acc = (acc * n);
+              n = (n - 1);
+              }
+              }
+            |]
+       in it "can parse a factorial program" $ do
+            (show <$> runParse source parseExpr) `shouldBe` Right (T.unpack expected)

@@ -59,6 +59,7 @@ data Expr
   = VoidLit
   | BoolLit Bool
   | IntLit Int
+  | Variable Text
   | BinaryOperator Operator (AST Expr) (AST Expr)
   | UnaryOperator Operator (AST Expr)
   | ExprBody Body
@@ -72,7 +73,7 @@ newtype LValue = LVariable T.Text
     ( Eq
     )
 
-data Body = Body [AST Stmt] (Maybe (AST Expr))
+newtype Body = Body [AST Stmt]
   deriving
     ( Eq
     )
@@ -80,7 +81,7 @@ data Body = Body [AST Stmt] (Maybe (AST Expr))
 data Stmt
   = Let {name :: AST T.Text, type_ :: AST TypeExpr, value :: AST Expr}
   | Assign {lvalue :: AST LValue, value :: AST Expr}
-  | ExprStmt (AST Expr)
+  | ExprStmt {value :: AST Expr, semicolon :: Bool}
   | Return (Maybe (AST Expr))
   | Break
   | Loop (AST Body)
@@ -127,6 +128,7 @@ instance Show Expr where
   show (IntLit n) = show n
   show (BinaryOperator op a b) = printf "(%s %s %s)" (show a) (show op) (show b)
   show (UnaryOperator op e) = printf "(%s%s)" (show op) (show e)
+  show (Variable sym) = T.unpack sym
   show (ExprBody body) = show body
   show (IfChain bodies elseBody) = execWriter $ do
     let first = NE.head bodies
@@ -150,21 +152,19 @@ instance Show LValue where
   show (LVariable name) = T.unpack name
 
 instance Show Body where
-  show (Body stmts finalExpr) = execWriter $ do
+  show (Body stmts) = execWriter $ do
     tell "{\n"
     forM_ stmts $ \stmt -> do
       tell (show stmt)
-      tell ";\n"
-    forM_ finalExpr $ \expr -> do
-      tell (show expr)
       tell "\n"
     tell "}"
 
 instance Show Stmt where
-  show (Let {name = (AST name _), type_, value}) = printf "let %s: %s = %s" (T.unpack name) (show type_) (show value)
-  show (Assign {lvalue, value}) = printf "%s = %s" (show lvalue) (show value)
-  show (ExprStmt expr) = printf "%s" (show expr)
-  show (Return Nothing) = "return"
-  show (Return (Just value)) = printf "return %s" (show value)
-  show Break = "break"
+  show (Let {name = (AST name _), type_, value}) = printf "let %s: %s = %s;" (T.unpack name) (show type_) (show value)
+  show (Assign {lvalue, value}) = printf "%s = %s;" (show lvalue) (show value)
+  show (ExprStmt {value, semicolon = True}) = printf "%s;" (show value)
+  show (ExprStmt {value, semicolon = False}) = printf "%s" (show value)
+  show (Return Nothing) = "return;"
+  show (Return (Just value)) = printf "return %s;" (show value)
+  show Break = "break;"
   show (Loop body) = printf "loop %s" (show body)

@@ -19,6 +19,7 @@ import qualified Data.Text as T
 import Debug.Trace
 import Error
 import Lexer
+import Text.Printf
 
 data Parser = Parser {current :: Token, lexer :: Lexer, lastTokenEnd :: Int}
   deriving (Show)
@@ -139,12 +140,6 @@ returnDirect = return . direct
 returnWrap :: a -> ParserM (MaybeSpanned a)
 returnWrap = return . wrap
 
--- deriveSpan :: AST a -> b -> AST b
--- deriveSpan (AST _ span) x = AST x span
-
--- liftSpan :: AST a -> (a -> b) -> AST b
--- liftSpan (AST x span) y = AST
-
 produceSpannedAST :: ParserM (MaybeSpanned a) -> ParserM (AST a)
 produceSpannedAST f = do
   spanStart <- spanStart
@@ -174,12 +169,13 @@ parseAtom = produceSpannedAST $ do
     Keyword "true" -> do advance; returnWrap (A.BoolLit True)
     Keyword "false" -> do advance; returnWrap (A.BoolLit False)
     IntLiteral n -> do advance; returnWrap (A.IntLit n)
+    Symbol sym -> do advance; returnWrap (A.Variable sym)
     Glyph "(" -> do
       advance
       (AST expr _) <- parseExpr
       expectGlyph ")"
       returnWrap expr
-    _ -> throwE ExpectedExpr
+    _ -> {-trace (printf "unexpected: %s" $ show current)-} throwE ExpectedExpr
 
 parseUnary :: ParserM (AST A.Expr)
 parseUnary = produceSpannedAST $ do
@@ -290,6 +286,7 @@ parseIfExpr = produceSpannedAST $ do
 parseExpr :: ParserM (AST A.Expr)
 parseExpr = do
   cur <- gets current
+  {-trace (show cur)-}
   case cur.kind of
     Keyword "if" -> do parseIfExpr
     Glyph "{" -> do
@@ -338,25 +335,20 @@ tryParseLValue =
 parseBody :: ParserM (AST A.Body)
 parseBody = produceSpannedAST $ do
   expectGlyph "{"
-  (stmts, finalExpr) <- parseStmts []
-  expectGlyph "}"
-  returnWrap $ A.Body stmts finalExpr
+  stmts <- parseStmts []
+  returnWrap $ A.Body stmts
   where
-    parseStmts :: [AST A.Stmt] -> ParserM (([AST A.Stmt], Maybe (AST A.Expr)))
+    -- TODO: if you forget to place a semicolon in the middle of a body,
+    --       then instead of the error message saying "missing semicolon",
+    --       it assumes the block ended and errors here instead.
+    --       at some point we should improve this.
     parseStmts stmts = do
-      cur <- gets current
-      if cur.kind == Glyph "}"
-        then return (stmts, Nothing)
+      matched <- matchGlyph "}"
+      if matched
+        then return stmts
         else do
           stmt <- parseStmt
-          stmtOrExpr <- case stmt of
-            (AST (A.ExprStmt expr) _) -> do
-              matched <- matchGlyph ";"
-              if matched then return $ Left stmt else return $ Right expr
-            _ -> return $ Left stmt
-          case stmtOrExpr of
-            Left stmt -> parseStmts $ stmts ++ [stmt]
-            Right expr -> return (stmts, Just expr)
+          parseStmts $ stmts ++ [stmt]
 
 parseStmt :: ParserM (AST A.Stmt)
 parseStmt = produceSpannedAST $ do
@@ -397,7 +389,16 @@ parseStmt = produceSpannedAST $ do
           value <- parseExpr
           expectGlyph ";"
           returnWrap $ A.Assign {lvalue, value}
-        Nothing -> do expr <- parseExpr; returnWrap $ A.ExprStmt expr
+        Nothing -> do
+          expr <- parseExpr
+          semicolon <- matchGlyph ";"
+          -- semicolon <- case expr of
+          --   -- allow omitting the semicolon after certain expressions that
+          --   -- get used like statements
+          --   AST (A.IfChain _ _) _ -> matchGlyph ";"
+          --   AST (A.ExprBody _) _ -> matchGlyph ";"
+          --   _ -> do expectGlyph ";"; return True
+          returnWrap $ A.ExprStmt {value = expr, semicolon}
 
 runParse :: Text -> ParserM a -> Result a
 runParse source f = case makeParser lexer of

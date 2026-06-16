@@ -106,4 +106,5 @@ test-suite prototype-tests
                       mtl ^>=2.3.2,
                       hspec ^>=2.11.17,
                       monad-loops ^>=0.4.3,
+                      neat-interpolation ^>=0.5.1.4,
                       prototype-core
