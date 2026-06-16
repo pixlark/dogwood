@@ -55,11 +55,11 @@ expectGlyph glyph = do
     then advance
     else throwE $ ExpectedGlyph glyph
 
-readSymbol :: ParserM Text
-readSymbol = do
+readSymbol :: ParserM (AST Text)
+readSymbol = produceSpannedAST $ do
   current <- gets current
   case current.kind of
-    Symbol sym -> do advance; return sym
+    Symbol sym -> do advance; returnWrap sym
     _ -> throwE ExpectedSymbol
 
 matchKeyword :: Text -> ParserM Bool
@@ -260,3 +260,20 @@ parseBinaryOr =
 
 parseExpr :: ParserM (AST A.Expr)
 parseExpr = parseBinaryOr
+
+parseLet :: ParserM (AST A.Stmt)
+parseLet = produceSpannedAST $ do
+  expectKeyword "let"
+  name <- readSymbol
+  expectGlyph ":"
+  type_ <- parseTypeExpr
+  expectGlyph "="
+  value <- parseExpr
+  returnWrap $ A.Let {name, type_, value}
+
+parseStmt :: ParserM (AST A.Stmt)
+parseStmt = do
+  current <- gets current
+  case current.kind of
+    Keyword "let" -> parseLet
+    _ -> throwE ExpectedStatement

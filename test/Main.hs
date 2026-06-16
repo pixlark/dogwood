@@ -92,3 +92,6 @@ main = hspec $ do
       runParse "-+3" parseExpr `shouldBe` expectAST 0 3 (A.UnaryOperator A.Minus (buildAST 1 2 $ A.UnaryOperator A.Plus (buildAST 2 1 $ A.IntLit 3)))
       (show <$> runParse "15 + -3" parseExpr) `shouldBe` Right "(15 + (-3))"
       (show <$> runParse "!true || !false && !true" parseExpr) `shouldBe` Right "((!true) || ((!false) && (!true)))"
+    it "can parse variable declarations" $ do
+      runParse "let x: void = void" parseStmt `shouldBe` expectAST 0 18 (A.Let {name = buildAST 4 1 "x", type_ = buildAST 7 4 $ A.makeValueExpr A.Void, value = buildAST 14 4 A.VoidLit})
+      (show <$> runParse "let x: foo::bar = true || false" parseStmt) `shouldBe` Right "let x: foo::bar = (true || false)"

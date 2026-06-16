@@ -44,6 +44,9 @@ data Expr
   | UnaryOperator Operator (AST Expr)
   deriving (Eq)
 
+data Stmt = Let {name :: AST T.Text, type_ :: AST TypeExpr, value :: AST Expr}
+  deriving (Eq)
+
 makeValueExpr :: ValueTypeExpr -> TypeExpr
 makeValueExpr valueExpr = TypeExpr {reference = False, valueExpr}
 
@@ -83,3 +86,6 @@ instance Show Expr where
   show (IntLit n) = show n
   show (BinaryOperator op a b) = printf "(%s %s %s)" (show a) (show op) (show b)
   show (UnaryOperator op e) = printf "(%s%s)" (show op) (show e)
+
+instance Show Stmt where
+  show (Let {name = (AST name _), type_, value}) = printf "let %s: %s = %s" (T.unpack name) (show type_) (show value)

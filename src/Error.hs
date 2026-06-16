@@ -11,6 +11,7 @@ data ParseError
   | ExpectedAnotherElementOfSequence
   | ExpectedTypeExpr
   | ExpectedExpr
+  | ExpectedStatement
   deriving (Eq)
 
 instance Show ParseError where
@@ -21,5 +22,6 @@ instance Show ParseError where
   show ExpectedAnotherElementOfSequence = "Expected another element of sequence"
   show ExpectedTypeExpr = "Expected type expression"
   show ExpectedExpr = "Expected expression"
+  show ExpectedStatement = "Expected statement"
 
 type Result a = Either ParseError a
