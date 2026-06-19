@@ -11,11 +11,11 @@ import Typechecker.Internal
 import TypedAST (TST)
 import qualified TypedAST as T
 
-runTypecheck :: Text -> TST T.Stmt
-runTypecheck source = runExceptT $ do
-  -- ast <- ExceptT $ runParse source parseStmt
-  (stmt, _) <- typecheckStmt (NE.fromList [[]]) ast
-  return stmt
+-- runTypecheck :: Text -> TST T.Stmt
+-- runTypecheck source = runExceptT $ do
+--   -- ast <- ExceptT $ runParse source parseStmt
+--   (stmt, _) <- typecheckStmt (NE.fromList [[]]) ast
+--   return stmt
 
 spec = do
   describe "the Typechecker module" $ do
