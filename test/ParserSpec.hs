@@ -40,7 +40,7 @@ expectAST start length inner = Right $ buildAST start length inner
 
 isErrorKind :: ErrorKind -> (Result a -> Bool)
 isErrorKind kind = \case
-  Left (ParseError kind' _) -> kind == kind'
+  Left (Err kind' _) -> kind == kind'
   Right _ -> False
 
 spec =

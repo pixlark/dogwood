@@ -10,10 +10,13 @@
 module LexerSpec (spec) where
 
 import Control.Monad
-import Control.Monad.Except
 import Control.Monad.Loops (unfoldM)
-import Control.Monad.State
+import Data.Bifunctor (first)
+import Data.Either
 import Data.Text (Text)
+import Effectful
+import Effectful.Error.Static
+import Effectful.State.Static.Local
 import Error
 import Lexer
 import Test.Hspec
@@ -25,7 +28,7 @@ runLex source = run lexer
     maybeNextToken = do
       tok <- nextToken
       return $ if tok.kind == Eof then Nothing else Just tok
-    run = evalState $ runExceptT $ unfoldM maybeNextToken
+    run l = first snd $ runPureEff $ evalState l $ runError $ unfoldM maybeNextToken
 
 spec =
   describe "the Lexer module" $ do

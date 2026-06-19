@@ -79,7 +79,7 @@ library prototype-core
     -- Import common warning flags.
     import:           warnings
 
-    exposed-modules:    AST, TypedAST, Parser, Parser.Internal, Lexer, Lexer.Internal, Typechecker, Typechecker.Internal, Util, Error
+    exposed-modules:    AST, TypedAST, Parser, Parser.Internal, Lexer, Lexer.Internal, Typechecker, Typechecker.Internal, Util, Error, Compiler
 
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.18.3.0,
@@ -110,4 +110,7 @@ test-suite prototype-tests
                       hspec,
                       monad-loops,
                       neat-interpolation,
+                      effectful-core,
+                      effectful-plugin,
                       prototype-core
+    ghc-options:      -fplugin=Effectful.Plugin

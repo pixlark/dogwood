@@ -1,21 +1,27 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Lexer.Internal where
 
 import Control.Monad
-import Control.Monad.Except
-import Control.Monad.State.Lazy
-import Control.Monad.Trans.Except
-import Control.Monad.Trans.Maybe
+-- import Control.Monad.Except
+-- import Control.Monad.State.Lazy
+-- import Control.Monad.Trans.Except
+-- import Control.Monad.Trans.Maybe
 import Data.Char
 import qualified Data.List as List
 import Data.Text (Text)
 import qualified Data.Text as T
+import Effectful (Eff, (:>))
+import Effectful.Error.Static (Error, throwError)
+import Effectful.State.Static.Local (State, gets, modify)
 import Error
 import Text.Printf
 import Util
@@ -29,19 +35,21 @@ data Token = Token {kind :: TokenKind, span :: Span}
 data Lexer = Lexer {cursor :: Int, source :: Text}
   deriving (Show)
 
-type LexerM a = ExceptT Error (State Lexer) a
+-- type LexerM a = ExceptT Err (State Lexer) a
 
-advance :: LexerM ()
+type LexerE a = Eff '[State Lexer, Error Err] a
+
+advance :: (State Lexer :> es) => Eff es ()
 advance = modify advance'
   where
     advance' lexer = lexer {cursor = lexer.cursor + 1}
 
-advanceBy :: Int -> LexerM ()
+advanceBy :: (State Lexer :> es) => Int -> Eff es ()
 advanceBy n = modify $ advanceBy' n
   where
     advanceBy' n lexer = lexer {cursor = lexer.cursor + n}
 
-current :: LexerM (Maybe Char)
+current :: (State Lexer :> es) => Eff es (Maybe Char)
 current = gets current'
   where
     current' :: Lexer -> Maybe Char
@@ -115,7 +123,7 @@ validGlyphs =
 validGlyphStarts :: [Char]
 validGlyphStarts = List.nub $ map T.head validGlyphs
 
-tryMakeSingleGlyph :: Char -> LexerM (Maybe Token)
+tryMakeSingleGlyph :: (State Lexer :> es) => Char -> Eff es (Maybe Token)
 tryMakeSingleGlyph c =
   if s `elem` validGlyphs
     then do
@@ -125,7 +133,7 @@ tryMakeSingleGlyph c =
   where
     s = T.pack [c]
 
-tryMakeDoubleGlyph :: Char -> Char -> LexerM (Maybe Token)
+tryMakeDoubleGlyph :: (State Lexer :> es) => Char -> Char -> Eff es (Maybe Token)
 tryMakeDoubleGlyph c1 c2 =
   if s `elem` validGlyphs
     then do
@@ -135,12 +143,12 @@ tryMakeDoubleGlyph c1 c2 =
   where
     s = T.pack [c1, c2]
 
-makeToken :: Int -> TokenKind -> LexerM Token
+makeToken :: (State Lexer :> es) => Int -> TokenKind -> Eff es Token
 makeToken length kind = do
   cursor <- gets cursor
   return $ Token kind $ Span (cursor - length) length
 
-nextToken :: LexerM Token
+nextToken :: (State Lexer :> es, Error Err :> es) => Eff es Token
 nextToken = do
   skipWhitespace
   c <- current
@@ -148,7 +156,7 @@ nextToken = do
   case c of
     Nothing -> makeToken 0 Eof
     Just c ->
-      let unrecognizedCharacter = ParseError (UnrecognizedCharacter c) (Span cur 1)
+      let unrecognizedCharacter = Err (UnrecognizedCharacter c) (Span cur 1)
        in if
             | isDigit c -> do
                 (src, cur) <- gets ((,) <$> source <*> cursor)
@@ -171,14 +179,15 @@ nextToken = do
                   {- HLINT ignore -}
                   Nothing -> eitherFromMaybe unrecognizedCharacter <$> tryMakeSingleGlyph c >>= except
                   Just c' -> eitherFromMaybe unrecognizedCharacter <$> tryMakeDoubleOrSingleGlyph c c' >>= except
-            | otherwise -> throwE unrecognizedCharacter
+            | otherwise -> throwError unrecognizedCharacter
   where
     skipWhitespace = do
       c <- current
       when (c == Just ' ' || c == Just '\n') (do advance; skipWhitespace)
-    tryMakeDoubleOrSingleGlyph :: Char -> Char -> LexerM (Maybe Token)
     tryMakeDoubleOrSingleGlyph c c' = do
       doubleGlyph <- tryMakeDoubleGlyph c c'
       case doubleGlyph of
         Nothing -> tryMakeSingleGlyph c
         j@(Just _) -> do advance; return j
+    except (Right value) = return value
+    except (Left e) = throwError e

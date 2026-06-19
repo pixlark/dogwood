@@ -8,7 +8,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Error (ErrorKind (..), Span (..), Error (..), Result, displayError) where
+module Error (ErrorKind (..), Span (..), Err (..), Result, displayError) where
 
 import Control.Monad
 import Control.Monad.Writer
@@ -28,12 +28,13 @@ data ErrorKind
   | ExpectedExpr
   | ExpectedStatement
   | TypeMismatch {expected :: Text, got :: Text}
+  | InternalCompilerError
   deriving (Eq)
 
 data Span = Span Int Int
   deriving (Eq, Show)
 
-data Error = ParseError ErrorKind Span
+data Err = Err ErrorKind Span
   deriving (Eq, Show)
 
 findIndex :: Text -> Int -> Char -> Maybe Int
@@ -68,8 +69,8 @@ getLineNumber text start = getLineNumber' text start 1
         | text `T.index` start == '\n' -> getLineNumber' text (start - 1) (acc + 1)
         | otherwise -> getLineNumber' text (start - 1) acc
 
-displayError :: Text -> Error -> Text
-displayError source (ParseError error span) = execWriter $ do
+displayError :: Text -> Err -> Text
+displayError source (Err error span) = execWriter $ do
   let (excerpt, Span start len) = getLineForSpan source span
   let lineNumber = getLineNumber source start
   let digits = length $ show lineNumber
@@ -94,5 +95,6 @@ instance Show ErrorKind where
   show ExpectedExpr = "Expected expression"
   show ExpectedStatement = "Expected statement"
   show (TypeMismatch expected got) = printf "Expected type of %s, but got %s" expected got
+  show InternalCompilerError = "Internal compiler error!"
 
-type Result a = Either Error a
+type Result a = Either Err a

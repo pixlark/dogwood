@@ -17,6 +17,10 @@ import qualified Data.List.NonEmpty as NE
 import Data.Text (Text)
 import qualified Data.Text as T
 import Debug.Trace
+import Effectful (runPureEff)
+import Effectful.Error.Static (runError)
+import Effectful.State.Static.Local (runState)
+import qualified Effectful.State.Static.Local
 import Error
 import Lexer
 import Text.Printf
@@ -24,25 +28,25 @@ import Text.Printf
 data Parser = Parser {current :: Token, lexer :: Lexer, lastTokenEnd :: Int}
   deriving (Show)
 
-type ParserM a = ExceptT Error (State Parser) a
+type ParserM a = ExceptT Err (State Parser) a
 
 advance :: ParserM ()
 advance = ExceptT $ state $ \parser ->
   let (Token _ (Span lastTokenStart lastTokenLength)) = parser.current
       lastTokenEnd = lastTokenStart + lastTokenLength
-   in case runState (runExceptT nextToken) parser.lexer of
+   in case runPureEff $ Effectful.State.Static.Local.runState parser.lexer $ runError nextToken of
         (Right tok, lexer') -> (Right (), parser {current = tok, lexer = lexer', lastTokenEnd})
-        (Left e, lexer') -> (Left e, parser {lexer = lexer', lastTokenEnd})
+        (Left (_, e), lexer') -> (Left e, parser {lexer = lexer', lastTokenEnd})
 
 makeParser :: Lexer -> Result Parser
 makeParser lexer = parser' <$ result
   where
     parser = Parser {current = Token {kind = Eof, span = Span 0 0}, lexer, lastTokenEnd = 0}
     -- "prime the pump"
-    (result, parser') = runState (runExceptT advance) parser
+    (result, parser') = Control.Monad.State.Lazy.runState (runExceptT advance) parser
 
 throwSpan :: Span -> ErrorKind -> ParserM a
-throwSpan span kind = throwE $ ParseError kind span
+throwSpan span kind = throwE $ Err kind span
 
 expectKeyword :: Text -> ParserM ()
 expectKeyword keyword = do
@@ -338,7 +342,7 @@ attempt f = do
     Right Nothing -> do return Nothing
     Right j -> do put parser'; return j
   where
-    run = runState $ runExceptT f
+    run = Control.Monad.State.Lazy.runState $ runExceptT f
 
 tryParseLValue :: ParserM (Maybe (AST A.LValue))
 tryParseLValue =

@@ -49,7 +49,7 @@ popScope (_ :| rest) = Just $ NE.fromList rest
 
 newtype Context = Context {scopes :: LexicalScopes}
 
-type Typechecker a = Except Error a
+type Typechecker a = Except Err a
 
 convertValueTypeExpr :: A.ValueTypeExpr -> T.ValueTypeExpr
 convertValueTypeExpr A.Void = T.Void
@@ -68,7 +68,7 @@ typeMismatch :: T.TypeExpr -> T.TypeExpr -> ErrorKind
 typeMismatch expected got = TypeMismatch {expected = Text.show expected, got = Text.show got}
 
 throwSpan :: Span -> ErrorKind -> Typechecker a
-throwSpan span kind = throwE $ ParseError kind span
+throwSpan span kind = throwE $ Err kind span
 
 convertAST :: AST a -> TST a
 convertAST (AST a span) = TST a span
