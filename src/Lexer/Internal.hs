@@ -29,7 +29,7 @@ data Token = Token {kind :: TokenKind, span :: Span}
 data Lexer = Lexer {cursor :: Int, source :: Text}
   deriving (Show)
 
-type LexerM a = ExceptT ParseError (State Lexer) a
+type LexerM a = ExceptT Error (State Lexer) a
 
 advance :: LexerM ()
 advance = modify advance'

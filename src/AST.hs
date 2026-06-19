@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE NamedFieldPuns #-}
@@ -19,23 +18,26 @@ import qualified Data.Text as T
 import Error
 import Text.Printf
 
+class SyntaxTree t where
+  node :: t a -> a
+  spanOf :: t a -> Span
+
 data AST a = AST a Span
   deriving
-    ( Eq
-    )
+    (Eq)
+
+instance SyntaxTree AST where
+  node (AST x _) = x
+  spanOf (AST _ s) = s
 
 instance Functor AST where
   fmap f (AST x span) = AST (f x) span
 
 data ValueTypeExpr = Void | Bool | Int | NamespacedIdentifier [Text]
-  deriving
-    ( Eq
-    )
+  deriving (Eq)
 
 data TypeExpr = TypeExpr {reference :: Bool, valueExpr :: ValueTypeExpr}
-  deriving
-    ( Eq
-    )
+  deriving (Eq)
 
 data Operator
   = Or
@@ -51,9 +53,7 @@ data Operator
   | Multiply
   | Divide
   | Not
-  deriving
-    ( Eq
-    )
+  deriving (Eq)
 
 data Expr
   = VoidLit
@@ -65,19 +65,13 @@ data Expr
   | FunctionCall {function :: AST Expr, arguments :: [AST Expr]}
   | ExprBody Body
   | IfChain (NE.NonEmpty (AST Expr, AST Expr)) (Maybe (AST Expr))
-  deriving
-    ( Eq
-    )
+  deriving (Eq)
 
 newtype LValue = LVariable T.Text
-  deriving
-    ( Eq
-    )
+  deriving (Eq)
 
 newtype Body = Body [AST Stmt]
-  deriving
-    ( Eq
-    )
+  deriving (Eq)
 
 data Stmt
   = Let {name :: AST T.Text, type_ :: AST TypeExpr, value :: AST Expr}
@@ -86,9 +80,7 @@ data Stmt
   | Return (Maybe (AST Expr))
   | Break
   | Loop (AST Body)
-  deriving
-    ( Eq
-    )
+  deriving (Eq)
 
 makeValueExpr :: ValueTypeExpr -> TypeExpr
 makeValueExpr valueExpr = TypeExpr {reference = False, valueExpr}

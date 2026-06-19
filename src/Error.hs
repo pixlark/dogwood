@@ -8,7 +8,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Error (ParseErrorKind (..), Span (..), ParseError (..), Result, displayError) where
+module Error (ErrorKind (..), Span (..), Error (..), Result, displayError) where
 
 import Control.Monad
 import Control.Monad.Writer
@@ -18,7 +18,7 @@ import Debug.Trace
 import Text.Printf
 import Util
 
-data ParseErrorKind
+data ErrorKind
   = UnrecognizedCharacter Char
   | ExpectedKeyword Text
   | ExpectedGlyph Text
@@ -27,12 +27,13 @@ data ParseErrorKind
   | ExpectedTypeExpr
   | ExpectedExpr
   | ExpectedStatement
+  | TypeMismatch {expected :: Text, got :: Text}
   deriving (Eq)
 
 data Span = Span Int Int
   deriving (Eq, Show)
 
-data ParseError = ParseError ParseErrorKind Span
+data Error = ParseError ErrorKind Span
   deriving (Eq, Show)
 
 findIndex :: Text -> Int -> Char -> Maybe Int
@@ -67,7 +68,7 @@ getLineNumber text start = getLineNumber' text start 1
         | text `T.index` start == '\n' -> getLineNumber' text (start - 1) (acc + 1)
         | otherwise -> getLineNumber' text (start - 1) acc
 
-displayError :: Text -> ParseError -> Text
+displayError :: Text -> Error -> Text
 displayError source (ParseError error span) = execWriter $ do
   let (excerpt, Span start len) = getLineForSpan source span
   let lineNumber = getLineNumber source start
@@ -83,7 +84,7 @@ displayError source (ParseError error span) = execWriter $ do
   forM_ (replicate len "^") tell
   tell "\n"
 
-instance Show ParseErrorKind where
+instance Show ErrorKind where
   show (UnrecognizedCharacter c) = printf "Unrecognized character %c" c
   show (ExpectedKeyword keyword) = printf "Expected keyword %s" keyword
   show (ExpectedGlyph glyph) = printf "Expected glyph %s" glyph
@@ -92,5 +93,6 @@ instance Show ParseErrorKind where
   show ExpectedTypeExpr = "Expected type expression"
   show ExpectedExpr = "Expected expression"
   show ExpectedStatement = "Expected statement"
+  show (TypeMismatch expected got) = printf "Expected type of %s, but got %s" expected got
 
-type Result a = Either ParseError a
+type Result a = Either Error a

@@ -24,7 +24,7 @@ import Text.Printf
 data Parser = Parser {current :: Token, lexer :: Lexer, lastTokenEnd :: Int}
   deriving (Show)
 
-type ParserM a = ExceptT ParseError (State Parser) a
+type ParserM a = ExceptT Error (State Parser) a
 
 advance :: ParserM ()
 advance = ExceptT $ state $ \parser ->
@@ -41,7 +41,7 @@ makeParser lexer = parser' <$ result
     -- "prime the pump"
     (result, parser') = runState (runExceptT advance) parser
 
-throwSpan :: Span -> ParseErrorKind -> ParserM a
+throwSpan :: Span -> ErrorKind -> ParserM a
 throwSpan span kind = throwE $ ParseError kind span
 
 expectKeyword :: Text -> ParserM ()
