@@ -1,4 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
@@ -28,7 +29,12 @@ runLex source = run lexer
     maybeNextToken = do
       tok <- nextToken
       return $ if tok.kind == Eof then Nothing else Just tok
-    run l = first snd $ runPureEff $ evalState l $ runError $ unfoldM maybeNextToken
+    run l = runPureEff $ evalState l $ runErrorNoCallStack $ unfoldM maybeNextToken
+
+-- run l = do
+--   startingState <- get
+--   result <- tryError $ unfoldM maybeNextToken
+--   return undefined
 
 spec =
   describe "the Lexer module" $ do

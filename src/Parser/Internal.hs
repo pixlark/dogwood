@@ -1,25 +1,26 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Parser.Internal where
 
 import AST (AST (..))
 import qualified AST as A
-import Control.Monad
-import Control.Monad.State.Lazy
-import Control.Monad.Trans.Except
+import Control.Monad (forM, msum)
 import Data.List.NonEmpty (NonEmpty (..), (<|))
 import qualified Data.List.NonEmpty as NE
 import Data.Text (Text)
 import qualified Data.Text as T
 import Debug.Trace
-import Effectful (runPureEff)
-import Effectful.Error.Static (runError)
-import Effectful.State.Static.Local (runState)
+import Effectful (Eff, runPureEff, (:>))
+import Effectful.Error.Static (Error, runErrorNoCallStack, throwError, tryError)
+import Effectful.State.Static.Local (State, evalState, get, gets, modify, put, runState, state)
 import qualified Effectful.State.Static.Local
 import Error
 import Lexer
@@ -28,81 +29,84 @@ import Text.Printf
 data Parser = Parser {current :: Token, lexer :: Lexer, lastTokenEnd :: Int}
   deriving (Show)
 
-type ParserM a = ExceptT Err (State Parser) a
+-- type ParserM a = ExceptT Err (State Parser) a
+type ParserE a = Eff '[State Parser, Error Err] a
 
-advance :: ParserM ()
-advance = ExceptT $ state $ \parser ->
+advance :: (State Parser :> es, Error Err :> es) => Eff es ()
+advance = do
+  parser <- get
   let (Token _ (Span lastTokenStart lastTokenLength)) = parser.current
       lastTokenEnd = lastTokenStart + lastTokenLength
-   in case runPureEff $ Effectful.State.Static.Local.runState parser.lexer $ runError nextToken of
-        (Right tok, lexer') -> (Right (), parser {current = tok, lexer = lexer', lastTokenEnd})
-        (Left (_, e), lexer') -> (Left e, parser {lexer = lexer', lastTokenEnd})
+  (token, lexer') <- runState parser.lexer nextToken
+  modify (\p -> p {current = token, lexer = lexer', lastTokenEnd})
+  return ()
 
 makeParser :: Lexer -> Result Parser
 makeParser lexer = parser' <$ result
   where
     parser = Parser {current = Token {kind = Eof, span = Span 0 0}, lexer, lastTokenEnd = 0}
     -- "prime the pump"
-    (result, parser') = Control.Monad.State.Lazy.runState (runExceptT advance) parser
+    (result, parser') = runPureEff $ runState parser $ runErrorNoCallStack advance
 
-throwSpan :: Span -> ErrorKind -> ParserM a
-throwSpan span kind = throwE $ Err kind span
+throwSpan :: (Error Err :> es) => Span -> ErrorKind -> Eff es a
+throwSpan span kind = throwError $ Err kind span
 
-expectKeyword :: Text -> ParserM ()
+expectKeyword :: (State Parser :> es, Error Err :> es) => Text -> Eff es ()
 expectKeyword keyword = do
   current <- gets current
   if current.kind == Keyword keyword
     then advance
     else throwSpan (current.span) $ ExpectedKeyword keyword
 
-expectGlyph :: Text -> ParserM ()
+expectGlyph :: (State Parser :> es, Error Err :> es) => Text -> Eff es ()
 expectGlyph glyph = do
   current <- gets current
   if current.kind == Glyph glyph
     then advance
     else throwSpan (current.span) $ ExpectedGlyph glyph
 
-readSymbol :: ParserM (AST Text)
+readSymbol :: (State Parser :> es, Error Err :> es) => Eff es (AST Text)
 readSymbol = produceSpannedAST $ do
   current <- gets current
   case current.kind of
     Symbol sym -> do advance; returnWrap sym
     _ -> throwSpan (current.span) $ ExpectedSymbol
 
-matchKeyword :: Text -> ParserM Bool
+matchKeyword :: (State Parser :> es, Error Err :> es) => Text -> Eff es Bool
 matchKeyword keyword = do
   current <- gets current
   if current.kind == Keyword keyword
     then do advance; return True
     else return False
 
-matchGlyph :: Text -> ParserM Bool
+matchGlyph :: (State Parser :> es, Error Err :> es) => Text -> Eff es Bool
 matchGlyph glyph = do
   current <- gets current
   if current.kind == Glyph glyph
     then do advance; return True
     else return False
 
-spanStart :: ParserM Int
+spanStart :: (State Parser :> es) => Eff es Int
 spanStart = do
   (Token _ (Span start _)) <- gets current
   return start
 
-makeSpan :: Int -> ParserM Span
+makeSpan :: (State Parser :> es) => Int -> Eff es Span
 makeSpan start = do
   end <- gets lastTokenEnd
   return $ Span start (end - start)
 
-data SeparatorConfig a = SeparatorConfig
+data SeparatorConfig es a = SeparatorConfig
   { trailing :: Bool,
     separator :: TokenKind,
-    consume :: ParserM (Maybe a)
+    consume :: Eff es (Maybe a)
   }
 
-parseSeparatedSequence :: forall a. SeparatorConfig a -> ParserM [a]
+parseSeparatedSequence :: (State Parser :> es, Error Err :> es) => SeparatorConfig es a -> Eff es [a]
 parseSeparatedSequence SeparatorConfig {trailing, separator, consume} = parseSeparatedSequence' [] False
   where
-    parseSeparatedSequence' :: [a] -> Bool -> ParserM [a]
+    -- todo: can't seem to make this type signature work with ScopedTypeVariables
+    -- parseSeparatedSequence' :: (State Parser :> es, Error Err :> es) => [a] -> Bool -> Eff es [a]
     parseSeparatedSequence' sequence expecting = do
       consumed <- consume
       current <- gets current
@@ -122,7 +126,7 @@ parseSeparatedSequence SeparatorConfig {trailing, separator, consume} = parseSep
                   parseSeparatedSequence' sequence' (not trailing)
                 else return sequence'
 
-parseNamespacedIdentifier :: ParserM A.ValueTypeExpr
+parseNamespacedIdentifier :: (State Parser :> es, Error Err :> es) => Eff es A.ValueTypeExpr
 parseNamespacedIdentifier = do
   pieces <- parseSeparatedSequence SeparatorConfig {trailing = False, separator = Glyph "::", consume = consumeSymbol}
   return $ A.NamespacedIdentifier pieces
@@ -141,13 +145,13 @@ direct = AlreadySpanned
 wrap :: a -> MaybeSpanned a
 wrap = NotSpanned
 
-returnDirect :: AST a -> ParserM (MaybeSpanned a)
+returnDirect :: AST a -> Eff es (MaybeSpanned a)
 returnDirect = return . direct
 
-returnWrap :: a -> ParserM (MaybeSpanned a)
+returnWrap :: a -> Eff es (MaybeSpanned a)
 returnWrap = return . wrap
 
-produceSpannedAST :: ParserM (MaybeSpanned a) -> ParserM (AST a)
+produceSpannedAST :: (State Parser :> es) => Eff es (MaybeSpanned a) -> Eff es (AST a)
 produceSpannedAST f = do
   spanStart <- spanStart
   value <- f
@@ -156,7 +160,7 @@ produceSpannedAST f = do
     AlreadySpanned x -> return x
     NotSpanned x -> return $ AST x span
 
-parseTypeExpr :: ParserM (AST A.TypeExpr)
+parseTypeExpr :: (State Parser :> es, Error Err :> es) => Eff es (AST A.TypeExpr)
 parseTypeExpr = produceSpannedAST $ do
   reference <- matchGlyph "&"
   current <- gets current
@@ -168,7 +172,7 @@ parseTypeExpr = produceSpannedAST $ do
     _ -> throwSpan (current.span) ExpectedTypeExpr
   return $ NotSpanned A.TypeExpr {reference, valueExpr}
 
-parseAtom :: ParserM (AST A.Expr)
+parseAtom :: (State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
 parseAtom = produceSpannedAST $ do
   current <- gets current
   case current.kind of
@@ -184,7 +188,7 @@ parseAtom = produceSpannedAST $ do
       returnWrap expr
     _ -> throwSpan (current.span) ExpectedExpr
 
-parsePostfix :: ParserM (AST A.Expr)
+parsePostfix :: (State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
 parsePostfix = produceSpannedAST $ do
   left <- parseAtom
   openParen <- matchGlyph "("
@@ -207,7 +211,7 @@ parsePostfix = produceSpannedAST $ do
           )
       returnWrap $ A.FunctionCall left arguments
 
-parseUnary :: ParserM (AST A.Expr)
+parseUnary :: (State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
 parseUnary = produceSpannedAST $ do
   current <- gets current
   let operator =
@@ -223,7 +227,11 @@ parseUnary = produceSpannedAST $ do
       returnWrap $ A.UnaryOperator op inner
     _ -> do expr <- parsePostfix; returnDirect expr
 
-parseBinary :: ParserM (AST A.Expr) -> [(TokenKind, AST A.Expr -> AST A.Expr -> A.Expr)] -> ParserM (AST A.Expr)
+parseBinary ::
+  (State Parser :> es, Error Err :> es) =>
+  Eff es (AST A.Expr) ->
+  [(TokenKind, AST A.Expr -> AST A.Expr -> A.Expr)] ->
+  Eff es (AST A.Expr)
 parseBinary nextParser operators = produceSpannedAST $ do
   left <- nextParser
   current <- gets current
@@ -241,7 +249,7 @@ parseBinary nextParser operators = produceSpannedAST $ do
   where
     recurse = parseBinary nextParser operators
 
-parseBinaryMultiplicative :: ParserM (AST A.Expr)
+parseBinaryMultiplicative :: (State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
 parseBinaryMultiplicative =
   parseBinary
     parseUnary
@@ -249,7 +257,7 @@ parseBinaryMultiplicative =
       (Glyph "/", A.BinaryOperator A.Divide)
     ]
 
-parseBinaryAdditive :: ParserM (AST A.Expr)
+parseBinaryAdditive :: (State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
 parseBinaryAdditive =
   parseBinary
     parseBinaryMultiplicative
@@ -257,7 +265,7 @@ parseBinaryAdditive =
       (Glyph "-", A.BinaryOperator A.Minus)
     ]
 
-parseBinaryComparison :: ParserM (AST A.Expr)
+parseBinaryComparison :: (State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
 parseBinaryComparison =
   parseBinary
     parseBinaryAdditive
@@ -267,7 +275,7 @@ parseBinaryComparison =
       (Glyph ">=", A.BinaryOperator A.GreaterThanOrEqual)
     ]
 
-parseBinaryEquality :: ParserM (AST A.Expr)
+parseBinaryEquality :: (State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
 parseBinaryEquality =
   parseBinary
     parseBinaryComparison
@@ -275,26 +283,26 @@ parseBinaryEquality =
       (Glyph "!=", A.BinaryOperator A.NotEqual)
     ]
 
-parseBinaryAnd :: ParserM (AST A.Expr)
+parseBinaryAnd :: (State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
 parseBinaryAnd =
   parseBinary
     parseBinaryEquality
     [ (Glyph "&&", A.BinaryOperator A.And)
     ]
 
-parseBinaryOr :: ParserM (AST A.Expr)
+parseBinaryOr :: (State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
 parseBinaryOr =
   parseBinary
     parseBinaryAnd
     [ (Glyph "||", A.BinaryOperator A.Or)
     ]
 
-parseIfExpr :: ParserM (AST A.Expr)
+parseIfExpr :: (State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
 parseIfExpr = produceSpannedAST $ do
   (bodies, elseBody) <- parseIfPart
   returnWrap $ A.IfChain bodies elseBody
   where
-    parseIfPart :: ParserM (NonEmpty (AST A.Expr, AST A.Expr), Maybe (AST A.Expr))
+    parseIfPart :: (State Parser :> es, Error Err :> es) => Eff es (NonEmpty (AST A.Expr, AST A.Expr), Maybe (AST A.Expr))
     parseIfPart = do
       expectKeyword "if"
       condition <- parseExpr
@@ -313,7 +321,7 @@ parseIfExpr = produceSpannedAST $ do
               return (NE.singleton (condition, body), Just elseBody)
         else return (NE.singleton (condition, body), Nothing)
 
-parseExpr :: ParserM (AST A.Expr)
+parseExpr :: (State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
 parseExpr = do
   cur <- gets current
   case cur.kind of
@@ -323,7 +331,7 @@ parseExpr = do
       return $ A.ExprBody <$> body
     _ -> parseBinaryOr
 
-parseLet :: ParserM (AST A.Stmt)
+parseLet :: (State Parser :> es, Error Err :> es) => Eff es (AST A.Stmt)
 parseLet = produceSpannedAST $ do
   expectKeyword "let"
   name <- readSymbol
@@ -333,18 +341,21 @@ parseLet = produceSpannedAST $ do
   value <- parseExpr
   returnWrap $ A.Let {name, type_, value}
 
-attempt :: ParserM (Maybe a) -> ParserM (Maybe a)
+attempt :: (State Parser :> es, Error Err :> es) => Eff es (Maybe a) -> Eff es (Maybe a)
 attempt f = do
   parser <- get
-  let (result, parser') = run parser
+  (result, parser') <- run
   case result of
-    Left e -> do put parser'; throwE e
-    Right Nothing -> do return Nothing
+    Left (_, e) -> do put parser'; throwError e
+    Right Nothing -> do put parser; return Nothing
     Right j -> do put parser'; return j
   where
-    run = Control.Monad.State.Lazy.runState $ runExceptT f
+    run = do
+      result <- tryError f
+      parser' <- get
+      return (result, parser')
 
-tryParseLValue :: ParserM (Maybe (AST A.LValue))
+tryParseLValue :: (State Parser :> es, Error Err :> es) => Eff es (Maybe (AST A.LValue))
 tryParseLValue =
   fmap invert $ produceSpannedAST $ do
     cur <- gets current
@@ -361,7 +372,7 @@ tryParseLValue =
     invert (AST (Just x) span) = Just (AST x span)
     invert (AST Nothing _) = Nothing
 
-parseBody :: ParserM (AST A.Body)
+parseBody :: (State Parser :> es, Error Err :> es) => Eff es (AST A.Body)
 parseBody = produceSpannedAST $ do
   expectGlyph "{"
   stmts <- parseStmts []
@@ -375,7 +386,7 @@ parseBody = produceSpannedAST $ do
           stmt <- parseStmt
           parseStmts $ stmts ++ [stmt]
 
-parseStmt :: ParserM (AST A.Stmt)
+parseStmt :: (State Parser :> es, Error Err :> es) => Eff es (AST A.Stmt)
 parseStmt = produceSpannedAST $ do
   cur <- gets current
   case cur.kind of
@@ -425,10 +436,10 @@ parseStmt = produceSpannedAST $ do
           --   _ -> do expectGlyph ";"; return True
           returnWrap $ A.ExprStmt {value = expr, semicolon}
 
-runParse :: Text -> ParserM a -> Result a
+runParse :: Text -> ParserE a -> Result a
 runParse source f = case makeParser lexer of
   Left e -> Left e
   Right parser -> run parser
   where
     lexer = makeLexer source
-    run = evalState $ runExceptT f
+    run p = runPureEff $ runErrorNoCallStack $ evalState p f

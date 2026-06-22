@@ -35,8 +35,6 @@ data Token = Token {kind :: TokenKind, span :: Span}
 data Lexer = Lexer {cursor :: Int, source :: Text}
   deriving (Show)
 
--- type LexerM a = ExceptT Err (State Lexer) a
-
 type LexerE a = Eff '[State Lexer, Error Err] a
 
 advance :: (State Lexer :> es) => Eff es ()
