@@ -122,12 +122,24 @@ isPrimitive T.TypeExpr {valueExpr = T.Int} = True
 isPrimitive _ = False
 
 operatorSupportsType :: T.Operator -> T.TypeExpr -> Bool
+operatorSupportsType _ (T.TypeExpr {valueExpr = T.Any}) = True
 operatorSupportsType op ty =
   (op `elem` universalOperators && isPrimitive ty)
     || (op `elem` numericOperators && ty == T.makeValueExpr T.Int)
     || (op `elem` booleanOperators && ty == T.makeValueExpr T.Bool)
 
+unifies :: T.TypeExpr -> T.TypeExpr -> Bool
+-- the `any` type unifies with everything
+unifies (T.TypeExpr {valueExpr = T.Any}) _ = True
+unifies _ (T.TypeExpr {valueExpr = T.Any}) = True
+-- otherwise, types only unify with themselves (no subtyping yet, besides `any`)
+unifies t1 t2 = t1 == t2
+
+doesNotUnify :: T.TypeExpr -> T.TypeExpr -> Bool
+doesNotUnify t1 t2 = not (t1 `unifies` t2)
+
 typecheckExpr :: AST A.Expr -> TypecheckerE (TST T.Expr)
+typecheckExpr (AST A.UndefinedLit span) = return $ TST T.UndefinedLit span
 typecheckExpr (AST A.VoidLit span) = return $ TST T.VoidLit span
 typecheckExpr (AST (A.BoolLit b) span) = return $ TST (T.BoolLit b) span
 typecheckExpr (AST (A.IntLit n) span) = return $ TST (T.IntLit n) span
@@ -139,7 +151,7 @@ typecheckExpr (AST (A.BinaryOperator op l r) span) = do
   tR <- typecheckExpr r
   let tyL = typeOf $ node tL
       tyR = typeOf $ node tR
-  when (tyL /= tyR) $ throwSpan span (typeMismatch tyL tyR)
+  when (tyL `doesNotUnify` tyR) $ throwSpan span (typeMismatch tyL tyR)
   let op' = convertOperator op
       operandTy = typeOf (node tL)
       outputTy = operationOutputs op'
@@ -162,7 +174,7 @@ typecheckExpr (AST (A.FunctionCall {function, arguments}) span) = do
   tArguments <- forM (arguments `zip` params) $ \(arg, param) -> do
     tArg <- typecheckExpr arg
     let tyArg = typeOf (node tArg)
-    when (tyArg /= param) $ throwSpan span (typeMismatch param tyArg)
+    when (tyArg `doesNotUnify` param) $ throwSpan span (typeMismatch param tyArg)
     return tArg
   return $ TST (T.FunctionCall {type_ = ret, function = tFunction, arguments = tArguments}) span
 typecheckExpr (AST (A.ExprBody (A.Body stmts)) span) = do
@@ -193,7 +205,7 @@ typecheckStmt (AST (A.Let {name, type_, value}) span) = do
   tValue <- typecheckExpr value
   let typeAnnotation = convertAST $ convertTypeExpr <$> type_
   let expectType = typeOf (node tValue)
-  when (node typeAnnotation /= expectType) $ throwSpan (spanOf value) (typeMismatch (node typeAnnotation) expectType)
+  when (node typeAnnotation `doesNotUnify` expectType) $ throwSpan (spanOf value) (typeMismatch (node typeAnnotation) expectType)
   let scopes' = bindNewVariable (node name) (node typeAnnotation) scopes
   typechecker <- get
   put typechecker {scopes = scopes'}

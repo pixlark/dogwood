@@ -91,6 +91,7 @@ spec =
         (show <$> runParse "foo(1, 2,)" parseExpr) `shouldBe` Right "foo(1, 2)"
         (show <$> runParse "foo(1, 2,,)" parseExpr) `shouldSatisfy` isErrorKind ExpectedExpr
         (show <$> runParse "(1 + 2)(5)" parseExpr) `shouldBe` Right "((1 + 2))(5)"
+        (show <$> runParse "{let x: int = 5; x(15, 16);}" parseStmt) `shouldBe` Right "{\nlet x: int = 5;\nx(15, 16);\n}"
       it "can parse statement bodies" $ do
         (show <$> runParse "{ let x: int = 5; 15 }" parseExpr) `shouldBe` Right "{\nlet x: int = 5;\n15\n}"
         (show <$> runParse "{ let x: int = 5; 15; }" parseExpr) `shouldBe` Right "{\nlet x: int = 5;\n15;\n}"

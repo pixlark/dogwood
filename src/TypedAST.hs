@@ -26,7 +26,7 @@ instance SyntaxTree TST where
   node (TST x _) = x
   spanOf (TST _ s) = s
 
-data ValueTypeExpr = Void | Bool | Int | NamespacedIdentifier [Text] | Function [TypeExpr] TypeExpr
+data ValueTypeExpr = Any | Void | Bool | Int | NamespacedIdentifier [Text] | Function [TypeExpr] TypeExpr
   deriving (Eq)
 
 data TypeExpr = TypeExpr {reference :: Bool, valueExpr :: ValueTypeExpr}
@@ -49,7 +49,8 @@ data Operator
   deriving (Eq)
 
 data Expr
-  = VoidLit
+  = UndefinedLit
+  | VoidLit
   | BoolLit Bool
   | IntLit Int
   | Variable TypeExpr Text
@@ -67,6 +68,7 @@ makeReferenceExpr :: ValueTypeExpr -> TypeExpr
 makeReferenceExpr valueExpr = TypeExpr {reference = True, valueExpr}
 
 typeOf :: Expr -> TypeExpr
+typeOf UndefinedLit = makeValueExpr Any
 typeOf VoidLit = makeValueExpr Void
 typeOf (BoolLit _) = makeValueExpr Bool
 typeOf (IntLit _) = makeValueExpr Int
@@ -96,6 +98,7 @@ instance (Show a) => Show (TST a) where
   show (TST value _) = show value
 
 instance Show ValueTypeExpr where
+  show Any = "any"
   show Void = "void"
   show Bool = "bool"
   show Int = "int"
@@ -125,6 +128,7 @@ instance Show Operator where
   show Not = "!"
 
 instance Show Expr where
+  show UndefinedLit = "undefined"
   show VoidLit = "void"
   show (BoolLit b) = if b then "true" else "false"
   show (IntLit n) = show n

@@ -10,12 +10,16 @@ import Control.Monad.Except
 import Control.Monad.State.Lazy
 import qualified Data.Text as T
 import Error
+import GHC.Exception (prettyCallStack)
 import Lexer
 import Parser
 
 main :: IO ()
-main = case runParse source parseExpr of
-  Left e -> putStrLn $ T.unpack $ displayError source e
+main = case runParseCallStack source parseStmt of
+  Left (callstack, e) -> do
+    putStrLn $ prettyCallStack callstack
+    putStrLn $ T.unpack $ displayError source e
   Right a -> print a
   where
-    source = "\n\nfoo(1, 2, 3, return)"
+    -- source = "{let x: int = 5; x(15, 16);}"
+    source = "{\n    x(15, 16);\n}\n"

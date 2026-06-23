@@ -55,7 +55,8 @@ data Operator
   deriving (Eq)
 
 data Expr
-  = VoidLit
+  = UndefinedLit
+  | VoidLit
   | BoolLit Bool
   | IntLit Int
   | Variable Text

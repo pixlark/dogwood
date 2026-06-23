@@ -1,4 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
@@ -17,6 +18,7 @@ import qualified Data.Text as T
 import Debug.Trace
 import Text.Printf
 import Util
+import Prelude hiding (getLine)
 
 data ErrorKind
   = InternalCompilerError
@@ -64,6 +66,16 @@ getLineForSpan source (Span start len) = (line, span')
     line = T.take lineLength $ T.drop lineStart source
     span' = Span (start - lineStart) len
 
+getLine :: Text -> Int -> Text
+getLine source 1 = T.take lineLength source
+  where
+    lineLength = findIndex source 0 '\n' `orElse` T.length source
+getLine "" n | n > 1 = error "bad line number"
+getLine source n | n > 1 = getLine (T.drop nextLine source) (n - 1)
+  where
+    nextLine = ((+ 1) <$> findIndex source 0 '\n') `orElse` T.length source
+getLine _ _ = error "bad line number"
+
 getLineNumber :: Text -> Int -> Int
 getLineNumber text start = getLineNumber' text start 1
   where
@@ -73,21 +85,51 @@ getLineNumber text start = getLineNumber' text start 1
         | text `T.index` start == '\n' -> getLineNumber' text (start - 1) (acc + 1)
         | otherwise -> getLineNumber' text (start - 1) acc
 
+tellRed :: (MonadWriter Text m) => Text -> m ()
+tellRed text = do
+  tell "\x1b[1;31m"
+  tell text
+  tell "\x1b[0m"
+
 displayError :: Text -> Err -> Text
 displayError source (Err error span) = execWriter $ do
+  tell "\n--------------- ERROR ---------------\n"
+
   let (excerpt, Span start len) = getLineForSpan source span
   let lineNumber = getLineNumber source start
-  let digits = length $ show lineNumber
+  let totalLines = getLineNumber source (T.length source - 1)
+  let preContextStart = max (lineNumber - 3) 1
+  let postContextEnd = min (lineNumber + 3) totalLines
+
   tell $ T.show error
-  tell "\n "
+  tell "\n\n"
+
+  forM_ [preContextStart .. lineNumber - 1] $ \line -> do
+    tell " "
+    tell $ T.show line
+    tell "  "
+    tell $ getLine source line
+    tell "\n"
+
+  tell " "
   tell $ T.show lineNumber
   tell "  "
   tell excerpt
   tell "\n "
+  let digits = length $ show lineNumber
   forM_ (replicate (start + digits) " ") tell
   tell "  "
-  forM_ (replicate len "^") tell
+  forM_ (replicate len "~") tellRed
   tell "\n"
+
+  forM_ [lineNumber + 1 .. postContextEnd] $ \line -> do
+    tell " "
+    tell $ T.show line
+    tell "  "
+    tell $ getLine source line
+    tell "\n"
+
+  tell "\n-------------------------------------\n"
 
 instance Show ErrorKind where
   show InternalCompilerError = "Internal compiler error!"

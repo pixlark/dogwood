@@ -82,7 +82,8 @@ keywords =
     "instance",
     "true",
     "false",
-    "break"
+    "break",
+    "undefined"
   ]
 
 validGlyphs :: [T.Text]
