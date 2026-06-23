@@ -1,9 +1,11 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Typechecker.Internal where
 
@@ -11,6 +13,7 @@ import AST (AST (..), SyntaxTree (..))
 import qualified AST as A
 import Control.Applicative
 import Control.Monad
+import qualified Data.List
 import Data.List.NonEmpty (NonEmpty (..), (<|))
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe
@@ -26,13 +29,19 @@ import Util
 
 type LexicalScopes = NonEmpty [(Text, T.TypeExpr)]
 
-lookupVariable :: Text -> LexicalScopes -> Maybe T.TypeExpr
+lookupVariable' name (scope :| []) = lookup name scope
+lookupVariable' name (scope :| rest) = (lookup name scope) <|> (lookupVariable' name (NE.fromList rest))
+
+lookupVariable :: (State Typechecker :> es, Error Err :> es) => Span -> Text -> Eff es T.TypeExpr
 {- HLINT ignore -}
-lookupVariable name (scope :| []) = lookup name scope
-lookupVariable name (scope :| rest) = (lookup name scope) <|> (lookupVariable name (NE.fromList rest))
+lookupVariable span name = do
+  scopes <- gets scopes
+  case lookupVariable' name scopes of
+    Just x -> return x
+    Nothing -> throwSpan span (UnboundVariable name)
 
 variableExists :: Text -> LexicalScopes -> Bool
-variableExists name = isJust . lookupVariable name
+variableExists name = isJust . lookupVariable' name
 
 bindNewVariable :: Text -> T.TypeExpr -> LexicalScopes -> LexicalScopes
 bindNewVariable name type_ (scope :| rest) =
@@ -51,6 +60,9 @@ popScope (_ :| rest) = Just $ NE.fromList rest
 
 newtype Typechecker = Typechecker {scopes :: LexicalScopes}
 
+makeTypechecker :: Typechecker
+makeTypechecker = Typechecker {scopes = NE.fromList [[]]}
+
 -- type Typechecker a = Except Err a
 type TypecheckerE a = Eff '[State Typechecker, Error Err] a
 
@@ -63,14 +75,113 @@ convertValueTypeExpr (A.NamespacedIdentifier parts) = T.NamespacedIdentifier par
 convertTypeExpr :: A.TypeExpr -> T.TypeExpr
 convertTypeExpr (A.TypeExpr {reference, valueExpr}) = T.TypeExpr {reference, valueExpr = convertValueTypeExpr valueExpr}
 
+convertOperator :: A.Operator -> T.Operator
+convertOperator A.Or = T.Or
+convertOperator A.And = T.And
+convertOperator A.Equal = T.Equal
+convertOperator A.NotEqual = T.NotEqual
+convertOperator A.LessThan = T.LessThan
+convertOperator A.LessThanOrEqual = T.LessThanOrEqual
+convertOperator A.GreaterThan = T.GreaterThan
+convertOperator A.GreaterThanOrEqual = T.GreaterThanOrEqual
+convertOperator A.Plus = T.Plus
+convertOperator A.Minus = T.Minus
+convertOperator A.Multiply = T.Multiply
+convertOperator A.Divide = T.Divide
+convertOperator A.Not = T.Not
+
+numericOperators :: [T.Operator]
+numericOperators = [T.Plus, T.Minus, T.Multiply, T.Divide]
+
+booleanOperators :: [T.Operator]
+booleanOperators = [T.Or, T.And, T.Not]
+
+universalOperators :: [T.Operator]
+universalOperators = [T.Equal, T.NotEqual, T.LessThan, T.LessThanOrEqual, T.GreaterThan, T.GreaterThanOrEqual]
+
+operationOutputs :: T.Operator -> T.TypeExpr
+operationOutputs T.Or = T.makeValueExpr T.Bool
+operationOutputs T.And = T.makeValueExpr T.Bool
+operationOutputs T.Equal = T.makeValueExpr T.Bool
+operationOutputs T.NotEqual = T.makeValueExpr T.Bool
+operationOutputs T.LessThan = T.makeValueExpr T.Bool
+operationOutputs T.LessThanOrEqual = T.makeValueExpr T.Bool
+operationOutputs T.GreaterThan = T.makeValueExpr T.Bool
+operationOutputs T.GreaterThanOrEqual = T.makeValueExpr T.Bool
+operationOutputs T.Plus = T.makeValueExpr T.Int
+operationOutputs T.Minus = T.makeValueExpr T.Int
+operationOutputs T.Multiply = T.makeValueExpr T.Int
+operationOutputs T.Divide = T.makeValueExpr T.Int
+operationOutputs T.Not = T.makeValueExpr T.Bool
+
+isPrimitive :: T.TypeExpr -> Bool
+isPrimitive T.TypeExpr {reference = True} = False
+isPrimitive T.TypeExpr {valueExpr = T.Void} = True
+isPrimitive T.TypeExpr {valueExpr = T.Bool} = True
+isPrimitive T.TypeExpr {valueExpr = T.Int} = True
+isPrimitive _ = False
+
+operatorSupportsType :: T.Operator -> T.TypeExpr -> Bool
+operatorSupportsType op ty =
+  (op `elem` universalOperators && isPrimitive ty)
+    || (op `elem` numericOperators && ty == T.makeValueExpr T.Int)
+    || (op `elem` booleanOperators && ty == T.makeValueExpr T.Bool)
+
 typecheckExpr :: AST A.Expr -> TypecheckerE (TST T.Expr)
 typecheckExpr (AST A.VoidLit span) = return $ TST T.VoidLit span
+typecheckExpr (AST (A.BoolLit b) span) = return $ TST (T.BoolLit b) span
+typecheckExpr (AST (A.IntLit n) span) = return $ TST (T.IntLit n) span
+typecheckExpr (AST (A.Variable name) span) = do
+  ty <- lookupVariable span name
+  return $ TST (T.Variable ty name) span
+typecheckExpr (AST (A.BinaryOperator op l r) span) = do
+  tL <- typecheckExpr l
+  tR <- typecheckExpr r
+  let tyL = typeOf $ node tL
+      tyR = typeOf $ node tR
+  when (tyL /= tyR) $ throwSpan span (typeMismatch tyL tyR)
+  let op' = convertOperator op
+      operandTy = typeOf (node tL)
+      outputTy = operationOutputs op'
+  when (not $ operatorSupportsType op' operandTy) $ throwSpan span (OperatorSupport (Text.show op) (Text.show operandTy))
+  return $ TST (T.BinaryOperator outputTy op' tL tR) span
+typecheckExpr (AST (A.UnaryOperator op value) span) = do
+  tValue <- typecheckExpr value
+  let op' = convertOperator op
+      operandTy = typeOf (node tValue)
+      outputTy = operationOutputs op'
+  when (not $ operatorSupportsType op' operandTy) $ throwSpan span (OperatorSupport (Text.show op) (Text.show operandTy))
+  return $ TST (T.UnaryOperator outputTy op' tValue) span
+typecheckExpr (AST (A.FunctionCall {function, arguments}) span) = do
+  tFunction <- typecheckExpr function
+  let ty = typeOf (node tFunction)
+  (params, ret) <- case ty of
+    T.TypeExpr _ (T.Function params ret) -> return (params, ret)
+    _ -> throwSpan span $ (CallingNonFunction (Text.show ty))
+  when (length params /= length arguments) $ throwSpan span (WrongArgumentCount (length params) (length arguments))
+  tArguments <- forM (arguments `zip` params) $ \(arg, param) -> do
+    tArg <- typecheckExpr arg
+    let tyArg = typeOf (node tArg)
+    when (tyArg /= param) $ throwSpan span (typeMismatch param tyArg)
+    return tArg
+  return $ TST (T.FunctionCall {type_ = ret, function = tFunction, arguments = tArguments}) span
+typecheckExpr (AST (A.ExprBody (A.Body stmts)) span) = do
+  tStmts <- forM stmts $ \stmt -> do
+    tStmt <- typecheckStmt stmt
+    -- A statement evaluates to the type of its final expression. If the final ExprStmt has a semicolon, then
+    -- it's considered a statement, not an expression, and this "throws away" the value (so the type is void).
+    case tStmt of
+      (TST (T.ExprStmt {value, semicolon = False}) _) -> return $ (tStmt, typeOf (node value))
+      _ -> return $ (tStmt, T.makeValueExpr T.Void)
+  let (tStmts', retTypes) = unzip tStmts
+      retType = safeLast retTypes `orElse` T.makeValueExpr T.Void
+  return $ TST (T.ExprBody (T.Body retType tStmts')) span
 typecheckExpr _ = undefined
 
 typeMismatch :: T.TypeExpr -> T.TypeExpr -> ErrorKind
-typeMismatch expected got = TypeMismatch {expected = Text.show expected, got = Text.show got}
+typeMismatch expected got = TypeMismatch {expectedType = Text.show expected, gotType = Text.show got}
 
-throwSpan :: Span -> ErrorKind -> TypecheckerE a
+throwSpan :: (Error Err :> es) => Span -> ErrorKind -> Eff es a
 throwSpan span kind = throwError $ Err kind span
 
 convertAST :: AST a -> TST a
@@ -87,4 +198,7 @@ typecheckStmt (AST (A.Let {name, type_, value}) span) = do
   typechecker <- get
   put typechecker {scopes = scopes'}
   return $ TST (T.Let {name = convertAST name, type_ = typeAnnotation, value = tValue}) span
+typecheckStmt (AST (A.ExprStmt value semicolon) span) = do
+  tValue <- typecheckExpr value
+  return $ TST (T.ExprStmt tValue semicolon) span
 typecheckStmt _ = undefined

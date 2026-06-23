@@ -41,11 +41,6 @@ buildAST start length inner = AST inner (Span start length)
 expectAST :: Int -> Int -> a -> Result (AST a)
 expectAST start length inner = Right $ buildAST start length inner
 
-isErrorKind :: ErrorKind -> (Result a -> Bool)
-isErrorKind kind = \case
-  Left (Err kind' _) -> kind == kind'
-  Right _ -> False
-
 spec =
   describe "the Parser module" $ do
     it "can parse separated sequences" $ do
@@ -101,6 +96,9 @@ spec =
         (show <$> runParse "{ let x: int = 5; 15; }" parseExpr) `shouldBe` Right "{\nlet x: int = 5;\n15;\n}"
         (show <$> runParse "{ break; 5; void }" parseExpr) `shouldBe` Right "{\nbreak;\n5;\nvoid\n}"
         (show <$> runParse "{ break 5 }" parseExpr) `shouldSatisfy` isErrorKind (ExpectedGlyph ";")
+      -- TODO: right now this fails because we accept statement expressions without a semicolon
+      --       is that okay? maybe we don't care
+      -- (show <$> runParse "{ 6 5 }" parseExpr) `shouldSatisfy` isErrorKind (ExpectedGlyph ";")
       it "can omit semicolon after certain expressions" $ do
         (show <$> runParse "{ if true {} false }" parseExpr) `shouldBe` Right "{\nif true {\n}\nfalse\n}"
     describe "can parse statements" $ do

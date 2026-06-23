@@ -8,7 +8,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Error (ErrorKind (..), Span (..), Err (..), Result, displayError) where
+module Error (ErrorKind (..), Span (..), Err (..), Result, displayError, isErrorKind) where
 
 import Control.Monad
 import Control.Monad.Writer
@@ -19,7 +19,8 @@ import Text.Printf
 import Util
 
 data ErrorKind
-  = UnrecognizedCharacter Char
+  = InternalCompilerError
+  | UnrecognizedCharacter Char
   | ExpectedKeyword Text
   | ExpectedGlyph Text
   | ExpectedSymbol
@@ -27,8 +28,11 @@ data ErrorKind
   | ExpectedTypeExpr
   | ExpectedExpr
   | ExpectedStatement
-  | TypeMismatch {expected :: Text, got :: Text}
-  | InternalCompilerError
+  | TypeMismatch {expectedType :: Text, gotType :: Text}
+  | OperatorSupport {operator :: Text, ty :: Text}
+  | UnboundVariable Text
+  | CallingNonFunction Text
+  | WrongArgumentCount {expectedCount :: Int, gotCount :: Int}
   deriving (Eq)
 
 data Span = Span Int Int
@@ -86,6 +90,7 @@ displayError source (Err error span) = execWriter $ do
   tell "\n"
 
 instance Show ErrorKind where
+  show InternalCompilerError = "Internal compiler error!"
   show (UnrecognizedCharacter c) = printf "Unrecognized character %c" c
   show (ExpectedKeyword keyword) = printf "Expected keyword %s" keyword
   show (ExpectedGlyph glyph) = printf "Expected glyph %s" glyph
@@ -95,6 +100,14 @@ instance Show ErrorKind where
   show ExpectedExpr = "Expected expression"
   show ExpectedStatement = "Expected statement"
   show (TypeMismatch expected got) = printf "Expected type of %s, but got %s" expected got
-  show InternalCompilerError = "Internal compiler error!"
+  show (OperatorSupport operator ty) = printf "Operator %s does not support type %s" operator ty
+  show (UnboundVariable name) = printf "Referenced unbound variable %s" name
+  show (CallingNonFunction ty) = printf "Tried to invoke something that's not a function (of type %s)" ty
+  show (WrongArgumentCount expected got) = printf "Expected %d arguments, but received %d" expected got
 
 type Result a = Either Err a
+
+isErrorKind :: ErrorKind -> (Result a -> Bool)
+isErrorKind kind = \case
+  Left (Err kind' _) -> kind == kind'
+  Right _ -> False
