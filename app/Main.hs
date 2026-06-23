@@ -13,13 +13,13 @@ import Error
 import GHC.Exception (prettyCallStack)
 import Lexer
 import Parser
+import Typechecker (runTypecheckCallStack)
 
 main :: IO ()
-main = case runParseCallStack source parseStmt of
+main = case runTypecheckCallStack source of
   Left (callstack, e) -> do
     putStrLn $ prettyCallStack callstack
     putStrLn $ T.unpack $ displayError source e
   Right a -> print a
   where
-    -- source = "{let x: int = 5; x(15, 16);}"
-    source = "{\n    x(15, 16);\n}\n"
+    source = "{\n    let f: fn(int, int) -> bool = undefined;\n    f(true, 6)\n}\n"

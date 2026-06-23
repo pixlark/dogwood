@@ -17,19 +17,6 @@ import Typechecker.Internal
 import TypedAST (TST)
 import qualified TypedAST as T
 
--- runTypecheck :: Text -> TST T.Stmt
--- runTypecheck source = runExceptT $ do
---   -- ast <- ExceptT $ runParse source parseStmt
---   (stmt, _) <- typecheckStmt (NE.fromList [[]]) ast
---   return stmt
-
-runTypecheck :: Text -> Result (TST T.Stmt)
-runTypecheck source = case result of
-  Left e -> Left e
-  Right a -> runPureEff $ runErrorNoCallStack $ evalState makeTypechecker $ typecheckStmt a
-  where
-    result = runParse source parseStmt
-
 spec = do
   describe "the Typechecker module" do
     it "typechecks basic expressions" do
@@ -52,3 +39,6 @@ spec = do
       (show <$> runTypecheck "{let foo: int = 5; let bar: int = foo;}") `shouldBe` Right "{\nlet foo: int = 5;\nlet bar: int = (foo : int);\n} : void"
     it "typechecks function calls" do
       (show <$> runTypecheck "{let x: int = 5; x(15, 16);}") `shouldSatisfy` isErrorKind (CallingNonFunction "int")
+      (show <$> runTypecheck "{let f: fn(int, int) -> bool = undefined; f(5, 6)}") `shouldBe` Right "{\nlet f: fn(int, int) -> bool = undefined;\n(f(5, 6) : bool)\n} : bool"
+      (show <$> runTypecheck "{let f: fn(int, int) -> bool = undefined; f(true, 6)}") `shouldSatisfy` isErrorKind (TypeMismatch "int" "bool")
+      (show <$> runTypecheck "{let f: fn(int, int) -> void = undefined; f(1)}") `shouldSatisfy` isErrorKind (WrongArgumentCount 2 1)

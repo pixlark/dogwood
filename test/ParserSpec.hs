@@ -58,6 +58,9 @@ spec =
       runParse " asdf::foo " parseTypeExpr `shouldBe` expectAST 1 9 (A.makeValueExpr $ A.NamespacedIdentifier ["asdf", "foo"])
       runParse "&bool" parseTypeExpr `shouldBe` expectAST 0 5 (A.makeReferenceExpr A.Bool)
       runParse "&&bool" parseTypeExpr `shouldSatisfy` isErrorKind ExpectedTypeExpr
+      (show <$> runParse "fn() -> void" parseTypeExpr) `shouldBe` Right "fn() -> void"
+      (show <$> runParse "fn(int) -> int" parseTypeExpr) `shouldBe` Right "fn(int) -> int"
+      (show <$> runParse "fn(int, bool) -> void" parseTypeExpr) `shouldBe` Right "fn(int, bool) -> void"
     describe "can parse expressions" $ do
       it "can parse basic expressions" $ do
         runParse "15" parseExpr `shouldBe` expectAST 0 2 (A.IntLit 15)

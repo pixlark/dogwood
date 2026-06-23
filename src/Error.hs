@@ -92,14 +92,17 @@ tellRed text = do
   tell "\x1b[0m"
 
 displayError :: Text -> Err -> Text
-displayError source (Err error span) = execWriter $ do
-  tell "\n--------------- ERROR ---------------\n"
+displayError source (Err error span@(Span spanStart _)) = execWriter $ do
+  do tell "\n--------------- "; tellRed "ERROR"; tell " ---------------\n\n"
 
-  let (excerpt, Span start len) = getLineForSpan source span
-  let lineNumber = getLineNumber source start
+  let (excerpt, Span excerptStart excerptLen) = getLineForSpan source span
+  let lineNumber = getLineNumber source spanStart
   let totalLines = getLineNumber source (T.length source - 1)
   let preContextStart = max (lineNumber - 3) 1
   let postContextEnd = min (lineNumber + 3) totalLines
+  -- tell $ T.pack $ printf "getLineForSpan: %s\n" (show (excerpt, Span start len))
+  -- tell $ T.pack $ printf "%d %d %s %s\n" preContextStart postContextEnd (show [preContextStart .. lineNumber - 1]) (show [lineNumber + 1 .. postContextEnd])
+  -- tell $ T.pack $ printf "lineNumber: %d\n" lineNumber
 
   tell $ T.show error
   tell "\n\n"
@@ -116,10 +119,11 @@ displayError source (Err error span) = execWriter $ do
   tell "  "
   tell excerpt
   tell "\n "
+  tellRed "e "
   let digits = length $ show lineNumber
-  forM_ (replicate (start + digits) " ") tell
+  forM_ (replicate (excerptStart + digits - 2) " ") tellRed
   tell "  "
-  forM_ (replicate len "~") tellRed
+  forM_ (replicate excerptLen "^") tellRed
   tell "\n"
 
   forM_ [lineNumber + 1 .. postContextEnd] $ \line -> do

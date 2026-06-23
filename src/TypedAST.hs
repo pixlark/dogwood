@@ -26,7 +26,7 @@ instance SyntaxTree TST where
   node (TST x _) = x
   spanOf (TST _ s) = s
 
-data ValueTypeExpr = Any | Void | Bool | Int | NamespacedIdentifier [Text] | Function [TypeExpr] TypeExpr
+data ValueTypeExpr = Any | Void | Bool | Int | NamespacedIdentifier [Text] | Function [TST TypeExpr] (TST TypeExpr)
   deriving (Eq)
 
 data TypeExpr = TypeExpr {reference :: Bool, valueExpr :: ValueTypeExpr}

@@ -19,10 +19,11 @@ import qualified Data.List.NonEmpty as NE
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Effectful (Eff, (:>))
+import Effectful (Eff, runPureEff, (:>))
 import Effectful.Error.Static
 import Effectful.State.Static.Local
 import Error
+import Parser (parseStmt, runParse, runParseCallStack)
 import TypedAST (TST (..), typeOf)
 import qualified TypedAST as T
 import Util
@@ -71,6 +72,9 @@ convertValueTypeExpr A.Void = T.Void
 convertValueTypeExpr A.Bool = T.Bool
 convertValueTypeExpr A.Int = T.Int
 convertValueTypeExpr (A.NamespacedIdentifier parts) = T.NamespacedIdentifier parts
+convertValueTypeExpr (A.Function params ret) = T.Function (map convertWrap params) (convertWrap ret)
+  where
+    convertWrap (AST typeExpr span) = TST (convertTypeExpr typeExpr) span
 
 convertTypeExpr :: A.TypeExpr -> T.TypeExpr
 convertTypeExpr (A.TypeExpr {reference, valueExpr}) = T.TypeExpr {reference, valueExpr = convertValueTypeExpr valueExpr}
@@ -174,9 +178,10 @@ typecheckExpr (AST (A.FunctionCall {function, arguments}) span) = do
   tArguments <- forM (arguments `zip` params) $ \(arg, param) -> do
     tArg <- typecheckExpr arg
     let tyArg = typeOf (node tArg)
-    when (tyArg `doesNotUnify` param) $ throwSpan span (typeMismatch param tyArg)
+    let tyParam = node param
+    when (tyArg `doesNotUnify` tyParam) $ throwSpan (spanOf tArg) (typeMismatch tyParam tyArg)
     return tArg
-  return $ TST (T.FunctionCall {type_ = ret, function = tFunction, arguments = tArguments}) span
+  return $ TST (T.FunctionCall {type_ = node ret, function = tFunction, arguments = tArguments}) span
 typecheckExpr (AST (A.ExprBody (A.Body stmts)) span) = do
   tStmts <- forM stmts $ \stmt -> do
     tStmt <- typecheckStmt stmt
@@ -214,3 +219,17 @@ typecheckStmt (AST (A.ExprStmt value semicolon) span) = do
   tValue <- typecheckExpr value
   return $ TST (T.ExprStmt tValue semicolon) span
 typecheckStmt _ = undefined
+
+runTypecheck :: Text -> Result (TST T.Stmt)
+runTypecheck source = case result of
+  Left e -> Left e
+  Right a -> runPureEff $ runErrorNoCallStack $ evalState makeTypechecker $ typecheckStmt a
+  where
+    result = runParse source parseStmt
+
+runTypecheckCallStack :: Text -> Either (CallStack, Err) (TST T.Stmt)
+runTypecheckCallStack source = case result of
+  Left e -> Left e
+  Right a -> runPureEff $ runError $ evalState makeTypechecker $ typecheckStmt a
+  where
+    result = runParseCallStack source parseStmt

@@ -1,3 +1,4 @@
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE NamedFieldPuns #-}
@@ -32,7 +33,7 @@ instance SyntaxTree AST where
 instance Functor AST where
   fmap f (AST x span) = AST (f x) span
 
-data ValueTypeExpr = Void | Bool | Int | NamespacedIdentifier [Text]
+data ValueTypeExpr = Void | Bool | Int | NamespacedIdentifier [Text] | Function [AST TypeExpr] (AST TypeExpr)
   deriving (Eq)
 
 data TypeExpr = TypeExpr {reference :: Bool, valueExpr :: ValueTypeExpr}
@@ -96,6 +97,11 @@ instance Show ValueTypeExpr where
   show Bool = "bool"
   show Int = "int"
   show (NamespacedIdentifier parts) = T.unpack $ T.intercalate "::" parts
+  show (Function params ret) = execWriter do
+    tell "fn("
+    tell $ T.unpack $ T.intercalate ", " $ map T.show params
+    tell ") -> "
+    tell $ show ret
 
 instance Show TypeExpr where
   show (TypeExpr {reference, valueExpr}) = (if reference then "&" else "") ++ show valueExpr

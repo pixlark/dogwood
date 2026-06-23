@@ -170,13 +170,32 @@ produceSpannedAST f = do
 parseTypeExpr :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.TypeExpr)
 parseTypeExpr = produceSpannedAST $ do
   reference <- matchGlyph "&"
-  current <- gets current
-  valueExpr <- case current.kind of
+  cur <- gets current
+  valueExpr <- case cur.kind of
     Keyword "void" -> do advance; return A.Void
     Keyword "bool" -> do advance; return A.Bool
     Keyword "int" -> do advance; return A.Int
+    Keyword "fn" -> do
+      advance
+      expectGlyph "("
+      paramTypes <-
+        parseSeparatedSequence
+          ( SeparatorConfig
+              { trailing = True,
+                separator = Glyph ",",
+                consume = do
+                  cur <- gets current
+                  if cur.kind == Glyph ")"
+                    then return Nothing
+                    else do expr <- parseTypeExpr; return (Just expr)
+              }
+          )
+      expectGlyph ")"
+      expectGlyph "->"
+      retType <- parseTypeExpr
+      return $ A.Function paramTypes retType
     Symbol _ -> parseNamespacedIdentifier
-    _ -> throwSpan (current.span) ExpectedTypeExpr
+    _ -> throwSpan (cur.span) ExpectedTypeExpr
   return $ NotSpanned A.TypeExpr {reference, valueExpr}
 
 parseAtom :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
