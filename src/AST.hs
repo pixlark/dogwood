@@ -3,8 +3,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
-
--- #define USE_DERIVED_SHOW
+{-# LANGUAGE TypeFamilies #-}
 
 module AST where
 
