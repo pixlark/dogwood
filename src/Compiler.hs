@@ -1,5 +1,3 @@
-{-# LANGUAGE DataKinds #-}
-
 module Compiler where
 
 import Effectful

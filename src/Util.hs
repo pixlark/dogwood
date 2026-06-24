@@ -1,9 +1,3 @@
-{-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 module Util (eitherFromMaybe, orElse, safeHead, safeLast) where
 
 import Data.Maybe

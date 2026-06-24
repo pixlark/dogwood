@@ -1,10 +1,3 @@
-{-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 module TypedAST where
 
 import AST (SyntaxTree (..))
