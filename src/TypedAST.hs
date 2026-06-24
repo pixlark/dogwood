@@ -147,7 +147,8 @@ instance Show Expr where
     tell $ printf ") : %s)" (show type_)
   show (Variable t sym) = printf "(%s : %s)" sym (show t)
   show (ExprBody body) = show body
-  show (IfChain _ bodies elseBody) = execWriter $ do
+  show (IfChain t bodies elseBody) = execWriter $ do
+    tell "("
     let first = NE.head bodies
     writeIf first
     let rest = NE.tail bodies
@@ -157,6 +158,7 @@ instance Show Expr where
     forM_ elseBody $ \body -> do
       tell " else "
       tell $ show body
+    tell $ printf ") : %s" (show t)
     where
       writeIf :: (TST Expr, TST Expr) -> Writer String ()
       writeIf (condition, body) = do

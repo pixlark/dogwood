@@ -5,6 +5,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Typechecker.Internal where
@@ -142,7 +143,7 @@ unifies t1 t2 = t1 == t2
 doesNotUnify :: T.TypeExpr -> T.TypeExpr -> Bool
 doesNotUnify t1 t2 = not (t1 `unifies` t2)
 
-typecheckExpr :: AST A.Expr -> TypecheckerE (TST T.Expr)
+typecheckExpr :: (State Typechecker :> es, Error Err :> es) => AST A.Expr -> Eff es (TST T.Expr)
 typecheckExpr (AST A.UndefinedLit span) = return $ TST T.UndefinedLit span
 typecheckExpr (AST A.VoidLit span) = return $ TST T.VoidLit span
 typecheckExpr (AST (A.BoolLit b) span) = return $ TST (T.BoolLit b) span
@@ -193,7 +194,29 @@ typecheckExpr (AST (A.ExprBody (A.Body stmts)) span) = do
   let (tStmts', retTypes) = unzip tStmts
       retType = safeLast retTypes `orElse` T.makeValueExpr T.Void
   return $ TST (T.ExprBody (T.Body retType tStmts')) span
-typecheckExpr _ = undefined
+typecheckExpr (AST (A.IfChain bodies elseBody) span) = do
+  tBodies <- forM bodies $ \(condition, body) -> do
+    tCondition <- typecheckExpr condition
+    let tyCondition = typeOf (node tCondition)
+    -- make sure all the conditions are actually boolean
+    when (tyCondition `doesNotUnify` T.makeValueExpr T.Bool) $ throwSpan (spanOf tCondition) (typeMismatch (T.makeValueExpr T.Bool) tyCondition)
+    tBody <- typecheckExpr body
+    return (tCondition, tBody)
+  tElseBody <- traverse typecheckExpr elseBody
+  -- probably a less nasty way to do this, but I have a headache
+  let tAllBodies = (snd <$> tBodies) `NE.appendList` ((Data.List.singleton <$> tElseBody) `orElse` [])
+      -- if there's an else component to this if expression, then it's capable of evaluating to something other
+      -- than void. if there's no else component, then all the bodies must evaluate to void (since the "default"
+      -- else will evaluate to void).
+      expectBodyType =
+        if isJust tElseBody
+          then typeOf $ node $ NE.head tAllBodies
+          else T.makeValueExpr T.Void
+  -- make sure all the bodies have the same type
+  forM_ tAllBodies $ \body -> do
+    let bodyType = typeOf $ node body
+    when (bodyType `doesNotUnify` expectBodyType) $ throwSpan (spanOf body) (typeMismatch expectBodyType bodyType)
+  return $ TST (T.IfChain expectBodyType tBodies tElseBody) span
 
 typeMismatch :: T.TypeExpr -> T.TypeExpr -> ErrorKind
 typeMismatch expected got = TypeMismatch {expectedType = Text.show expected, gotType = Text.show got}
@@ -204,7 +227,7 @@ throwSpan span kind = throwError $ Err kind span
 convertAST :: AST a -> TST a
 convertAST (AST a span) = TST a span
 
-typecheckStmt :: AST A.Stmt -> TypecheckerE (TST T.Stmt)
+typecheckStmt :: (State Typechecker :> es, Error Err :> es) => AST A.Stmt -> Eff es (TST T.Stmt)
 typecheckStmt (AST (A.Let {name, type_, value}) span) = do
   scopes <- gets scopes
   tValue <- typecheckExpr value

@@ -42,3 +42,13 @@ spec = do
       (show <$> runTypecheck "{let f: fn(int, int) -> bool = undefined; f(5, 6)}") `shouldBe` Right "{\nlet f: fn(int, int) -> bool = undefined;\n(f(5, 6) : bool)\n} : bool"
       (show <$> runTypecheck "{let f: fn(int, int) -> bool = undefined; f(true, 6)}") `shouldSatisfy` isErrorKind (TypeMismatch "int" "bool")
       (show <$> runTypecheck "{let f: fn(int, int) -> void = undefined; f(1)}") `shouldSatisfy` isErrorKind (WrongArgumentCount 2 1)
+    it "typechecks if expressions" do
+      (show <$> runTypecheck "if true void else if false void") `shouldBe` Right "(if true void else if false void) : void"
+      (show <$> runTypecheck "if 15 void else if false void") `shouldSatisfy` isErrorKind (TypeMismatch "bool" "int")
+      (show <$> runTypecheck "if true 15 else 16") `shouldBe` Right "(if true 15 else 16) : int"
+      (show <$> runTypecheck "if true 15 else true") `shouldSatisfy` isErrorKind (TypeMismatch "int" "bool")
+      (show <$> runTypecheck "if true { 15; }") `shouldBe` Right "(if true {\n15;\n} : void) : void"
+      -- TODO: is this one reasonable behavior? maybe we should be okay with this, even though they didn't
+      --       "discard" the value with a semicolon?
+      --       what does rust do?
+      (show <$> runTypecheck "if true { 15 }") `shouldSatisfy` isErrorKind (TypeMismatch "void" "int")
