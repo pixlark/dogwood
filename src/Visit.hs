@@ -1,8 +1,8 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Visit
   ( Visitor (..),
+    defaultVisitor,
     runStmtVisitor,
     runExprVisitor,
     runLValueVisitor,
@@ -14,97 +14,101 @@ where
 
 import Control.Monad (forM_)
 import qualified Data.List.NonEmpty as NE
-import Effectful
-import Effectful.State.Static.Local (State)
 import TypedAST
 
-class Visitor v where
-  visitValueTypeExpr :: (State v :> es) => TST ValueTypeExpr -> Eff es ()
-  visitValueTypeExpr _ = return ()
-  visitTypeExpr :: (State v :> es) => TST TypeExpr -> Eff es ()
-  visitTypeExpr _ = return ()
-  visitExpr :: (State v :> es) => TST Expr -> Eff es ()
-  visitExpr _ = return ()
-  visitStmt :: (State v :> es) => TST Stmt -> Eff es ()
-  visitStmt _ = return ()
-  visitLValue :: (State v :> es) => TST LValue -> Eff es ()
-  visitLValue _ = return ()
-  visitBody :: (State v :> es) => TST Body -> Eff es ()
-  visitBody _ = return ()
+data Visitor m = Visitor
+  { onValueTypeExpr :: TST ValueTypeExpr -> m () -> m (),
+    onTypeExpr :: TST TypeExpr -> m () -> m (),
+    onExpr :: TST Expr -> m () -> m (),
+    onStmt :: TST Stmt -> m () -> m (),
+    onLValue :: TST LValue -> m () -> m (),
+    onBody :: TST Body -> m () -> m ()
+  }
 
-runValueTypeExprVisitor :: (Visitor v, State v :> es) => TST ValueTypeExpr -> Eff es ()
-runValueTypeExprVisitor vte@(TST (Function params ret) _) = do
-  visitValueTypeExpr vte
-  forM_ params runTypeExprVisitor
-  runTypeExprVisitor ret
-runValueTypeExprVisitor vte = visitValueTypeExpr vte
+defaultVisitor :: (Monad m) => Visitor m
+defaultVisitor =
+  Visitor
+    { onValueTypeExpr = \_ children -> children,
+      onTypeExpr = \_ children -> children,
+      onExpr = \_ children -> children,
+      onStmt = \_ children -> children,
+      onLValue = \_ children -> children,
+      onBody = \_ children -> children
+    }
 
-runTypeExprVisitor :: (Visitor v, State v :> es) => TST TypeExpr -> Eff es ()
-runTypeExprVisitor te@(TST (TypeExpr _ valueExpr) span_) = do
-  visitTypeExpr te
-  runValueTypeExprVisitor (TST valueExpr span_)
+runValueTypeExprVisitor :: (Monad m) => Visitor m -> TST ValueTypeExpr -> m ()
+runValueTypeExprVisitor v vte@(TST (Function params ret) _) =
+  onValueTypeExpr v vte $ do
+    forM_ params (runTypeExprVisitor v)
+    runTypeExprVisitor v ret
+runValueTypeExprVisitor v vte = onValueTypeExpr v vte (return ())
 
-runLValueVisitor :: (Visitor v, State v :> es) => TST LValue -> Eff es ()
-runLValueVisitor lv@(TST (LVariable typeExpr _) span_) = do
-  visitLValue lv
-  runTypeExprVisitor (TST typeExpr span_)
+runTypeExprVisitor :: (Monad m) => Visitor m -> TST TypeExpr -> m ()
+runTypeExprVisitor v te@(TST (TypeExpr _ valueExpr) span_) =
+  onTypeExpr v te $
+    runValueTypeExprVisitor v (TST valueExpr span_)
 
-runBodyVisitor :: (Visitor v, State v :> es) => TST Body -> Eff es ()
-runBodyVisitor body@(TST (Body typeExpr stmts) span_) = do
-  visitBody body
-  runTypeExprVisitor (TST typeExpr span_)
-  forM_ stmts runStmtVisitor
+runLValueVisitor :: (Monad m) => Visitor m -> TST LValue -> m ()
+runLValueVisitor v lv@(TST (LVariable typeExpr _) span_) =
+  onLValue v lv $
+    runTypeExprVisitor v (TST typeExpr span_)
 
-runExprVisitor :: (Visitor v, State v :> es) => TST Expr -> Eff es ()
-runExprVisitor expr@(TST UndefinedLit _) = visitExpr expr
-runExprVisitor expr@(TST VoidLit _) = visitExpr expr
-runExprVisitor expr@(TST (BoolLit _) _) = visitExpr expr
-runExprVisitor expr@(TST (IntLit _) _) = visitExpr expr
-runExprVisitor expr@(TST (Variable typeExpr _) span_) = do
-  visitExpr expr
-  runTypeExprVisitor (TST typeExpr span_)
-runExprVisitor expr@(TST (BinaryOperator typeExpr _ left right) span_) = do
-  visitExpr expr
-  runTypeExprVisitor (TST typeExpr span_)
-  runExprVisitor left
-  runExprVisitor right
-runExprVisitor expr@(TST (UnaryOperator typeExpr _ operand) span_) = do
-  visitExpr expr
-  runTypeExprVisitor (TST typeExpr span_)
-  runExprVisitor operand
-runExprVisitor expr@(TST (FunctionCall type_ function arguments) span_) = do
-  visitExpr expr
-  runTypeExprVisitor (TST type_ span_)
-  runExprVisitor function
-  forM_ arguments runExprVisitor
-runExprVisitor expr@(TST (ExprBody body) span_) = do
-  visitExpr expr
-  runBodyVisitor (TST body span_)
-runExprVisitor expr@(TST (IfChain typeExpr branches elseBody) span_) = do
-  visitExpr expr
-  runTypeExprVisitor (TST typeExpr span_)
-  forM_ (NE.toList branches) $ \(condition, body) -> do
-    runExprVisitor condition
-    runExprVisitor body
-  forM_ elseBody runExprVisitor
+runBodyVisitor :: (Monad m) => Visitor m -> TST Body -> m ()
+runBodyVisitor v body@(TST (Body typeExpr stmts) span_) =
+  onBody v body $ do
+    runTypeExprVisitor v (TST typeExpr span_)
+    forM_ stmts (runStmtVisitor v)
 
-runStmtVisitor :: (Visitor v, State v :> es) => TST Stmt -> Eff es ()
-runStmtVisitor stmt@(TST (Let _ type_ value) _) = do
-  visitStmt stmt
-  runTypeExprVisitor type_
-  runExprVisitor value
-runStmtVisitor stmt@(TST (Assign lvalue value) _) = do
-  visitStmt stmt
-  runLValueVisitor lvalue
-  runExprVisitor value
-runStmtVisitor stmt@(TST (ExprStmt value _) _) = do
-  visitStmt stmt
-  runExprVisitor value
-runStmtVisitor stmt@(TST (Return maybeValue) _) = do
-  visitStmt stmt
-  forM_ maybeValue runExprVisitor
-runStmtVisitor stmt@(TST Break _) = do
-  visitStmt stmt
-runStmtVisitor stmt@(TST (Loop body) _) = do
-  visitStmt stmt
-  runBodyVisitor body
+runExprVisitor :: (Monad m) => Visitor m -> TST Expr -> m ()
+runExprVisitor v expr@(TST UndefinedLit _) = onExpr v expr (return ())
+runExprVisitor v expr@(TST VoidLit _) = onExpr v expr (return ())
+runExprVisitor v expr@(TST (BoolLit _) _) = onExpr v expr (return ())
+runExprVisitor v expr@(TST (IntLit _) _) = onExpr v expr (return ())
+runExprVisitor v expr@(TST (Variable typeExpr _) span_) =
+  onExpr v expr $
+    runTypeExprVisitor v (TST typeExpr span_)
+runExprVisitor v expr@(TST (BinaryOperator typeExpr _ left right) span_) =
+  onExpr v expr $ do
+    runTypeExprVisitor v (TST typeExpr span_)
+    runExprVisitor v left
+    runExprVisitor v right
+runExprVisitor v expr@(TST (UnaryOperator typeExpr _ operand) span_) =
+  onExpr v expr $ do
+    runTypeExprVisitor v (TST typeExpr span_)
+    runExprVisitor v operand
+runExprVisitor v expr@(TST (FunctionCall type_ function arguments) span_) =
+  onExpr v expr $ do
+    runTypeExprVisitor v (TST type_ span_)
+    runExprVisitor v function
+    forM_ arguments (runExprVisitor v)
+runExprVisitor v expr@(TST (ExprBody body) span_) =
+  onExpr v expr $
+    runBodyVisitor v (TST body span_)
+runExprVisitor v expr@(TST (IfChain typeExpr branches elseBody) span_) =
+  onExpr v expr $ do
+    runTypeExprVisitor v (TST typeExpr span_)
+    forM_ (NE.toList branches) $ \(condition, body) -> do
+      runExprVisitor v condition
+      runExprVisitor v body
+    forM_ elseBody (runExprVisitor v)
+
+runStmtVisitor :: (Monad m) => Visitor m -> TST Stmt -> m ()
+runStmtVisitor v stmt@(TST (Let _ type_ value) _) =
+  onStmt v stmt $ do
+    runTypeExprVisitor v type_
+    runExprVisitor v value
+runStmtVisitor v stmt@(TST (Assign lvalue value) _) =
+  onStmt v stmt $ do
+    runLValueVisitor v lvalue
+    runExprVisitor v value
+runStmtVisitor v stmt@(TST (ExprStmt value _) _) =
+  onStmt v stmt $
+    runExprVisitor v value
+runStmtVisitor v stmt@(TST (Return maybeValue) _) =
+  onStmt v stmt $
+    forM_ maybeValue (runExprVisitor v)
+runStmtVisitor v stmt@(TST Break _) =
+  onStmt v stmt (return ())
+runStmtVisitor v stmt@(TST (Loop body) _) =
+  onStmt v stmt $
+    runBodyVisitor v body

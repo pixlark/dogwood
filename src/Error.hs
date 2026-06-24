@@ -35,6 +35,7 @@ data ErrorKind
   | UnboundVariable Text
   | CallingNonFunction Text
   | WrongArgumentCount {expectedCount :: Int, gotCount :: Int}
+  | BreakOutsideLoop
   deriving (Eq)
 
 data Span = Span Int Int
@@ -150,6 +151,7 @@ instance Show ErrorKind where
   show (UnboundVariable name) = printf "Referenced unbound variable %s" name
   show (CallingNonFunction ty) = printf "Tried to invoke something that's not a function (of type %s)" ty
   show (WrongArgumentCount expected got) = printf "Expected %d arguments, but received %d" expected got
+  show BreakOutsideLoop = "Cannot use a break statement outside of a loop"
 
 type Result a = Either Err a
 
