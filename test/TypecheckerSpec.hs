@@ -1,21 +1,24 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module TypecheckerSpec where
 
 import AST (AST)
 import qualified AST as A
 import qualified Data.List.NonEmpty as NE
-import Data.Text (Text)
+import Data.Text (Text, show)
 import Effectful
 import Effectful.Error.Static (runErrorNoCallStack)
 import Effectful.State.Static.Local
 import Error
+import NeatInterpolation
 import Parser (parseStmt, runParse)
 import Test.Hspec
 import Typechecker.Internal
 import TypedAST (TST)
 import qualified TypedAST as T
+import Prelude hiding (show)
 
 spec = do
   describe "the Typechecker module" do
@@ -52,3 +55,36 @@ spec = do
       --       "discard" the value with a semicolon?
       --       what does rust do?
       (show <$> runTypecheck "if true { 15 }") `shouldSatisfy` isErrorKind (TypeMismatch "void" "int")
+    it "typechecks loops" do
+      (show <$> runTypecheck "loop { 15 }") `shouldSatisfy` isErrorKind (TypeMismatch "void" "int")
+      (show <$> runTypecheck "loop { 15; }") `shouldBe` Right "loop {\n15;\n} : void"
+    it "typchecks complex programs" do
+      let source =
+            [text| 
+              {
+                let n: int = 5;
+                let acc: int = 1;
+                loop {
+                  if n == 0 {
+                    break;
+                  }
+                  acc = acc * n;
+                  n = n - 1;
+                }
+              }
+            |]
+          expected =
+            [text|
+              {
+              let n: int = 5;
+              let acc: int = 1;
+              loop {
+              (if ((n : int) == 0 : bool) {
+              break;
+              } : void) : void
+              acc = ((acc : int) * (n : int) : int);
+              n = ((n : int) - 1 : int);
+              } : void
+              } : void
+            |]
+      (show <$> runTypecheck source) `shouldBe` Right expected

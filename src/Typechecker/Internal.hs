@@ -143,6 +143,19 @@ unifies t1 t2 = t1 == t2
 doesNotUnify :: T.TypeExpr -> T.TypeExpr -> Bool
 doesNotUnify t1 t2 = not (t1 `unifies` t2)
 
+typecheckBody :: (State Typechecker :> es, Error Err :> es) => AST A.Body -> Eff es (TST T.Body)
+typecheckBody (AST (A.Body stmts) span) = do
+  tStmts <- forM stmts $ \stmt -> do
+    tStmt <- typecheckStmt stmt
+    -- A statement evaluates to the type of its final expression. If the final ExprStmt has a semicolon, then
+    -- it's considered a statement, not an expression, and this "throws away" the value (so the type is void).
+    case tStmt of
+      (TST (T.ExprStmt {value, semicolon = False}) _) -> return $ (tStmt, typeOf (node value))
+      _ -> return $ (tStmt, T.makeValueExpr T.Void)
+  let (tStmts', retTypes) = unzip tStmts
+      retType = safeLast retTypes `orElse` T.makeValueExpr T.Void
+  return $ TST (T.Body retType tStmts') span
+
 typecheckExpr :: (State Typechecker :> es, Error Err :> es) => AST A.Expr -> Eff es (TST T.Expr)
 typecheckExpr (AST A.UndefinedLit span) = return $ TST T.UndefinedLit span
 typecheckExpr (AST A.VoidLit span) = return $ TST T.VoidLit span
@@ -183,17 +196,9 @@ typecheckExpr (AST (A.FunctionCall {function, arguments}) span) = do
     when (tyArg `doesNotUnify` tyParam) $ throwSpan (spanOf tArg) (typeMismatch tyParam tyArg)
     return tArg
   return $ TST (T.FunctionCall {type_ = node ret, function = tFunction, arguments = tArguments}) span
-typecheckExpr (AST (A.ExprBody (A.Body stmts)) span) = do
-  tStmts <- forM stmts $ \stmt -> do
-    tStmt <- typecheckStmt stmt
-    -- A statement evaluates to the type of its final expression. If the final ExprStmt has a semicolon, then
-    -- it's considered a statement, not an expression, and this "throws away" the value (so the type is void).
-    case tStmt of
-      (TST (T.ExprStmt {value, semicolon = False}) _) -> return $ (tStmt, typeOf (node value))
-      _ -> return $ (tStmt, T.makeValueExpr T.Void)
-  let (tStmts', retTypes) = unzip tStmts
-      retType = safeLast retTypes `orElse` T.makeValueExpr T.Void
-  return $ TST (T.ExprBody (T.Body retType tStmts')) span
+typecheckExpr (AST (A.ExprBody body) span) = do
+  tBody <- typecheckBody (A.AST body span)
+  return $ TST (T.ExprBody (node tBody)) span
 typecheckExpr (AST (A.IfChain bodies elseBody) span) = do
   tBodies <- forM bodies $ \(condition, body) -> do
     tCondition <- typecheckExpr condition
@@ -227,6 +232,11 @@ throwSpan span kind = throwError $ Err kind span
 convertAST :: AST a -> TST a
 convertAST (AST a span) = TST a span
 
+typecheckLValue :: (State Typechecker :> es, Error Err :> es) => AST A.LValue -> Eff es (TST T.LValue)
+typecheckLValue (A.AST (A.LVariable name) span) = do
+  ty <- lookupVariable span name
+  return $ TST (T.LVariable ty name) span
+
 typecheckStmt :: (State Typechecker :> es, Error Err :> es) => AST A.Stmt -> Eff es (TST T.Stmt)
 typecheckStmt (AST (A.Let {name, type_, value}) span) = do
   scopes <- gets scopes
@@ -238,10 +248,25 @@ typecheckStmt (AST (A.Let {name, type_, value}) span) = do
   typechecker <- get
   put typechecker {scopes = scopes'}
   return $ TST (T.Let {name = convertAST name, type_ = typeAnnotation, value = tValue}) span
+typecheckStmt (AST (A.Assign {lvalue, value}) span) = do
+  tLValue <- typecheckLValue lvalue
+  tValue <- typecheckExpr value
+  let (T.LVariable tyL _) = (node tLValue)
+      tyR = typeOf (node tValue)
+  when (tyL `doesNotUnify` tyR) $ throwSpan (spanOf value) (typeMismatch tyL tyR)
+  return $ TST (T.Assign tLValue tValue) span
 typecheckStmt (AST (A.ExprStmt value semicolon) span) = do
   tValue <- typecheckExpr value
   return $ TST (T.ExprStmt tValue semicolon) span
-typecheckStmt _ = undefined
+typecheckStmt (AST (A.Return maybeValue) span) = do
+  tMaybeValue <- traverse typecheckExpr maybeValue
+  return $ TST (T.Return tMaybeValue) span
+typecheckStmt (AST A.Break span) = return $ TST T.Break span
+typecheckStmt (AST (A.Loop body) span) = do
+  tBody <- typecheckBody body
+  let (T.Body ty _) = node tBody
+  when (ty `doesNotUnify` T.makeValueExpr T.Void) $ throwSpan (spanOf body) (typeMismatch (T.makeValueExpr T.Void) ty)
+  return $ TST (T.Loop tBody) span
 
 runTypecheck :: Text -> Result (TST T.Stmt)
 runTypecheck source = case result of
