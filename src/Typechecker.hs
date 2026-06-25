@@ -1,3 +1,3 @@
-module Typechecker (runTypecheck, runTypecheckCallStack) where
+module Typechecker (runTypecheck, runTypecheckCallStack, unifies) where
 
 import Typechecker.Internal

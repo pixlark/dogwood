@@ -1,19 +1,9 @@
 module Lexer.Internal where
 
-import Control.Monad
--- import Control.Monad.Except
--- import Control.Monad.State.Lazy
--- import Control.Monad.Trans.Except
--- import Control.Monad.Trans.Maybe
+import Common
 import Data.Char
 import qualified Data.List as List
-import Data.Text (Text)
 import qualified Data.Text as T
-import Effectful (Eff, (:>))
-import Effectful.Error.Static (Error, throwError)
-import Effectful.State.Static.Local (State, gets, modify)
-import Error
-import Text.Printf
 import Util
 
 data TokenKind = Eof | Symbol Text | Keyword Text | Glyph Text | IntLiteral Int

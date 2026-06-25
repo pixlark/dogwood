@@ -2,6 +2,7 @@
 
 module Main where
 
+import qualified CompilerSpec
 import qualified LexerSpec
 import qualified LoopPassSpec
 import qualified ParserSpec
@@ -14,3 +15,4 @@ main = hspec $ do
   ParserSpec.spec
   TypecheckerSpec.spec
   LoopPassSpec.spec
+  CompilerSpec.spec

@@ -2,15 +2,10 @@
 
 module AST where
 
-import Control.Monad
+import Common hiding (Writer, tell)
 import Control.Monad.Writer
-import Data.Functor
-import Data.List (intercalate)
 import qualified Data.List.NonEmpty as NE
-import Data.Text (Text)
 import qualified Data.Text as T
-import Error
-import Text.Printf
 
 class SyntaxTree t where
   node :: t a -> a
@@ -116,6 +111,7 @@ instance Show Operator where
   show Not = "!"
 
 instance Show Expr where
+  show UndefinedLit = "undefined"
   show VoidLit = "void"
   show (BoolLit b) = if b then "true" else "false"
   show (IntLit n) = show n

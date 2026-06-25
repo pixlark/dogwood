@@ -1,12 +1,13 @@
 {-# LANGUAGE QuasiQuotes #-}
 
-module Error (ErrorKind (..), Span (..), Err (..), Result, displayError, isErrorKind) where
+module Error (ErrorKind (..), Span (..), Err (..), Result, displayError, isErrorKind, throwSpan) where
 
 import Control.Monad
 import Control.Monad.Writer
 import Data.Text (Text)
 import qualified Data.Text as T
-import Debug.Trace
+import Effectful (Eff, (:>))
+import Effectful.Error.Static (Error, throwError)
 import Text.Printf
 import Util
 import Prelude hiding (getLine)
@@ -150,3 +151,6 @@ isErrorKind :: ErrorKind -> (Result a -> Bool)
 isErrorKind kind = \case
   Left (Err kind' _) -> kind == kind'
   Right _ -> False
+
+throwSpan :: (Error Err :> es) => Span -> ErrorKind -> Eff es a
+throwSpan span kind = throwError $ Err kind span

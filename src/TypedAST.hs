@@ -1,13 +1,10 @@
 module TypedAST where
 
 import AST (SyntaxTree (..))
-import Control.Monad (forM_)
+import Common hiding (Writer, tell)
 import Control.Monad.Trans.Writer (Writer, execWriter, tell)
 import qualified Data.List.NonEmpty as NE
-import Data.Text (Text)
 import qualified Data.Text as T
-import Error
-import Text.Printf (printf)
 
 data TST a = TST a Span
   deriving (Eq)
@@ -60,6 +57,14 @@ makeValueExpr valueExpr = TypeExpr {reference = False, valueExpr}
 makeReferenceExpr :: ValueTypeExpr -> TypeExpr
 makeReferenceExpr valueExpr = TypeExpr {reference = True, valueExpr}
 
+mkAny = makeValueExpr Any
+
+mkVoid = makeValueExpr Void
+
+mkBool = makeValueExpr Bool
+
+mkInt = makeValueExpr Int
+
 typeOf :: Expr -> TypeExpr
 typeOf UndefinedLit = makeValueExpr Any
 typeOf VoidLit = makeValueExpr Void
@@ -68,7 +73,7 @@ typeOf (IntLit _) = makeValueExpr Int
 typeOf (Variable t _) = t
 typeOf (BinaryOperator t _ _ _) = t
 typeOf (UnaryOperator t _ _) = t
-typeOf (FunctionCall {type_, function, arguments}) = type_
+typeOf (FunctionCall {type_}) = type_
 typeOf (ExprBody (Body t _)) = t
 typeOf (IfChain t _ _) = t
 

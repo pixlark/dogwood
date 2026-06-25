@@ -2,15 +2,8 @@
 
 module LexerSpec (spec) where
 
-import Control.Monad
+import Common
 import Control.Monad.Loops (unfoldM)
-import Data.Bifunctor (first)
-import Data.Either
-import Data.Text (Text)
-import Effectful
-import Effectful.Error.Static
-import Effectful.State.Static.Local
-import Error
 import Lexer
 import Test.Hspec
 

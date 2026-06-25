@@ -4,16 +4,9 @@ module ParserSpec (spec) where
 
 import AST (AST (..))
 import qualified AST as A
--- import Control.Monad.Except
--- import Control.Monad.Loops
--- import Control.Monad.State.Lazy
-import Data.Either
+import Common
 import qualified Data.List.NonEmpty as NE
-import Data.Text (Text)
 import qualified Data.Text as T
-import Effectful
-import Effectful.Error.Static
-import Effectful.State.Static.Local
 import Error
 import Lexer.Internal
 import NeatInterpolation

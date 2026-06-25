@@ -2,22 +2,15 @@
 
 module TypecheckerSpec where
 
-import AST (AST)
-import qualified AST as A
-import qualified Data.List.NonEmpty as NE
-import Data.Text (Text, show)
-import Effectful
-import Effectful.Error.Static (runErrorNoCallStack)
-import Effectful.State.Static.Local
+import Common
+import Data.Text (show)
 import Error
 import NeatInterpolation
-import Parser (parseStmt, runParse)
 import Test.Hspec
 import Typechecker.Internal
-import TypedAST (TST)
-import qualified TypedAST as T
 import Prelude hiding (show)
 
+spec :: SpecWith ()
 spec = do
   describe "the Typechecker module" do
     it "typechecks basic expressions" do

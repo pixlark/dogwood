@@ -2,20 +2,13 @@
 
 module LoopPass where
 
-import Control.Monad (forM_, unless, when)
-import Data.Text (Text)
-import Effectful (Eff, runPureEff, (:>))
-import Effectful.Error.Static (Error, runErrorNoCallStack, throwError)
-import Effectful.State.Static.Local (State, evalState, get, gets, put, runState)
+import Common
 import Error
 import Typechecker
 import TypedAST
 import Visit
 
-data LoopPass = LoopPass {inBreakableContext :: Bool}
-
-throwSpan :: (Error Err :> es) => Span -> ErrorKind -> Eff es a
-throwSpan span kind = throwError $ Err kind span
+newtype LoopPass = LoopPass {inBreakableContext :: Bool}
 
 visitor :: (State LoopPass :> es, Error Err :> es) => Visitor (Eff es)
 visitor = defaultVisitor {onStmt}

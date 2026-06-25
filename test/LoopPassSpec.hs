@@ -2,22 +2,10 @@
 
 module LoopPassSpec (spec) where
 
-import AST (AST)
-import qualified AST as A
-import Data.Either (isRight)
-import qualified Data.List.NonEmpty as NE
-import Data.Text (Text, show)
-import Effectful
-import Effectful.Error.Static (runErrorNoCallStack)
-import Effectful.State.Static.Local
+import Common
 import Error
 import LoopPass (runLoopPass)
-import NeatInterpolation
-import Parser (parseStmt, runParse)
 import Test.Hspec
-import Typechecker.Internal
-import TypedAST (TST)
-import qualified TypedAST as T
 import Prelude hiding (show)
 
 spec = do

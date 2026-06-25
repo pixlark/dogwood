@@ -12,7 +12,7 @@ module Visit
   )
 where
 
-import Control.Monad (forM_)
+import Common
 import qualified Data.List.NonEmpty as NE
 import TypedAST
 

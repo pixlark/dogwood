@@ -51,7 +51,7 @@ extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
 common warnings
-    ghc-options: -Wall
+    ghc-options: -Wall -Wno-missing-signatures -Wno-name-shadowing
 
 common extensions
     default-extensions:
@@ -85,7 +85,8 @@ executable prototype
                       text ^>=2.1,
                       mtl,
                       transformers,
-                      prototype-core
+                      prototype-core,
+                      neat-interpolation
 
     -- Directories containing source files.
     hs-source-dirs:   app
@@ -93,14 +94,13 @@ executable prototype
     -- Base language which the package is written in.
     default-language: Haskell2010
 
-    ghc-options: -Wno-name-shadowing
-
 library prototype-core
     -- Import common warning flags.
     import:           warnings, extensions
 
     exposed-modules:    AST, AST2, TypedAST, Parser, Parser.Internal, Lexer, Lexer.Internal,
-                        Typechecker, Typechecker.Internal, Util, Error, Compiler, Visit, LoopPass
+                        Typechecker, Typechecker.Internal, Util, Error, Compiler, Visit, LoopPass,
+                        Common, EmitC, IR, LexicalScopes
 
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.18.3.0,
@@ -116,7 +116,7 @@ library prototype-core
     -- Base language which the package is written in.
     default-language: Haskell2010
 
-    ghc-options:      -Wno-name-shadowing -fplugin=Effectful.Plugin
+    ghc-options:      -fplugin=Effectful.Plugin
 
 test-suite prototype-tests
     import:           warnings, extensions
@@ -125,7 +125,7 @@ test-suite prototype-tests
     hs-source-dirs:   test
     -- test-module:      Spec
     main-is:          Main.hs
-    other-modules:    LexerSpec, ParserSpec, TypecheckerSpec, LoopPassSpec
+    other-modules:    LexerSpec, ParserSpec, TypecheckerSpec, LoopPassSpec, CompilerSpec
     build-depends:    base ^>=4.18.3.0,
                       text ^>=2.1,
                       mtl,

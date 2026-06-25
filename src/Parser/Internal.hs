@@ -2,24 +2,14 @@ module Parser.Internal where
 
 import AST (AST (..))
 import qualified AST as A
-import Control.Monad (forM, msum)
+import Common
 import Data.List.NonEmpty (NonEmpty (..), (<|))
 import qualified Data.List.NonEmpty as NE
-import Data.Text (Text)
-import qualified Data.Text as T
-import Debug.Trace
-import Effectful (Eff, runPureEff, (:>))
-import Effectful.Error.Static (CallStack, Error, HasCallStack, runError, runErrorNoCallStack, throwError, tryError)
-import Effectful.State.Static.Local (State, evalState, get, gets, modify, put, runState, state)
-import qualified Effectful.State.Static.Local
-import Error
-import Lexer
-import Text.Printf
+import Lexer.Internal (Lexer, Token (..), TokenKind (..), makeLexer, nextToken)
 
 data Parser = Parser {current :: Token, lexer :: Lexer, lastTokenEnd :: Int}
   deriving (Show)
 
--- type ParserM a = ExceptT Err (State Parser) a
 type ParserE a = Eff '[State Parser, Error Err] a
 
 advance :: (State Parser :> es, Error Err :> es) => Eff es ()
@@ -44,9 +34,6 @@ makeParserCallStack lexer = parser' <$ result
     parser = Parser {current = Token {kind = Eof, span = Span 0 0}, lexer, lastTokenEnd = 0}
     -- "prime the pump"
     (result, parser') = runPureEff $ runState parser $ runError advance
-
-throwSpan :: (HasCallStack, Error Err :> es) => Span -> ErrorKind -> Eff es a
-throwSpan span kind = throwError $ Err kind span
 
 expectKeyword :: (State Parser :> es, Error Err :> es) => Text -> Eff es ()
 expectKeyword keyword = do
