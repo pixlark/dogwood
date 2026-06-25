@@ -49,6 +49,8 @@ spec = do
     it "typechecks loops" do
       (show <$> runTypecheck "loop { 15 }") `shouldSatisfy` isErrorKind (TypeMismatch "void" "int")
       (show <$> runTypecheck "loop { 15; }") `shouldBe` Right "loop {\n15;\n} : void"
+    it "typechecks lexical scopes" do
+      (show <$> runTypecheck "let x: int = 5; { let x: bool = false; x || false } x + 5") `shouldBe` Right "let x: int = 5;\n{\nlet x: bool = false;\n(x || false : bool)\n} : bool\n(x + 5 : int)"
     it "typchecks complex programs" do
       let source =
             [text| 

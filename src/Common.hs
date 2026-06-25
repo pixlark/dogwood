@@ -51,6 +51,7 @@ module Common
     ErrorKind (..),
     Result,
     Span (..),
+    orThrowSpan,
     throwSpan,
     printf,
   )
@@ -67,5 +68,5 @@ import Effectful.Error.Static (CallStack, Error, HasCallStack, runError, runErro
 import Effectful.Reader.Static (Reader, ask, asks, local, runReader, withReader)
 import Effectful.State.Static.Local (State, evalState, execState, get, gets, modify, put, runState, state)
 import Effectful.Writer.Static.Local (Writer, runWriter, tell)
-import Error (Err (..), ErrorKind (..), Result, Span (..), throwSpan)
+import Error (Err (..), ErrorKind (..), Result, Span (..), orThrowSpan, throwSpan)
 import Text.Printf (printf)

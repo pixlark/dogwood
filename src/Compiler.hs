@@ -13,19 +13,24 @@ import Typechecker (runTypecheck, unifies)
 import TypedAST
 import Util
 
+newtype VarId = VarId Int
+  deriving (Show, Eq)
+
 data Compiler = Compiler
   { nameCounter :: Int,
     blockCounter :: Int,
+    varCounter :: Int,
     program :: Program,
     currentBlock :: BlockId,
-    scopes :: LexicalScopes (Name, BlockId),
+    scopes :: LexicalScopes (VarId, BlockId),
+    variables :: [((VarId, BlockId), Name)],
     -- | If we're inside a loop, this points to the basic block that follows the loop
     -- | (in other words, where we jump when we hit a break statement)
     currentBreakBlocks :: [BlockId]
   }
   deriving (Show, Eq)
 
-lookupVariable :: (State Compiler :> es, Error Err :> es) => Span -> Text -> Eff es (Name, BlockId)
+lookupVariable :: (State Compiler :> es, Error Err :> es) => Span -> Text -> Eff es (VarId, BlockId)
 lookupVariable span name = zoomState scopes (\s t -> t {scopes = s}) (LexicalScopes.lookupVariable span name)
 
 insertAssoc :: (Eq a) => a -> b -> [(a, b)] -> [(a, b)]
@@ -36,9 +41,11 @@ mkCompiler =
   Compiler
     { nameCounter = 0,
       blockCounter = 1,
+      varCounter = 0,
       program = Program [(BlockId 0, mkBlock)],
       currentBlock = BlockId 0,
       scopes = mkScopes,
+      variables = [],
       currentBreakBlocks = []
     }
 
@@ -57,6 +64,14 @@ mkBlockId = do
       compiler' = compiler {blockCounter = compiler.blockCounter + 1}
   put compiler'
   return blockId
+
+mkVarId :: (State Compiler :> es) => Eff es VarId
+mkVarId = do
+  compiler <- get
+  let varId = VarId compiler.varCounter
+      compiler' = compiler {varCounter = compiler.varCounter + 1}
+  put compiler'
+  return varId
 
 allocateBlock :: (State Compiler :> es) => Eff es BlockId
 allocateBlock = do
@@ -111,13 +126,24 @@ emit ty rhs span = do
 
 compileBody :: (State Compiler :> es, Error Err :> es) => Body -> Span -> Eff es Name
 compileBody (Body ty stmts) span = do
+  -- each body opens a new lexical scope
+  modify (\c -> c {scopes = pushScope c.scopes})
+
   results <- forM stmts compileStmt
   let result = join $ safeLast results
-  case result of
+  name <- case result of
     Nothing | ty `unifies` mkVoid -> do
       emit mkVoid RVoid span
     Nothing -> throwSpan span InternalCompilerError
     Just name -> return name
+
+  -- close the lexical scope
+  do
+    c <- get
+    scopes' <- popScope c.scopes `orThrowSpan` (span, InternalCompilerError)
+    put (c {scopes = scopes'})
+
+  return name
 
 -- | Compile the expression into the current program. Returns name of the local SSA form that contains
 -- | the final value of the expression.
@@ -127,15 +153,13 @@ compileExpr (TST VoidLit span) = emit mkVoid RVoid span
 compileExpr (TST (BoolLit b) span) = emit mkBool (RBool b) span
 compileExpr (TST (IntLit n) span) = emit mkInt (RInt n) span
 compileExpr (TST (Variable ty name) span) = do
-  (varName, varBlockId) <- lookupVariable span name
-  currentBlockId <- gets currentBlock
-  if varBlockId == currentBlockId
-    -- because the variable was defined within the current block, we don't have to worry
-    -- about generating a phi instruction
-    then return varName
-    -- otherwise, generate a placeholder phi instruction
-    else do
-      emit ty RPhiPlaceholder span
+  (varId, originalBlock) <- lookupVariable span name
+  compiler <- get
+  if originalBlock == compiler.currentBlock
+    -- defined locally so we're good
+    then lookup (varId, originalBlock) compiler.variables `orThrowSpan` (span, InternalCompilerError)
+    -- otherwise we need to use the phi function
+    else emit ty RPhiPlaceholder span
 compileExpr (TST (BinaryOperator ty op l r) span) = do
   lName <- compileExpr l
   rName <- compileExpr r
@@ -194,15 +218,19 @@ compileExpr (TST (IfChain ty bodies elseBody) span) = do
 compileStmt :: (State Compiler :> es, Error Err :> es) => TST Stmt -> Eff es (Maybe Name)
 compileStmt (TST (Let (TST name _) _ value) _) = do
   valName <- compileExpr value
+  varId <- mkVarId
   compiler <- get
-  let scopes' = bindNewVariable name (valName, compiler.currentBlock) compiler.scopes
-  put compiler {scopes = scopes'}
+  let blockId = compiler.currentBlock
+  let scopes' = bindNewVariable name (varId, blockId) compiler.scopes
+  let variables' = compiler.variables ++ [((varId, blockId), valName)]
+  put compiler {scopes = scopes', variables = variables'}
   return Nothing
-compileStmt (TST (Assign (TST (LVariable _ name) _) value) _) = do
+compileStmt (TST (Assign (TST (LVariable _ name) span) value) _) = do
   valName <- compileExpr value
+  (varId, _) <- lookupVariable span name
   compiler <- get
-  let scopes' = bindNewVariable name (valName, compiler.currentBlock) compiler.scopes
-  put compiler {scopes = scopes'}
+  let variables' = compiler.variables ++ [((varId, compiler.currentBlock), valName)]
+  put compiler {variables = variables'}
   return Nothing
 compileStmt (TST (ExprStmt expr semicolon) _) = do
   name <- compileExpr expr

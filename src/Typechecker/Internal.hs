@@ -102,15 +102,25 @@ doesNotUnify t1 t2 = not (t1 `unifies` t2)
 
 typecheckBody :: (State Typechecker :> es, Error Err :> es) => AST A.Body -> Eff es (TST T.Body)
 typecheckBody (AST (A.Body stmts) span) = do
+  -- each body opens a new lexical scope
+  modify (\c -> c {scopes = pushScope c.scopes})
+
   tStmts <- forM stmts $ \stmt -> do
     tStmt <- typecheckStmt stmt
     -- A statement evaluates to the type of its final expression. If the final ExprStmt has a semicolon, then
     -- it's considered a statement, not an expression, and this "throws away" the value (so the type is void).
     case tStmt of
-      (TST (T.ExprStmt {value, semicolon = False}) _) -> return $ (tStmt, typeOf (node value))
-      _ -> return $ (tStmt, T.makeValueExpr T.Void)
+      (TST (T.ExprStmt {value, semicolon = False}) _) -> return (tStmt, typeOf (node value))
+      _ -> return (tStmt, T.makeValueExpr T.Void)
+  {- HLINT ignore -}
   let (tStmts', retTypes) = unzip tStmts
       retType = safeLast retTypes `orElse` T.makeValueExpr T.Void
+
+  -- close the lexical scope
+  do
+    c <- get
+    scopes' <- popScope c.scopes `orThrowSpan` (span, InternalCompilerError)
+    put (c {scopes = scopes'})
   return $ TST (T.Body retType tStmts') span
 
 typecheckExpr :: (State Typechecker :> es, Error Err :> es) => AST A.Expr -> Eff es (TST T.Expr)
