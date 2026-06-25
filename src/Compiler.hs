@@ -18,14 +18,14 @@ data Compiler = Compiler
     blockCounter :: Int,
     program :: Program,
     currentBlock :: BlockId,
-    scopes :: LexicalScopes Name,
+    scopes :: LexicalScopes (Name, BlockId),
     -- | If we're inside a loop, this points to the basic block that follows the loop
     -- | (in other words, where we jump when we hit a break statement)
     currentBreakBlocks :: [BlockId]
   }
   deriving (Show, Eq)
 
-lookupVariable :: (State Compiler :> es, Error Err :> es) => Span -> Text -> Eff es Name
+lookupVariable :: (State Compiler :> es, Error Err :> es) => Span -> Text -> Eff es (Name, BlockId)
 lookupVariable span name = zoomState scopes (\s t -> t {scopes = s}) (LexicalScopes.lookupVariable span name)
 
 insertAssoc :: (Eq a) => a -> b -> [(a, b)] -> [(a, b)]
@@ -126,7 +126,16 @@ compileExpr (TST UndefinedLit _) = undefined
 compileExpr (TST VoidLit span) = emit mkVoid RVoid span
 compileExpr (TST (BoolLit b) span) = emit mkBool (RBool b) span
 compileExpr (TST (IntLit n) span) = emit mkInt (RInt n) span
-compileExpr (TST (Variable _ name) span) = lookupVariable span name
+compileExpr (TST (Variable ty name) span) = do
+  (varName, varBlockId) <- lookupVariable span name
+  currentBlockId <- gets currentBlock
+  if varBlockId == currentBlockId
+    -- because the variable was defined within the current block, we don't have to worry
+    -- about generating a phi instruction
+    then return varName
+    -- otherwise, generate a placeholder phi instruction
+    else do
+      emit ty RPhiPlaceholder span
 compileExpr (TST (BinaryOperator ty op l r) span) = do
   lName <- compileExpr l
   rName <- compileExpr r
@@ -186,13 +195,13 @@ compileStmt :: (State Compiler :> es, Error Err :> es) => TST Stmt -> Eff es (Ma
 compileStmt (TST (Let (TST name _) _ value) _) = do
   valName <- compileExpr value
   compiler <- get
-  let scopes' = bindNewVariable name valName compiler.scopes
+  let scopes' = bindNewVariable name (valName, compiler.currentBlock) compiler.scopes
   put compiler {scopes = scopes'}
   return Nothing
 compileStmt (TST (Assign (TST (LVariable _ name) _) value) _) = do
   valName <- compileExpr value
   compiler <- get
-  let scopes' = bindNewVariable name valName compiler.scopes
+  let scopes' = bindNewVariable name (valName, compiler.currentBlock) compiler.scopes
   put compiler {scopes = scopes'}
   return Nothing
 compileStmt (TST (ExprStmt expr semicolon) _) = do

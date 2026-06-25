@@ -25,6 +25,7 @@ data RHS
     RCall Name [Name]
   | -- Phi
     RPhi (NonEmpty (BlockId, Name))
+  | RPhiPlaceholder
   deriving (Eq)
 
 data Control = Halt | Jump BlockId | JumpIf Name BlockId BlockId
@@ -58,6 +59,7 @@ instance Show RHS where
   show (RUnaryOp op v) = printf "%s%s" (show op) (show v)
   show (RCall fn args) = printf "call %s (%s)" (show fn) (intercalate ", " $ map show args)
   show (RPhi phiPairs) = printf "phi %s" (intercalate ", " $ map (\(id, name) -> printf "%s[%s]" (show id) (show name)) $ NE.toList phiPairs)
+  show RPhiPlaceholder = "phi (?)"
 
 instance Show Control where
   show Halt = printf "halt"

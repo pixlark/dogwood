@@ -25,7 +25,7 @@ spec =
           ( Compiler
               { nameCounter = 1,
                 blockCounter = 1,
-                program = Program [(BlockId 0, Block [SSA (makeValueExpr Int) (Name 0) (RInt 5)] Halt)],
+                program = Program [(BlockId 0, Block [SSA (makeValueExpr Int) (Name 0) (RInt 5)] Halt [])],
                 currentBlock = BlockId 0,
                 scopes = mkScopes,
                 currentBreakBlocks = []
