@@ -2,9 +2,10 @@
 
 module Main where
 
-import Compiler (runCompiler)
+import Compiler (Compiler (..), execCompilerCallStack, runCompiler, runCompilerCallStack)
 import Control.Monad.Except
 import Control.Monad.State.Lazy
+import Data.Bifunctor
 import qualified Data.Text as T
 import Error
 import GHC.Exception (prettyCallStack)
@@ -24,8 +25,15 @@ import Typechecker (runTypecheckCallStack)
 
 main :: IO ()
 main =
-  print $
-    runCompiler
+  case execCompilerCallStack source of
+    Left (cs, e) -> do
+      putStrLn $ prettyCallStack cs
+      putStrLn $ T.unpack $ displayError source e
+    Right Compiler {sealed, program} -> do
+      print sealed
+      print program
+  where
+    source =
       [text|
         {
           let n: int = 5;

@@ -84,6 +84,14 @@ tellRed text = do
   tell text
   tell "\x1b[0m"
 
+leftPad :: Int -> Int -> Text
+leftPad to n = padded
+  where
+    unpadded = T.show n
+    digits = T.length unpadded
+    padLength = max 0 (to - digits)
+    padded = T.pack (map (const ' ') [1 .. padLength]) `T.append` unpadded
+
 displayError :: Text -> Err -> Text
 displayError source (Err error span@(Span spanStart _)) = execWriter $ do
   do tell "\n--------------- "; tellRed "ERROR"; tell " ---------------\n\n"
@@ -93,6 +101,8 @@ displayError source (Err error span@(Span spanStart _)) = execWriter $ do
   let totalLines = getLineNumber source (T.length source - 1)
   let preContextStart = max (lineNumber - 3) 1
   let postContextEnd = min (lineNumber + 3) totalLines
+  let spansLines = T.length (T.filter (== '\n') excerpt) + 1
+  let pad = leftPad 3
   -- tell $ T.pack $ printf "getLineForSpan: %s\n" (show (excerpt, Span start len))
   -- tell $ T.pack $ printf "%d %d %s %s\n" preContextStart postContextEnd (show [preContextStart .. lineNumber - 1]) (show [lineNumber + 1 .. postContextEnd])
   -- tell $ T.pack $ printf "lineNumber: %d\n" lineNumber
@@ -102,27 +112,36 @@ displayError source (Err error span@(Span spanStart _)) = execWriter $ do
 
   forM_ [preContextStart .. lineNumber - 1] $ \line -> do
     tell " "
-    tell $ T.show line
-    tell "  "
+    tell $ pad line
+    tell "   "
     tell $ getLine source line
     tell "\n"
 
-  tell " "
-  tell $ T.show lineNumber
-  tell "  "
-  tell excerpt
-  tell "\n "
-  tellRed "e "
-  let digits = length $ show lineNumber
-  forM_ (replicate (excerptStart + digits - 2) " ") tellRed
-  tell "  "
-  forM_ (replicate excerptLen "^") tellRed
-  tell "\n"
+  if spansLines == 1
+    then do
+      tell " "
+      tell $ pad lineNumber
+      tell "     "
+      tell excerpt
+      tell "\n   "
+      tellRed "e "
+      let digits = length $ show lineNumber
+      forM_ (replicate (excerptStart + digits - 2) " ") tellRed
+      tell "  "
+      forM_ (replicate excerptLen "^") tellRed
+      tell "\n"
+    else do
+      forM_ [lineNumber .. lineNumber + spansLines - 1] $ \line -> do
+        tell " "
+        tell $ pad line
+        tellRed " > "
+        tell $ getLine source line
+        tell "\n"
 
-  forM_ [lineNumber + 1 .. postContextEnd] $ \line -> do
+  forM_ [lineNumber + spansLines .. postContextEnd] $ \line -> do
     tell " "
-    tell $ T.show line
-    tell "  "
+    tell $ pad line
+    tell "     "
     tell $ getLine source line
     tell "\n"
 
@@ -152,7 +171,7 @@ isErrorKind kind = \case
   Left (Err kind' _) -> kind == kind'
   Right _ -> False
 
-throwSpan :: (Error Err :> es) => Span -> ErrorKind -> Eff es a
+throwSpan :: (HasCallStack, Error Err :> es) => Span -> ErrorKind -> Eff es a
 throwSpan span kind = throwError $ Err kind span
 
 orThrowSpan :: (HasCallStack, Error Err :> es) => Maybe a -> (Span, ErrorKind) -> Eff es a

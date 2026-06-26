@@ -5,11 +5,13 @@ module Compiler where
 import AST (SyntaxTree (..))
 import Common
 import Control.Monad (join)
+import Data.List (findIndex)
+import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import IR
 import LexicalScopes hiding (lookupVariable)
 import qualified LexicalScopes
-import Typechecker (runTypecheck, unifies)
+import Typechecker (runTypecheck, runTypecheckCallStack, unifies)
 import TypedAST
 import Util
 
@@ -23,18 +25,26 @@ data Compiler = Compiler
     program :: Program,
     currentBlock :: BlockId,
     scopes :: LexicalScopes (VarId, BlockId),
+    -- `currentDef` in the Braun construction
+    -- each entry in this map represents the SSA name associated with a particular AST variable
+    -- in a particular block. these get used to fill out phi functions
     variables :: [((VarId, BlockId), Name)],
+    sealed :: [BlockId],
     -- | If we're inside a loop, this points to the basic block that follows the loop
     -- | (in other words, where we jump when we hit a break statement)
     currentBreakBlocks :: [BlockId]
   }
   deriving (Show, Eq)
 
-lookupVariable :: (State Compiler :> es, Error Err :> es) => Span -> Text -> Eff es (VarId, BlockId)
+lookupVariable :: (HasCallStack, State Compiler :> es, Error Err :> es) => Span -> Text -> Eff es (VarId, BlockId)
 lookupVariable span name = zoomState scopes (\s t -> t {scopes = s}) (LexicalScopes.lookupVariable span name)
 
 insertAssoc :: (Eq a) => a -> b -> [(a, b)] -> [(a, b)]
-insertAssoc key value list = filter ((/= key) . fst) list ++ [(key, value)]
+insertAssoc key value list = case idx of
+  Nothing -> list ++ [(key, value)]
+  Just idx -> take idx list ++ [(key, value)] ++ drop (idx + 1) list
+  where
+    idx = findIndex ((== key) . fst) list
 
 mkCompiler :: Compiler
 mkCompiler =
@@ -46,8 +56,35 @@ mkCompiler =
       currentBlock = BlockId 0,
       scopes = mkScopes,
       variables = [],
+      sealed = [BlockId 0],
       currentBreakBlocks = []
     }
+
+isSealed :: (State Compiler :> es) => BlockId -> Eff es Bool
+isSealed blockId = do
+  sealed <- gets sealed
+  return $ blockId `elem` sealed
+
+markSealed :: (HasCallStack, State Compiler :> es, Error Err :> es) => BlockId -> Span -> Eff es ()
+markSealed blockId span = do
+  already <- isSealed blockId
+  when already $ throwSpan span InternalCompilerError
+  modify (\c -> c {sealed = c.sealed ++ [blockId]})
+
+getBlock :: (HasCallStack, State Compiler :> es, Error Err :> es) => BlockId -> Span -> Eff es Block
+getBlock id span = do
+  (Program blocks) <- gets program
+  lookup id blocks `orThrowSpan` (span, InternalCompilerError)
+
+addPredecessor :: (HasCallStack, State Compiler :> es, Error Err :> es) => BlockId -> BlockId -> Span -> Eff es ()
+addPredecessor from to span = do
+  seal <- isSealed to
+  when seal $ throwSpan span InternalCompilerError
+  (Program blocks) <- gets program
+  (Block phis insts ctl preds) <- getBlock to span
+  let block' = Block phis insts ctl (preds ++ [from])
+  let program' = Program $ insertAssoc to block' blocks
+  modify (\c -> c {program = program'})
 
 mkName :: (State Compiler :> es) => Eff es Name
 mkName = do
@@ -81,21 +118,26 @@ allocateBlock = do
   put compiler'
   return id
 
-allocateBlockWithId :: (State Compiler :> es) => BlockId -> Eff es ()
-allocateBlockWithId id = do
-  compiler@Compiler {program = Program blocks} <- get
-  let compiler' = compiler {program = Program (blocks ++ [(id, mkBlock)])}
-  put compiler'
-
-setControl :: (State Compiler :> es, Error Err :> es) => Control -> Span -> Eff es ()
+setControl :: (HasCallStack, State Compiler :> es, Error Err :> es) => Control -> Span -> Eff es ()
 setControl control span = do
-  (Program blocks) <- gets program
   currentBlock <- gets currentBlock
+
+  -- when we make a new jump, that creates a new edge in the CFG
+  -- so wherever we're jumping to, we should add ourself to its predecessors
+  case control of
+    Jump target -> do
+      addPredecessor currentBlock target span
+    JumpIf _ target1 target2 -> do
+      addPredecessor currentBlock target1 span
+      addPredecessor currentBlock target2 span
+    Halt -> return ()
+
+  (Program blocks) <- gets program
   let block = lookup currentBlock blocks
-  (Block insts _) <- case block of
+  (Block phis insts _ preds) <- case block of
     Nothing -> throwSpan span InternalCompilerError
     Just block -> return block
-  let block' = Block insts control
+  let block' = Block phis insts control preds
   let program' = Program (insertAssoc currentBlock block' blocks)
   modify \compiler -> compiler {program = program'}
 
@@ -104,27 +146,27 @@ switchToBlock id = do
   compiler <- get
   put compiler {currentBlock = id}
 
-emitWithName :: (State Compiler :> es, Error Err :> es) => Name -> TypeExpr -> RHS -> Span -> Eff es Name
+emitWithName :: (HasCallStack, State Compiler :> es, Error Err :> es) => Name -> TypeExpr -> RHS -> Span -> Eff es Name
 emitWithName name ty rhs span = do
   let ssa = SSA ty name rhs
   (Program blocks) <- gets program
   currentBlock <- gets currentBlock
   let block = lookup currentBlock blocks
-  (Block insts ctl) <- case block of
+  (Block phis insts ctl preds) <- case block of
     Nothing -> throwSpan span InternalCompilerError
     Just block -> return block
   let insts' = insts ++ [ssa]
-  let block' = Block insts' ctl
+  let block' = Block phis insts' ctl preds
   let program' = Program (insertAssoc currentBlock block' blocks)
   modify \compiler -> compiler {program = program'}
   return name
 
-emit :: (State Compiler :> es, Error Err :> es) => TypeExpr -> RHS -> Span -> Eff es Name
+emit :: (HasCallStack, State Compiler :> es, Error Err :> es) => TypeExpr -> RHS -> Span -> Eff es Name
 emit ty rhs span = do
   name <- mkName
   emitWithName name ty rhs span
 
-compileBody :: (State Compiler :> es, Error Err :> es) => Body -> Span -> Eff es Name
+compileBody :: (HasCallStack, State Compiler :> es, Error Err :> es) => Body -> Span -> Eff es Name
 compileBody (Body ty stmts) span = do
   -- each body opens a new lexical scope
   modify (\c -> c {scopes = pushScope c.scopes})
@@ -145,9 +187,64 @@ compileBody (Body ty stmts) span = do
 
   return name
 
+addPhiToBlock :: (HasCallStack, State Compiler :> es, Error Err :> es) => BlockId -> TypeExpr -> NonEmpty (BlockId, Name) -> Span -> Eff es Name
+addPhiToBlock blockId ty pairs span = do
+  resultName <- mkName
+  (Block phis insts ctl preds) <- getBlock blockId span
+  let phis' = phis ++ [Phi ty resultName pairs]
+  let block' = Block phis' insts ctl preds
+  (Program blocks) <- gets program
+  let blocks' = insertAssoc blockId block' blocks
+  let program' = Program blocks'
+  modify (\c -> c {program = program'})
+  return resultName
+
+addPhi :: (HasCallStack, State Compiler :> es, Error Err :> es) => TypeExpr -> NonEmpty (BlockId, Name) -> Span -> Eff es Name
+addPhi ty pairs span = do
+  blockId <- gets currentBlock
+  addPhiToBlock blockId ty pairs span
+
+writeVariable :: (HasCallStack, State Compiler :> es, Error Err :> es) => VarId -> BlockId -> Name -> Span -> Eff es ()
+writeVariable varId blockId name span = do
+  vars <- gets variables
+  when (isJust $ lookup (varId, blockId) vars) $ throwSpan span InternalCompilerError
+  let vars' = vars ++ [((varId, blockId), name)]
+  modify (\c -> c {variables = vars'})
+
+readVariable :: (HasCallStack, State Compiler :> es, Error Err :> es) => VarId -> BlockId -> TypeExpr -> Span -> Eff es Name
+readVariable varId blockId ty span = do
+  vars <- gets variables
+  let localName = lookup (varId, blockId) vars
+  case localName of
+    -- This variable is already mapped in this block, so we can
+    -- do local value numbering
+    Just localName -> return localName
+    -- Otherwise, we need to do global value numbering
+    Nothing -> readVariableRecursive varId blockId
+  where
+    readVariableRecursive varId blockId = do
+      sealed <- isSealed blockId
+      (Block phis insts ctl preds) <- getBlock blockId span
+      name <-
+        if
+          | sealed -> do
+              return undefined
+          | length preds == 1 -> do
+              -- only one predecessor, so we don't need to introduce a phi instruction
+              readVariable varId (head preds) ty span
+          | otherwise -> do
+              -- _ <- addPhiToBlock blockId ty (NE.singleton (blockId, ))
+              return undefined
+      -- now that we've mapped this variable in this block, we don't need to do it again
+      -- so mark it down for later
+      writeVariable varId blockId name span
+      return name
+    getPhiOperands varId name = do
+      return undefined
+
 -- | Compile the expression into the current program. Returns name of the local SSA form that contains
 -- | the final value of the expression.
-compileExpr :: (State Compiler :> es, Error Err :> es) => TST Expr -> Eff es Name
+compileExpr :: (HasCallStack, State Compiler :> es, Error Err :> es) => TST Expr -> Eff es Name
 compileExpr (TST UndefinedLit _) = undefined
 compileExpr (TST VoidLit span) = emit mkVoid RVoid span
 compileExpr (TST (BoolLit b) span) = emit mkBool (RBool b) span
@@ -159,7 +256,7 @@ compileExpr (TST (Variable ty name) span) = do
     -- defined locally so we're good
     then lookup (varId, originalBlock) compiler.variables `orThrowSpan` (span, InternalCompilerError)
     -- otherwise we need to use the phi function
-    else emit ty RPhiPlaceholder span
+    else undefined
 compileExpr (TST (BinaryOperator ty op l r) span) = do
   lName <- compileExpr l
   rName <- compileExpr r
@@ -173,35 +270,41 @@ compileExpr (TST (FunctionCall ty fn args) span) = do
   emit ty (RCall fnName argNames) span
 compileExpr (TST (ExprBody body) span) = compileBody body span
 compileExpr (TST (IfChain ty bodies elseBody) span) = do
-  -- pre-allocate ids for each condition
-  conditionIds <- mapM (const mkBlockId) bodies
+  -- pre-allocate blocks for each condition
+  conditionIds <- mapM (const allocateBlock) bodies
   -- pre-allocate an id for the else body
   -- if there is no else body, we just generate an empty block and rely on later passes to clean that up
-  elseBlockId <- mkBlockId
+  elseBlockId <- allocateBlock
   -- pre-allocate an id for what comes after the entire if chain
-  postChainId <- mkBlockId
+  postChainId <- allocateBlock
+
   -- this block concludes by jumping to the first if condition
   let firstConditionId = NE.head conditionIds
   setControl (Jump firstConditionId) span
-  allocateBlockWithId firstConditionId
+  markSealed firstConditionId span
   switchToBlock firstConditionId
+
   -- then we go through all the bodies one-by-one
   results <- forM (bodies `NE.zip` NE.fromList (NE.tail conditionIds ++ [elseBlockId])) $
     \((condition, body), nextConditionId) -> do
       -- compile the condition
       resultName <- compileExpr condition
+
       -- allocate a block for the body of this branch
       bodyId <- allocateBlock
       -- if the condition is true, jump to the body block
       -- otherwise, jump to the next block in the chain
       setControl (JumpIf resultName bodyId nextConditionId) (spanOf condition)
+      markSealed bodyId (spanOf body)
       switchToBlock bodyId
       -- then compile the body
       bodyResultName <- compileExpr body
+
       -- when the body is done, we should jump past the entire chain
       setControl (Jump postChainId) span
-      allocateBlockWithId nextConditionId
+      markSealed nextConditionId span
       switchToBlock nextConditionId
+
       -- we save the name of the body's result for later (to use in the phi instruction)
       return (bodyId, bodyResultName)
   -- generate the else body (even if it's empty)
@@ -209,13 +312,12 @@ compileExpr (TST (IfChain ty bodies elseBody) span) = do
     Nothing -> emit mkVoid RVoid span
     Just elseBody -> compileExpr elseBody
   setControl (Jump postChainId) span
-  allocateBlockWithId postChainId
   switchToBlock postChainId
   -- now, to get the result out we have to use the phi function
   let phiPairs = results `NE.append` NE.singleton (elseBlockId, elseResultName)
-  emit ty (RPhi phiPairs) span
+  addPhi ty phiPairs span
 
-compileStmt :: (State Compiler :> es, Error Err :> es) => TST Stmt -> Eff es (Maybe Name)
+compileStmt :: (HasCallStack, State Compiler :> es, Error Err :> es) => TST Stmt -> Eff es (Maybe Name)
 compileStmt (TST (Let (TST name _) _ value) _) = do
   valName <- compileExpr value
   varId <- mkVarId
@@ -241,7 +343,7 @@ compileStmt (TST (Loop (TST body bodySpan)) span) = do
   loopBlock <- allocateBlock
   -- also pre-allocate a block id for the block that will follow the loop
   -- (this is where we'll jump to when we hit a break statement)
-  postLoopBlockId <- mkBlockId
+  postLoopBlockId <- allocateBlock
   modify (\c -> c {currentBreakBlocks = postLoopBlockId : c.currentBreakBlocks})
   -- the current block should conclude by jumping to the new loop block
   setControl (Jump loopBlock) span
@@ -252,8 +354,6 @@ compileStmt (TST (Loop (TST body bodySpan)) span) = do
   modify (\c -> c {currentBreakBlocks = tail c.currentBreakBlocks})
   -- the loop concludes by unconditionally jumping to its beginning
   setControl (Jump loopBlock) span
-  -- now we can allocate the post-loop block
-  allocateBlockWithId postLoopBlockId
   -- and switch our context to it
   switchToBlock postLoopBlockId
   return Nothing
@@ -277,8 +377,29 @@ compileStmt (TST Break span) = do
       switchToBlock nextBlock
   return Nothing
 
+compileAndCheck :: (HasCallStack, State Compiler :> es, Error Err :> es) => TST Stmt -> Eff es (Maybe Name)
+compileAndCheck stmt = do
+  r <- compileStmt stmt
+  (Program blocks) <- gets program
+  forM_ blocks $ \(id, _) -> do
+    seal <- isSealed id
+    -- unless seal $ throwSpan (spanOf stmt) InternalCompilerError
+    return undefined
+  return r
+
 runCompiler :: Text -> Result Program
 runCompiler source = do
   tst <- runTypecheck source
-  compiler <- runPureEff $ runErrorNoCallStack $ execState mkCompiler $ compileStmt tst
+  compiler <- runPureEff $ runErrorNoCallStack $ execState mkCompiler $ compileAndCheck tst
   return compiler.program
+
+runCompilerCallStack :: Text -> Either (CallStack, Err) Program
+runCompilerCallStack source = do
+  tst <- runTypecheckCallStack source
+  compiler <- runPureEff $ runError $ execState mkCompiler $ compileAndCheck tst
+  return compiler.program
+
+execCompilerCallStack :: Text -> Either (CallStack, Err) Compiler
+execCompilerCallStack source = do
+  tst <- runTypecheckCallStack source
+  runPureEff $ runError $ execState mkCompiler $ compileAndCheck tst

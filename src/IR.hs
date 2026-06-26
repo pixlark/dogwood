@@ -23,9 +23,9 @@ data RHS
   | RUnaryOp T.Operator Name
   | -- Control flow
     RCall Name [Name]
-  | -- Phi
-    RPhi (NonEmpty (BlockId, Name))
-  | RPhiPlaceholder
+  deriving (Eq)
+
+data Phi = Phi T.TypeExpr Name (NonEmpty (BlockId, Name))
   deriving (Eq)
 
 data Control = Halt | Jump BlockId | JumpIf Name BlockId BlockId
@@ -35,11 +35,11 @@ data SSA
   = SSA T.TypeExpr Name RHS
   deriving (Eq)
 
-data Block = Block [SSA] Control
+data Block = Block [Phi] [SSA] Control [BlockId]
   deriving (Eq)
 
 mkBlock :: Block
-mkBlock = Block [] Halt
+mkBlock = Block [] [] Halt []
 
 newtype Program = Program [(BlockId, Block)]
   deriving (Eq)
@@ -58,8 +58,9 @@ instance Show RHS where
   show (RBinOp op l r) = printf "%s %s %s" (show l) (show op) (show r)
   show (RUnaryOp op v) = printf "%s%s" (show op) (show v)
   show (RCall fn args) = printf "call %s (%s)" (show fn) (intercalate ", " $ map show args)
-  show (RPhi phiPairs) = printf "phi %s" (intercalate ", " $ map (\(id, name) -> printf "%s[%s]" (show id) (show name)) $ NE.toList phiPairs)
-  show RPhiPlaceholder = "phi (?)"
+
+instance Show Phi where
+  show (Phi ty name phiPairs) = printf "%s: %s = phi %s" (show name) (show ty) (intercalate ", " $ map (\(id, name) -> printf "%s[%s]" (show id) (show name)) $ NE.toList phiPairs)
 
 instance Show Control where
   show Halt = printf "halt"
@@ -70,7 +71,12 @@ instance Show SSA where
   show (SSA ty name rhs) = printf "%s: %s = %s" (show name) (show ty) (show rhs)
 
 instance Show Block where
-  show (Block insts control) = concatMap (printf "  %s\n" . show) insts ++ printf "  %s\n" (show control)
+  show (Block phis insts control _) = concatMap (printf "  %s\n" . show) phis ++ concatMap (printf "  %s\n" . show) insts ++ printf "  %s\n" (show control)
 
 instance Show Program where
-  show (Program blocks) = concatMap (\(id, block) -> printf "%s:\n%s" (show id) (show block)) blocks
+  show (Program blocks) =
+    concatMap
+      ( \(id, block@(Block _ _ _ preds)) ->
+          printf "%s%s:\n%s" (show id) (if null preds then "" :: String else printf "[%s]" $ intercalate ", " $ map show preds) (show block)
+      )
+      blocks

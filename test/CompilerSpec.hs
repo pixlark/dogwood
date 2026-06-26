@@ -30,6 +30,7 @@ spec =
                 currentBlock = BlockId 0,
                 scopes = mkScopes,
                 variables = [],
+                sealed = [],
                 currentBreakBlocks = []
               }
           )
