@@ -1,4 +1,4 @@
-module Util (eitherFromMaybe, orElse, safeHead, safeLast, zoomState) where
+module Util (eitherFromMaybe, orElse, safeHead, safeLast, zoomState, (!?)) where
 
 import Data.Maybe
 import Effectful
@@ -35,3 +35,17 @@ zoomState getter setter m = do
   (a, st') <- runState (getter st) m
   modify (setter st')
   return a
+
+(!?) :: [a] -> Int -> Maybe a
+{-# INLINEABLE (!?) #-}
+xs !? n
+  | n < 0 = Nothing
+  | otherwise =
+      foldr
+        ( \x r k -> case k of
+            0 -> Just x
+            _ -> r (k - 1)
+        )
+        (const Nothing)
+        xs
+        n

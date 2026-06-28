@@ -9,7 +9,7 @@ import qualified Data.Text as Text
 import qualified TypedAST as T
 
 newtype BlockId = BlockId Int
-  deriving (Eq)
+  deriving (Eq, Ord)
 
 newtype VarId = VarId Int
   deriving (Show, Eq)

@@ -2,15 +2,18 @@
 
 module Main where
 
-import Compiler (Compiler (..), execCompilerCallStack, runCompiler, runCompilerCallStack)
+import Compiler (Compiler (..), execCompilerCallStack)
 import Control.Monad.Except
 import Control.Monad.State.Lazy
 import Data.Bifunctor
+import Data.List (sort)
 import qualified Data.Text as T
+import Effectful (runEff)
 import Error
 import GHC.Exception (prettyCallStack)
 import IR (ShowWithSource (..))
 import Lexer
+import Logging (runLog, standardLogger)
 import NeatInterpolation
 import Parser
 import Typechecker (runTypecheckCallStack)
@@ -25,13 +28,14 @@ import Typechecker (runTypecheckCallStack)
 --     source = "{\n    let f: fn(int, int) -> bool = undefined;\n    f(true, 6)\n}\n"
 
 main :: IO ()
-main =
-  case execCompilerCallStack source of
+main = do
+  result <- runEff $ runLog standardLogger $ execCompilerCallStack source
+  case result of
     Left (cs, e) -> do
       putStrLn $ prettyCallStack cs
       putStrLn $ T.unpack $ displayError source e
     Right Compiler {sealed, program} -> do
-      print sealed
+      print $ sort sealed
       putStrLn $ showWithSource source program
   where
     source =

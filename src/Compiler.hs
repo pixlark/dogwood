@@ -3,23 +3,31 @@
 module Compiler where
 
 import AST (SyntaxTree (..))
-import Common
+import Common hiding (scribe)
 import Control.Monad (join)
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as HashMap
 import Data.List (findIndex)
-import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Text.Lazy
 import IR
 import LexicalScopes hiding (lookupVariable)
 import qualified LexicalScopes
-import Logging (Log, log_, runLog, standardLogger)
+import qualified Logging
 import Typechecker (runTypecheck, runTypecheckCallStack, unifies)
 import TypedAST
 import Util
 
+scribe :: (HasCallStack, State Compiler :> es, Log :> es) => Data.Text.Lazy.Text -> Eff es ()
+scribe msg = do
+  currentBlock <- gets currentBlock
+  Logging.scribe $ format "[{}] {}" (Shown currentBlock, msg)
+
 data PhiReference = PhiReference {name :: Name, forVariable :: VarId, inBlock :: BlockId}
-  deriving (Show, Eq)
+  deriving (Eq)
+
+instance Show PhiReference where
+  show (PhiReference {name, forVariable, inBlock}) = Data.Text.Lazy.unpack $ format "φ({} for {} in {})" (Shown name, Shown forVariable, Shown inBlock)
 
 data Compiler = Compiler
   { nameCounter :: Int,
@@ -126,7 +134,7 @@ allocateBlock = do
   put compiler'
   return id
 
-setControl :: (HasCallStack, State Compiler :> es, Error Err :> es) => Control -> Span -> Eff es ()
+setControl :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => Control -> Span -> Eff es ()
 setControl control span = do
   currentBlock <- gets currentBlock
 
@@ -134,8 +142,10 @@ setControl control span = do
   -- so wherever we're jumping to, we should add ourself to its predecessors
   case control of
     Jump target -> do
+      scribe $ format "Jump {} -> {}" (Shown currentBlock, Shown target)
       addPredecessor currentBlock target span
     JumpIf _ target1 target2 -> do
+      scribe $ format "JumpIf {} -> ({}, {})" (Shown currentBlock, Shown target1, Shown target2)
       addPredecessor currentBlock target1 span
       addPredecessor currentBlock target2 span
     Halt -> return ()
@@ -143,8 +153,9 @@ setControl control span = do
   modifyBlock currentBlock span $ \block -> do
     return block {control}
 
-switchToBlock :: (State Compiler :> es) => BlockId -> Eff es ()
+switchToBlock :: (HasCallStack, State Compiler :> es, Log :> es) => BlockId -> Eff es ()
 switchToBlock id = do
+  scribe $ format "Switching context to block {}" (Only (Shown id))
   compiler <- get
   put compiler {currentBlock = id}
 
@@ -161,7 +172,7 @@ emit ty rhs span = do
   name <- mkName
   emitWithName name ty rhs span
 
-compileBody :: (HasCallStack, State Compiler :> es, Error Err :> es) => Body -> Span -> Eff es Name
+compileBody :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => Body -> Span -> Eff es Name
 compileBody (Body ty stmts) span = do
   -- each body opens a new lexical scope
   modify (\c -> c {scopes = pushScope c.scopes})
@@ -231,7 +242,7 @@ spanForVariable varId span = do
   variableSpans <- gets variableSpans
   HashMap.lookup varId variableSpans `orThrowSpan` (span, InternalCompilerError)
 
-readVariable :: (HasCallStack, State Compiler :> es, Error Err :> es) => VarId -> BlockId -> Span -> Eff es Name
+readVariable :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => VarId -> BlockId -> Span -> Eff es Name
 readVariable varId blockId span = do
   variables <- gets variables
   case HashMap.lookup (varId, blockId) variables of
@@ -241,7 +252,7 @@ readVariable varId blockId span = do
     -- global value numbering
     Nothing -> readVariableRecursive varId blockId span
 
-readVariableRecursive :: (HasCallStack, State Compiler :> es, Error Err :> es) => VarId -> BlockId -> Span -> Eff es Name
+readVariableRecursive :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => VarId -> BlockId -> Span -> Eff es Name
 readVariableRecursive varId blockId span = do
   blockIsSealed <- isSealed blockId
   Block {predecessors} <- getBlock blockId span
@@ -253,6 +264,7 @@ readVariableRecursive varId blockId span = do
           -- yet. So we add an empty phi and will come back to it later when
           -- the block is sealed.
           phiRef <- addEmptyPhi blockId varId varSpan
+          scribe $ format "Generating incomplete phi {}" (Only (Shown phiRef))
           setIncompletePhi blockId phiRef
           return phiRef.name
       | length predecessors == 1 -> do
@@ -265,6 +277,7 @@ readVariableRecursive varId blockId span = do
           -- We emit an empty phi instruction so that if addPhiOperands
           -- loops back around to this block, the recursion will terminate.
           phiRef <- addEmptyPhi blockId varId varSpan
+          scribe $ format "Generating phi {}" (Only (Shown phiRef))
           writeVariable varId blockId phiRef.name span
 
           -- Then we fill out the phi's operands by recursing through
@@ -275,7 +288,7 @@ readVariableRecursive varId blockId span = do
   writeVariable varId blockId name span
   return name
 
-recursivelySetPhiOperands :: (HasCallStack, State Compiler :> es, Error Err :> es) => PhiReference -> Span -> Eff es ()
+recursivelySetPhiOperands :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => PhiReference -> Span -> Eff es ()
 recursivelySetPhiOperands phiRef span = do
   Block {predecessors} <- getBlock phiRef.inBlock span
   operands <- forM predecessors $ \pred -> do
@@ -283,11 +296,12 @@ recursivelySetPhiOperands phiRef span = do
     return (pred, name)
   setPhiOperands phiRef operands span
 
-markSealed :: (HasCallStack, State Compiler :> es, Error Err :> es) => BlockId -> Span -> Eff es ()
-markSealed blockId span = do
+markSealed :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => BlockId -> Span -> Eff es ()
+markSealed blockId span = withRegion (format "Marking {} as sealed" (Only (Shown blockId))) do
   -- go back and fill in any incomplete phi instructions
   incompletePhis <- gets incompletePhis
   forM_ (HashMap.lookup blockId incompletePhis `orElse` []) $ \phiRef -> do
+    scribe $ format "Filling out incomplete phi {}" (Only (Shown phiRef))
     recursivelySetPhiOperands phiRef span
 
   -- then mark this block as sealed
@@ -295,20 +309,21 @@ markSealed blockId span = do
   when already $ throwSpan span InternalCompilerError
   modify (\c -> c {sealed = c.sealed ++ [blockId]})
 
-markCurrentBlockSealed :: (HasCallStack, State Compiler :> es, Error Err :> es) => Span -> Eff es ()
+markCurrentBlockSealed :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => Span -> Eff es ()
 markCurrentBlockSealed span = do
   currentBlock <- gets currentBlock
   markSealed currentBlock span
 
 -- | Compile the expression into the current program. Returns name of the local SSA form that contains
 -- | the final value of the expression.
-compileExpr :: (HasCallStack, State Compiler :> es, Error Err :> es) => TST Expr -> Eff es Name
+compileExpr :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Expr -> Eff es Name
 compileExpr (TST UndefinedLit _) = undefined
 compileExpr (TST VoidLit span) = emit mkVoid RVoid span
 compileExpr (TST (BoolLit b) span) = emit mkBool (RBool b) span
 compileExpr (TST (IntLit n) span) = emit mkInt (RInt n) span
 compileExpr (TST (Variable _ name) span) = do
   (varId, _) <- lookupVariable span name
+  scribe $ format "Looking up variable {} ({})" (name, Shown varId)
   currentBlock <- gets currentBlock
   readVariable varId currentBlock span
 compileExpr (TST (BinaryOperator ty op l r) span) = do
@@ -323,18 +338,22 @@ compileExpr (TST (FunctionCall ty fn args) span) = do
   argNames <- mapM compileExpr args
   emit ty (RCall fnName argNames) span
 compileExpr (TST (ExprBody body) span) = compileBody body span
-compileExpr (TST (IfChain ty bodies elseBody) span) = do
+compileExpr (TST (IfChain ty bodies elseBody) span) = withRegion "Compiling if-chain..." do
   -- pre-allocate blocks for each condition
   conditionIds <- mapM (const allocateBlock) bodies
+  scribe $ format "Allocated block(s) {} for the condition(s) of the if-chain" (Only (Shown (NE.toList conditionIds)))
   -- pre-allocate an id for the else body
   -- if there is no else body, we just generate an empty block and rely on later passes to clean that up
   elseBlockId <- allocateBlock
+  scribe $ format "Allocated block {} for the else body" (Only (Shown elseBlockId))
   -- pre-allocate an id for what comes after the entire if chain
   postChainId <- allocateBlock
+  scribe $ format "Allocated block {} to follow the if-chain" (Only (Shown postChainId))
 
   -- this block concludes by jumping to the first if condition
   let firstConditionId = NE.head conditionIds
   setControl (Jump firstConditionId) span
+  scribe $ format "Moving to next piece ({}) of the if-chain..." (Only (Shown firstConditionId))
   switchToBlock firstConditionId
 
   -- then we go through all the bodies one-by-one
@@ -347,9 +366,12 @@ compileExpr (TST (IfChain ty bodies elseBody) span) = do
 
       -- allocate a block for the body of this branch
       bodyId <- allocateBlock
+      currentBlock <- gets currentBlock
+      scribe $ format "Allocated block {} for the body of this condition ({})" (Shown bodyId, Shown currentBlock)
       -- if the condition is true, jump to the body block
       -- otherwise, jump to the next block in the chain
       setControl (JumpIf resultName bodyId nextConditionId) (spanOf condition)
+      markSealed bodyId (spanOf body)
       switchToBlock bodyId
       -- then compile the body
       bodyResultName <- compileExpr body
@@ -357,27 +379,32 @@ compileExpr (TST (IfChain ty bodies elseBody) span) = do
       markCurrentBlockSealed (spanOf body)
       -- when the body is done, we should jump past the entire chain
       setControl (Jump postChainId) (spanOf body)
+      scribe $ format "Moving to next piece ({}) of the if-chain..." (Only (Shown nextConditionId))
       switchToBlock nextConditionId
 
       -- we save the name of the body's result for later (to use in the phi instruction)
       return (bodyId, bodyResultName)
+
   -- generate the else body (even if it's empty)
   elseResultName <- case elseBody of
     Nothing -> emit mkVoid RVoid span
     Just elseBody -> compileExpr elseBody
   setControl (Jump postChainId) span
+  markCurrentBlockSealed span
+  markSealed postChainId span
   switchToBlock postChainId
   -- now, to get the result out we have to use the phi function
+  scribe "Generating phi instruction for result of if-chain"
   let operands = NE.toList $ results `NE.append` NE.singleton (elseBlockId, elseResultName)
-  currentBlock <- gets currentBlock
-  addCompletePhi currentBlock ty operands span
+  addCompletePhi postChainId ty operands span
 
-compileStmt :: (HasCallStack, State Compiler :> es, Error Err :> es) => TST Stmt -> Eff es (Maybe Name)
+compileStmt :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Stmt -> Eff es (Maybe Name)
 compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do
   valName <- compileExpr value
   varId <- mkVarId
   compiler <- get
   let blockId = compiler.currentBlock
+  scribe $ format "Binding new variable {} ({}) in block {}" (name, Shown varId, Shown blockId)
   let scopes' = bindNewVariable name (varId, blockId) compiler.scopes
   let variables' = HashMap.insert (varId, blockId) valName compiler.variables
   let variableTypes' = HashMap.insert varId ty compiler.variableTypes
@@ -394,6 +421,7 @@ compileStmt (TST (Assign (TST (LVariable _ name) span) value) _) = do
   valName <- compileExpr value
   (varId, _) <- lookupVariable span name
   compiler <- get
+  scribe $ format "Encountered variable assignment to {} ({}) in block {}" (name, Shown varId, Shown compiler.currentBlock)
   let variables' = HashMap.insert (varId, compiler.currentBlock) valName compiler.variables
   put compiler {variables = variables'}
   return Nothing
@@ -401,9 +429,10 @@ compileStmt (TST (ExprStmt expr semicolon) _) = do
   name <- compileExpr expr
   if semicolon then return Nothing else return (Just name)
 compileStmt (TST (Return _) _) = undefined
-compileStmt (TST (Loop (TST body bodySpan)) span) = do
+compileStmt (TST (Loop (TST body bodySpan)) span) = withRegion "Compiling loop statement..." do
   -- allocate a new basic block to hold the body of the loop
   loopBlock <- allocateBlock
+  scribe $ format "Allocated block {} for body of the loop" (Only (Shown loopBlock))
   -- also pre-allocate a block for the block that will follow the loop
   -- (this is where we'll jump to when we hit a break statement)
   postLoopBlockId <- allocateBlock
@@ -417,11 +446,11 @@ compileStmt (TST (Loop (TST body bodySpan)) span) = do
   modify (\c -> c {currentBreakBlocks = tail c.currentBreakBlocks})
   -- the loop concludes by unconditionally jumping to its beginning
   setControl (Jump loopBlock) span
-  markCurrentBlockSealed span
+  markSealed loopBlock span
   -- and switch our context to it
   switchToBlock postLoopBlockId
   return Nothing
-compileStmt (TST Break span) = do
+compileStmt (TST Break span) = withRegion "Compiling break statement..." do
   currentBreakBlock <- gets (safeHead . currentBreakBlocks)
   case currentBreakBlock of
     Nothing -> throwSpan span InternalCompilerError
@@ -438,11 +467,12 @@ compileStmt (TST Break span) = do
       -- ideally once we introduce an optimizer pass, it will be able to trivially tell from the CFG
       -- that this block is never executed, and eliminate it before any code generation is actually done
       nextBlock <- allocateBlock
+      scribe $ format "Allocated block {} to dump post-break instructions" (Only (Shown nextBlock))
       switchToBlock nextBlock
   return Nothing
 
-compileProgram :: (HasCallStack, State Compiler :> es, Error Err :> es) => TST Stmt -> Eff es ()
-compileProgram stmt@(TST _ span) = do
+compileProgram :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Stmt -> Eff es ()
+compileProgram stmt@(TST _ span) = withRegion "Compiling program..." do
   _ <- compileStmt stmt
   compiler <- get
   -- seal the final block
@@ -450,7 +480,6 @@ compileProgram stmt@(TST _ span) = do
 
 compileAndCheck :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Stmt -> Eff es ()
 compileAndCheck stmt = do
-  log_ "hello"
   compileProgram stmt
   (Program blocks) <- gets program
   forM_ blocks $ \(id, _) -> do
@@ -458,19 +487,21 @@ compileAndCheck stmt = do
     -- unless seal $ throwSpan (spanOf stmt) InternalCompilerError
     return undefined
 
-runCompiler :: Text -> Result Program
-runCompiler source = do
-  tst <- runTypecheck source
-  compiler <- runPureEff $ runErrorNoCallStack $ execState mkCompiler $ compileAndCheck tst
-  return compiler.program
+runCompiler :: (Log :> es) => Text -> Eff es (Result Program)
+runCompiler source = case runTypecheck source of
+  Left err -> return (Left err)
+  Right tst -> do
+    result <- runErrorNoCallStack $ execState mkCompiler $ compileAndCheck tst
+    return $ fmap (.program) result
 
-runCompilerCallStack :: Text -> Either (CallStack, Err) Program
-runCompilerCallStack source = do
-  tst <- runTypecheckCallStack source
-  compiler <- runPureEff $ runError $ execState mkCompiler $ compileAndCheck tst
-  return compiler.program
+runCompilerCallStack :: (Log :> es) => Text -> Eff es (Either (CallStack, Err) Program)
+runCompilerCallStack source = case runTypecheckCallStack source of
+  Left err -> return (Left err)
+  Right tst -> do
+    result <- runError $ execState mkCompiler $ compileAndCheck tst
+    return $ fmap (.program) result
 
-execCompilerCallStack :: Text -> Either (CallStack, Err) Compiler
-execCompilerCallStack source = do
-  tst <- runTypecheckCallStack source
-  runPureEff $ runError $ execState mkCompiler $ compileAndCheck tst
+execCompilerCallStack :: (Log :> es) => Text -> Eff es (Either (CallStack, Err) Compiler)
+execCompilerCallStack source = case runTypecheckCallStack source of
+  Left err -> return (Left err)
+  Right tst -> runError $ execState mkCompiler $ compileAndCheck tst

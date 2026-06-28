@@ -86,7 +86,8 @@ executable prototype
                       mtl,
                       transformers,
                       prototype-core,
-                      neat-interpolation
+                      neat-interpolation,
+                      effectful-core
 
     -- Directories containing source files.
     hs-source-dirs:   app
@@ -110,7 +111,8 @@ library prototype-core
                       effectful-core,
                       effectful-plugin,
                       unordered-containers,
-                      hashable
+                      hashable,
+                      text-format
 
     -- Directories containing source files.
     hs-source-dirs:   src

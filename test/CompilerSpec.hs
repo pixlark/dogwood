@@ -5,12 +5,18 @@ module CompilerSpec (spec) where
 import Common
 import Compiler
 import Data.Text (append, show)
+import Effectful (runEff)
 import IR
 import LexicalScopes (mkScopes)
+import Logging (noOpLogger, runLog)
 import NeatInterpolation
 import Test.Hspec
 import TypedAST
 import Prelude hiding (show)
+
+-- | Run the compiler with logging disabled for tests
+testRunCompiler :: Text -> Result Program
+testRunCompiler = runEff . runLog noOpLogger . runCompiler
 
 expectText text = (`append` "\n") <$> Right text
 
@@ -36,7 +42,7 @@ spec =
           )
       show . program <$> result `shouldBe` Right "__0:\n  _0: int = 5\n  halt\n"
     it "can compile basic expressions" do
-      show <$> runCompiler "5 + 6"
+      show <$> testRunCompiler "5 + 6"
         `shouldBe` expectText
           [text|
             __0:
@@ -45,7 +51,7 @@ spec =
               _2: int = _0 + _1
               halt
           |]
-      show <$> runCompiler "5 * -7"
+      show <$> testRunCompiler "5 * -7"
         `shouldBe` expectText
           [text|
             __0:
@@ -55,7 +61,7 @@ spec =
               _3: int = _0 * _2
               halt
           |]
-      show <$> runCompiler "{ 5; 7; }"
+      show <$> testRunCompiler "{ 5; 7; }"
         `shouldBe` expectText
           [text|
             __0:
@@ -65,7 +71,7 @@ spec =
               halt
           |]
     it "can handle variables" do
-      show <$> runCompiler "{ let x: int = 5; x + 3 }"
+      show <$> testRunCompiler "{ let x: int = 5; x + 3 }"
         `shouldBe` expectText
           [text|
             __0:
@@ -75,7 +81,7 @@ spec =
               halt
           |]
     it "can compile loops" do
-      show <$> runCompiler "{ let x: int = 5; loop { x + 2; } 6 }"
+      show <$> testRunCompiler "{ let x: int = 5; loop { x + 2; } 6 }"
         `shouldBe` expectText
           [text|
             __0:
@@ -90,7 +96,7 @@ spec =
               _4: int = 6
               halt
           |]
-      show <$> runCompiler "{ loop { break; } }"
+      show <$> testRunCompiler "{ loop { break; } }"
         `shouldBe` expectText
           [text|
             __0:
@@ -105,7 +111,7 @@ spec =
               halt
           |]
     it "can compile if expressions" do
-      show <$> runCompiler "{ if true 5 else 6 }"
+      show <$> testRunCompiler "{ if true 5 else 6 }"
         `shouldBe` expectText
           [text|
             __0:
@@ -123,7 +129,7 @@ spec =
               _3: int = phi __4[_1], __2[_2]
               halt
           |]
-      show <$> runCompiler "{ if true 5 else if false 6 else 7 }"
+      show <$> testRunCompiler "{ if true 5 else if false 6 else 7 }"
         `shouldBe` expectText
           [text|
             __0:
@@ -147,7 +153,7 @@ spec =
               _5: int = phi __5[_1], __6[_3], __3[_4]
               halt
           |]
-      show <$> runCompiler "if true { 5; }"
+      show <$> testRunCompiler "if true { 5; }"
         `shouldBe` expectText
           [text|
             __0:
@@ -169,7 +175,7 @@ spec =
     describe "can compile complex programs" do
       it "can compile a factorial program" do
         show
-          <$> runCompiler
+          <$> testRunCompiler
             [text|
               {
                 let n: int = 5;
