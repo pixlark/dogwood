@@ -14,6 +14,8 @@ import IR
 import LexicalScopes hiding (lookupVariable)
 import qualified LexicalScopes
 import qualified Logging
+import LowerPass (runLowerPass)
+import Parser (parseStmt, runParse, runParseCallStack)
 import Typechecker (runTypecheck, runTypecheckCallStack, unifies)
 import TypedAST
 import Util
@@ -488,20 +490,26 @@ compileAndCheck stmt = do
     return undefined
 
 runCompiler :: (Log :> es) => Text -> Eff es (Result Program)
-runCompiler source = case runTypecheck source of
+runCompiler source = case runParse source parseStmt of
   Left err -> return (Left err)
-  Right tst -> do
-    result <- runErrorNoCallStack $ execState mkCompiler $ compileAndCheck tst
-    return $ fmap (.program) result
+  Right ast -> case runTypecheck (runLowerPass ast) of
+    Left err -> return (Left err)
+    Right tst -> do
+      result <- runErrorNoCallStack $ execState mkCompiler $ compileAndCheck tst
+      return $ fmap (.program) result
 
 runCompilerCallStack :: (Log :> es) => Text -> Eff es (Either (CallStack, Err) Program)
-runCompilerCallStack source = case runTypecheckCallStack source of
+runCompilerCallStack source = case runParseCallStack source parseStmt of
   Left err -> return (Left err)
-  Right tst -> do
-    result <- runError $ execState mkCompiler $ compileAndCheck tst
-    return $ fmap (.program) result
+  Right ast -> case runTypecheckCallStack (runLowerPass ast) of
+    Left err -> return (Left err)
+    Right tst -> do
+      result <- runError $ execState mkCompiler $ compileAndCheck tst
+      return $ fmap (.program) result
 
 execCompilerCallStack :: (Log :> es) => Text -> Eff es (Either (CallStack, Err) Compiler)
-execCompilerCallStack source = case runTypecheckCallStack source of
+execCompilerCallStack source = case runParseCallStack source parseStmt of
   Left err -> return (Left err)
-  Right tst -> runError $ execState mkCompiler $ compileAndCheck tst
+  Right ast -> case runTypecheckCallStack (runLowerPass ast) of
+    Left err -> return (Left err)
+    Right tst -> runError $ execState mkCompiler $ compileAndCheck tst

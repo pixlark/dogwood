@@ -1,7 +1,6 @@
 module Typechecker.Internal where
 
-import AST (AST (..), SyntaxTree (..))
-import qualified AST as A
+import AST (SyntaxTree (..))
 import Common
 import qualified Data.List
 import Data.List.NonEmpty (NonEmpty (..), (<|))
@@ -9,7 +8,8 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Text as Text
 import LexicalScopes hiding (lookupVariable)
 import qualified LexicalScopes
-import Parser (parseStmt, runParse, runParseCallStack)
+import LoweredAST (LST (..))
+import qualified LoweredAST as L
 import TypedAST (TST (..), typeOf)
 import qualified TypedAST as T
 import Util
@@ -25,32 +25,32 @@ makeTypechecker = Typechecker {scopes = mkScopes}
 -- type Typechecker a = Except Err a
 type TypecheckerE a = Eff '[State Typechecker, Error Err] a
 
-convertValueTypeExpr :: A.ValueTypeExpr -> T.ValueTypeExpr
-convertValueTypeExpr A.Void = T.Void
-convertValueTypeExpr A.Bool = T.Bool
-convertValueTypeExpr A.Int = T.Int
-convertValueTypeExpr (A.NamespacedIdentifier parts) = T.NamespacedIdentifier parts
-convertValueTypeExpr (A.Function params ret) = T.Function (map convertWrap params) (convertWrap ret)
+convertValueTypeExpr :: L.ValueTypeExpr -> T.ValueTypeExpr
+convertValueTypeExpr L.Void = T.Void
+convertValueTypeExpr L.Bool = T.Bool
+convertValueTypeExpr L.Int = T.Int
+convertValueTypeExpr (L.NamespacedIdentifier parts) = T.NamespacedIdentifier parts
+convertValueTypeExpr (L.Function params ret) = T.Function (map convertWrap params) (convertWrap ret)
   where
-    convertWrap (AST typeExpr span) = TST (convertTypeExpr typeExpr) span
+    convertWrap (LST typeExpr span) = TST (convertTypeExpr typeExpr) span
 
-convertTypeExpr :: A.TypeExpr -> T.TypeExpr
-convertTypeExpr (A.TypeExpr {reference, valueExpr}) = T.TypeExpr {reference, valueExpr = convertValueTypeExpr valueExpr}
+convertTypeExpr :: L.TypeExpr -> T.TypeExpr
+convertTypeExpr (L.TypeExpr {reference, valueExpr}) = T.TypeExpr {reference, valueExpr = convertValueTypeExpr valueExpr}
 
-convertOperator :: A.Operator -> T.Operator
-convertOperator A.Or = T.Or
-convertOperator A.And = T.And
-convertOperator A.Equal = T.Equal
-convertOperator A.NotEqual = T.NotEqual
-convertOperator A.LessThan = T.LessThan
-convertOperator A.LessThanOrEqual = T.LessThanOrEqual
-convertOperator A.GreaterThan = T.GreaterThan
-convertOperator A.GreaterThanOrEqual = T.GreaterThanOrEqual
-convertOperator A.Plus = T.Plus
-convertOperator A.Minus = T.Minus
-convertOperator A.Multiply = T.Multiply
-convertOperator A.Divide = T.Divide
-convertOperator A.Not = T.Not
+convertOperator :: L.Operator -> T.Operator
+convertOperator L.Or = T.Or
+convertOperator L.And = T.And
+convertOperator L.Equal = T.Equal
+convertOperator L.NotEqual = T.NotEqual
+convertOperator L.LessThan = T.LessThan
+convertOperator L.LessThanOrEqual = T.LessThanOrEqual
+convertOperator L.GreaterThan = T.GreaterThan
+convertOperator L.GreaterThanOrEqual = T.GreaterThanOrEqual
+convertOperator L.Plus = T.Plus
+convertOperator L.Minus = T.Minus
+convertOperator L.Multiply = T.Multiply
+convertOperator L.Divide = T.Divide
+convertOperator L.Not = T.Not
 
 numericOperators :: [T.Operator]
 numericOperators = [T.Plus, T.Minus, T.Multiply, T.Divide]
@@ -100,8 +100,8 @@ unifies t1 t2 = t1 == t2
 doesNotUnify :: T.TypeExpr -> T.TypeExpr -> Bool
 doesNotUnify t1 t2 = not (t1 `unifies` t2)
 
-typecheckBody :: (State Typechecker :> es, Error Err :> es) => AST A.Body -> Eff es (TST T.Body)
-typecheckBody (AST (A.Body stmts) span) = do
+typecheckBody :: (State Typechecker :> es, Error Err :> es) => LST L.Body -> Eff es (TST T.Body)
+typecheckBody (LST (L.Body stmts) span) = do
   -- each body opens a new lexical scope
   modify (\c -> c {scopes = pushScope c.scopes})
 
@@ -123,15 +123,15 @@ typecheckBody (AST (A.Body stmts) span) = do
     put (c {scopes = scopes'})
   return $ TST (T.Body retType tStmts') span
 
-typecheckExpr :: (State Typechecker :> es, Error Err :> es) => AST A.Expr -> Eff es (TST T.Expr)
-typecheckExpr (AST A.UndefinedLit span) = return $ TST T.UndefinedLit span
-typecheckExpr (AST A.VoidLit span) = return $ TST T.VoidLit span
-typecheckExpr (AST (A.BoolLit b) span) = return $ TST (T.BoolLit b) span
-typecheckExpr (AST (A.IntLit n) span) = return $ TST (T.IntLit n) span
-typecheckExpr (AST (A.Variable name) span) = do
+typecheckExpr :: (State Typechecker :> es, Error Err :> es) => LST L.Expr -> Eff es (TST T.Expr)
+typecheckExpr (LST L.UndefinedLit span) = return $ TST T.UndefinedLit span
+typecheckExpr (LST L.VoidLit span) = return $ TST T.VoidLit span
+typecheckExpr (LST (L.BoolLit b) span) = return $ TST (T.BoolLit b) span
+typecheckExpr (LST (L.IntLit n) span) = return $ TST (T.IntLit n) span
+typecheckExpr (LST (L.Variable name) span) = do
   ty <- lookupVariable span name
   return $ TST (T.Variable ty name) span
-typecheckExpr (AST (A.BinaryOperator op l r) span) = do
+typecheckExpr (LST (L.BinaryOperator op l r) span) = do
   tL <- typecheckExpr l
   tR <- typecheckExpr r
   let tyL = typeOf $ node tL
@@ -142,14 +142,14 @@ typecheckExpr (AST (A.BinaryOperator op l r) span) = do
       outputTy = operationOutputs op'
   when (not $ operatorSupportsType op' operandTy) $ throwSpan span (OperatorSupport (Text.show op) (Text.show operandTy))
   return $ TST (T.BinaryOperator outputTy op' tL tR) span
-typecheckExpr (AST (A.UnaryOperator op value) span) = do
+typecheckExpr (LST (L.UnaryOperator op value) span) = do
   tValue <- typecheckExpr value
   let op' = convertOperator op
       operandTy = typeOf (node tValue)
       outputTy = operationOutputs op'
   when (not $ operatorSupportsType op' operandTy) $ throwSpan span (OperatorSupport (Text.show op) (Text.show operandTy))
   return $ TST (T.UnaryOperator outputTy op' tValue) span
-typecheckExpr (AST (A.FunctionCall {function, arguments}) span) = do
+typecheckExpr (LST (L.FunctionCall {function, arguments}) span) = do
   tFunction <- typecheckExpr function
   let ty = typeOf (node tFunction)
   (params, ret) <- case ty of
@@ -163,10 +163,10 @@ typecheckExpr (AST (A.FunctionCall {function, arguments}) span) = do
     when (tyArg `doesNotUnify` tyParam) $ throwSpan (spanOf tArg) (typeMismatch tyParam tyArg)
     return tArg
   return $ TST (T.FunctionCall {type_ = node ret, function = tFunction, arguments = tArguments}) span
-typecheckExpr (AST (A.ExprBody body) span) = do
-  tBody <- typecheckBody (A.AST body span)
+typecheckExpr (LST (L.ExprBody body) span) = do
+  tBody <- typecheckBody (LST body span)
   return $ TST (T.ExprBody (node tBody)) span
-typecheckExpr (AST (A.IfChain bodies elseBody) span) = do
+typecheckExpr (LST (L.IfChain bodies elseBody) span) = do
   tBodies <- forM bodies $ \(condition, body) -> do
     tCondition <- typecheckExpr condition
     let tyCondition = typeOf (node tCondition)
@@ -193,55 +193,47 @@ typecheckExpr (AST (A.IfChain bodies elseBody) span) = do
 typeMismatch :: T.TypeExpr -> T.TypeExpr -> ErrorKind
 typeMismatch expected got = TypeMismatch {expectedType = Text.show expected, gotType = Text.show got}
 
-convertAST :: AST a -> TST a
-convertAST (AST a span) = TST a span
+convertLST :: LST a -> TST a
+convertLST (LST a span) = TST a span
 
-typecheckLValue :: (State Typechecker :> es, Error Err :> es) => AST A.LValue -> Eff es (TST T.LValue)
-typecheckLValue (A.AST (A.LVariable name) span) = do
+typecheckLValue :: (State Typechecker :> es, Error Err :> es) => LST L.LValue -> Eff es (TST T.LValue)
+typecheckLValue (LST (L.LVariable name) span) = do
   ty <- lookupVariable span name
   return $ TST (T.LVariable ty name) span
 
-typecheckStmt :: (State Typechecker :> es, Error Err :> es) => AST A.Stmt -> Eff es (TST T.Stmt)
-typecheckStmt (AST (A.Let {name, type_, value}) span) = do
+typecheckStmt :: (State Typechecker :> es, Error Err :> es) => LST L.Stmt -> Eff es (TST T.Stmt)
+typecheckStmt (LST (L.Let {name, type_, value}) span) = do
   scopes <- gets scopes
   tValue <- typecheckExpr value
-  let typeAnnotation = convertAST $ convertTypeExpr <$> type_
+  let typeAnnotation = convertLST $ convertTypeExpr <$> type_
   let expectType = typeOf (node tValue)
   when (node typeAnnotation `doesNotUnify` expectType) $ throwSpan (spanOf value) (typeMismatch (node typeAnnotation) expectType)
   let scopes' = bindNewVariable (node name) (node typeAnnotation) scopes
   typechecker <- get
   put typechecker {scopes = scopes'}
-  return $ TST (T.Let {name = convertAST name, type_ = typeAnnotation, value = tValue}) span
-typecheckStmt (AST (A.Assign {lvalue, value}) span) = do
+  return $ TST (T.Let {name = convertLST name, type_ = typeAnnotation, value = tValue}) span
+typecheckStmt (LST (L.Assign {lvalue, value}) span) = do
   tLValue <- typecheckLValue lvalue
   tValue <- typecheckExpr value
   let (T.LVariable tyL _) = (node tLValue)
       tyR = typeOf (node tValue)
   when (tyL `doesNotUnify` tyR) $ throwSpan (spanOf value) (typeMismatch tyL tyR)
   return $ TST (T.Assign tLValue tValue) span
-typecheckStmt (AST (A.ExprStmt value semicolon) span) = do
+typecheckStmt (LST (L.ExprStmt value semicolon) span) = do
   tValue <- typecheckExpr value
   return $ TST (T.ExprStmt tValue semicolon) span
-typecheckStmt (AST (A.Return maybeValue) span) = do
+typecheckStmt (LST (L.Return maybeValue) span) = do
   tMaybeValue <- traverse typecheckExpr maybeValue
   return $ TST (T.Return tMaybeValue) span
-typecheckStmt (AST A.Break span) = return $ TST T.Break span
-typecheckStmt (AST (A.Loop body) span) = do
+typecheckStmt (LST L.Break span) = return $ TST T.Break span
+typecheckStmt (LST (L.Loop body) span) = do
   tBody <- typecheckBody body
   let (T.Body ty _) = node tBody
   when (ty `doesNotUnify` T.makeValueExpr T.Void) $ throwSpan (spanOf body) (typeMismatch (T.makeValueExpr T.Void) ty)
   return $ TST (T.Loop tBody) span
 
-runTypecheck :: Text -> Result (TST T.Stmt)
-runTypecheck source = case result of
-  Left e -> Left e
-  Right a -> runPureEff $ runErrorNoCallStack $ evalState makeTypechecker $ typecheckStmt a
-  where
-    result = runParse source parseStmt
+runTypecheck :: LST L.Stmt -> Result (TST T.Stmt)
+runTypecheck stmt = runPureEff $ runErrorNoCallStack $ evalState makeTypechecker $ typecheckStmt stmt
 
-runTypecheckCallStack :: Text -> Either (CallStack, Err) (TST T.Stmt)
-runTypecheckCallStack source = case result of
-  Left e -> Left e
-  Right a -> runPureEff $ runError $ evalState makeTypechecker $ typecheckStmt a
-  where
-    result = runParseCallStack source parseStmt
+runTypecheckCallStack :: LST L.Stmt -> Either (CallStack, Err) (TST T.Stmt)
+runTypecheckCallStack stmt = runPureEff $ runError $ evalState makeTypechecker $ typecheckStmt stmt

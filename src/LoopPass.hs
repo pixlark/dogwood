@@ -4,6 +4,8 @@ module LoopPass where
 
 import Common
 import Error
+import LowerPass (runLowerPass)
+import Parser (parseStmt, runParse)
 import Typechecker
 import TypedAST
 import Visit
@@ -33,6 +35,7 @@ loopPass stmt = do
 
 runLoopPass :: Text -> Result (TST Stmt)
 runLoopPass source = do
-  tst <- runTypecheck source
+  ast <- runParse source parseStmt
+  tst <- runTypecheck (runLowerPass ast)
   _ <- runPureEff $ runErrorNoCallStack (loopPass tst)
   return tst

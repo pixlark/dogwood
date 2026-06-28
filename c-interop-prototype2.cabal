@@ -129,7 +129,7 @@ test-suite prototype-tests
     hs-source-dirs:   test
     -- test-module:      Spec
     main-is:          Main.hs
-    other-modules:    LexerSpec, ParserSpec, TypecheckerSpec, LoopPassSpec, CompilerSpec
+    other-modules:    LexerSpec, ParserSpec, LowerPassSpec, TypecheckerSpec, LoopPassSpec, CompilerSpec
     build-depends:    base ^>=4.18.3.0,
                       text ^>=2.1,
                       mtl,
