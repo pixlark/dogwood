@@ -1,6 +1,6 @@
 {-# LANGUAGE QuasiQuotes #-}
 
-module Error (ErrorKind (..), Span (..), Err (..), Result, displayError, isErrorKind, throwSpan, orThrowSpan) where
+module Error (ErrorKind (..), Span (..), Err (..), Result, displayError, isErrorKind, throwSpan, orThrowSpan, getLineForSpan) where
 
 import Control.Monad
 import Control.Monad.Writer

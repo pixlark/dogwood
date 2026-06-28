@@ -1,13 +1,18 @@
 module IR where
 
 import Common
+import Data.Hashable (Hashable (..))
 import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Text as Text
 import qualified TypedAST as T
 
 newtype BlockId = BlockId Int
   deriving (Eq)
+
+newtype VarId = VarId Int
+  deriving (Show, Eq)
 
 newtype Name = Name Int
   deriving (Eq)
@@ -25,17 +30,17 @@ data RHS
     RCall Name [Name]
   deriving (Eq)
 
-data Phi = Phi T.TypeExpr Name (NonEmpty (BlockId, Name))
+data Phi = Phi T.TypeExpr Name [(BlockId, Name)] Span
   deriving (Eq)
 
 data Control = Halt | Jump BlockId | JumpIf Name BlockId BlockId
   deriving (Eq)
 
 data SSA
-  = SSA T.TypeExpr Name RHS
+  = SSA T.TypeExpr Name RHS Span
   deriving (Eq)
 
-data Block = Block [Phi] [SSA] Control [BlockId]
+data Block = Block {phis :: [Phi], instructions :: [SSA], control :: Control, predecessors :: [BlockId]}
   deriving (Eq)
 
 mkBlock :: Block
@@ -43,6 +48,9 @@ mkBlock = Block [] [] Halt []
 
 newtype Program = Program [(BlockId, Block)]
   deriving (Eq)
+
+class ShowWithSource a where
+  showWithSource :: Text -> a -> String
 
 instance Show BlockId where
   show (BlockId n) = printf "__%d" n
@@ -60,7 +68,16 @@ instance Show RHS where
   show (RCall fn args) = printf "call %s (%s)" (show fn) (intercalate ", " $ map show args)
 
 instance Show Phi where
-  show (Phi ty name phiPairs) = printf "%s: %s = phi %s" (show name) (show ty) (intercalate ", " $ map (\(id, name) -> printf "%s[%s]" (show id) (show name)) $ NE.toList phiPairs)
+  show (Phi ty name phiPairs _) = printf "%s: %s = phi %s" (show name) (show ty) (intercalate ", " $ map (\(id, name) -> printf "%s[%s]" (show id) (show name)) phiPairs)
+
+instance ShowWithSource Phi where
+  showWithSource source phi@(Phi _ _ _ span) = printf "%s// %s" left' (Text.takeWhile (/= '\n') $ fst $ getLineForSpan source span)
+    where
+      left = show phi
+      leftLen = length left
+      padTo = 40
+      padAmount = max 0 (padTo - leftLen)
+      left' = left ++ replicate padAmount ' '
 
 instance Show Control where
   show Halt = printf "halt"
@@ -68,10 +85,22 @@ instance Show Control where
   show (JumpIf name id1 id2) = printf "jump if %s to %s else %s" (show name) (show id1) (show id2)
 
 instance Show SSA where
-  show (SSA ty name rhs) = printf "%s: %s = %s" (show name) (show ty) (show rhs)
+  show (SSA ty name rhs _) = printf "%s: %s = %s" (show name) (show ty) (show rhs)
+
+instance ShowWithSource SSA where
+  showWithSource source ssa@(SSA _ _ _ span) = printf "%s// %s" left' (Text.takeWhile (/= '\n') $ fst $ getLineForSpan source span)
+    where
+      left = show ssa
+      leftLen = length left
+      padTo = 40
+      padAmount = max 0 (padTo - leftLen)
+      left' = left ++ replicate padAmount ' '
 
 instance Show Block where
   show (Block phis insts control _) = concatMap (printf "  %s\n" . show) phis ++ concatMap (printf "  %s\n" . show) insts ++ printf "  %s\n" (show control)
+
+instance ShowWithSource Block where
+  showWithSource source (Block phis insts control _) = concatMap (printf "  %s\n" . showWithSource source) phis ++ concatMap (printf "  %s\n" . showWithSource source) insts ++ printf "  %s\n" (show control)
 
 instance Show Program where
   show (Program blocks) =
@@ -80,3 +109,19 @@ instance Show Program where
           printf "%s%s:\n%s" (show id) (if null preds then "" :: String else printf "[%s]" $ intercalate ", " $ map show preds) (show block)
       )
       blocks
+
+instance ShowWithSource Program where
+  showWithSource source (Program blocks) =
+    concatMap
+      ( \(id, block@(Block _ _ _ preds)) ->
+          printf "%s%s:\n%s" (show id) (if null preds then "" :: String else printf "[%s]" $ intercalate ", " $ map show preds) (showWithSource source block)
+      )
+      blocks
+
+instance Hashable BlockId where
+  hash (BlockId id) = hash id
+  hashWithSalt salt (BlockId id) = hashWithSalt salt id
+
+instance Hashable VarId where
+  hash (VarId id) = hash id
+  hashWithSalt salt (VarId id) = hashWithSalt salt id

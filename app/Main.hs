@@ -9,6 +9,7 @@ import Data.Bifunctor
 import qualified Data.Text as T
 import Error
 import GHC.Exception (prettyCallStack)
+import IR (ShowWithSource (..))
 import Lexer
 import NeatInterpolation
 import Parser
@@ -31,7 +32,7 @@ main =
       putStrLn $ T.unpack $ displayError source e
     Right Compiler {sealed, program} -> do
       print sealed
-      print program
+      putStrLn $ showWithSource source program
   where
     source =
       [text|
