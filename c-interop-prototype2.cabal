@@ -101,7 +101,7 @@ library prototype-core
 
     exposed-modules:    AST, AST2, TypedAST, Parser, Parser.Internal, Lexer, Lexer.Internal,
                         Typechecker, Typechecker.Internal, Util, Error, Compiler, Visit, LoopPass,
-                        Common, EmitC, IR, LexicalScopes, Logging
+                        Common, EmitC, IR, LexicalScopes, Logging, LoweredAST, LowerPass
 
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.18.3.0,
