@@ -1,8 +1,11 @@
 module LowerPass where
 
 import qualified AST
+import Common
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified LoweredAST as L
+import Util
 
 lowerAST :: AST.AST a -> (a -> b) -> L.LST b
 lowerAST (AST.AST x span) f = L.LST (f x) span
@@ -35,6 +38,19 @@ lowerOperator AST.Divide = L.Divide
 lowerOperator AST.Not = L.Not
 
 lowerExpr :: AST.AST AST.Expr -> L.LST L.Expr
+lowerExpr (AST.AST (AST.IfChain ((condition, body) :| []) elseBody) span) =
+  L.LST (L.IfThen condition' body' elseBody') span
+  where
+    condition' = lowerExpr condition
+    body' = lowerExpr body
+    elseBody' = (lowerExpr <$> elseBody) `orElse` L.LST L.VoidLit span
+lowerExpr (AST.AST (AST.IfChain ((condition, body) :| rest) elseBody) span) =
+  L.LST (L.IfThen condition' body' elseBody') span
+  where
+    condition' = lowerExpr condition
+    body' = lowerExpr body
+    elseIfChain' = AST.AST (AST.IfChain (NE.fromList rest) elseBody) span
+    elseBody' = lowerExpr elseIfChain'
 lowerExpr ast = lowerAST ast $ \case
   AST.UndefinedLit -> L.UndefinedLit
   AST.VoidLit -> L.VoidLit
@@ -48,10 +64,11 @@ lowerExpr ast = lowerAST ast $ \case
   AST.FunctionCall fn args ->
     L.FunctionCall (lowerExpr fn) (map lowerExpr args)
   AST.ExprBody body -> L.ExprBody (lowerBody body)
-  AST.IfChain branches elseBody ->
-    L.IfChain
-      (NE.map (\(cond, body) -> (lowerExpr cond, lowerExpr body)) branches)
-      (fmap lowerExpr elseBody)
+  AST.IfChain _ _ -> error "unreachable"
+
+-- L.IfChain
+--   (NE.map (\(cond, body) -> (lowerExpr cond, lowerExpr body)) branches)
+--   (fmap lowerExpr elseBody)
 
 lowerLValue :: AST.AST AST.LValue -> L.LST L.LValue
 lowerLValue ast = lowerAST ast $ \(AST.LVariable name) -> L.LVariable name

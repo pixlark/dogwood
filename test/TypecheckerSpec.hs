@@ -47,15 +47,15 @@ spec = do
       (show <$> testTypecheck "{let f: fn(int, int) -> bool = undefined; f(true, 6)}") `shouldSatisfy` isErrorKind (TypeMismatch "int" "bool")
       (show <$> testTypecheck "{let f: fn(int, int) -> void = undefined; f(1)}") `shouldSatisfy` isErrorKind (WrongArgumentCount 2 1)
     it "typechecks if expressions" do
-      (show <$> testTypecheck "if true void else if false void") `shouldBe` Right "(if true void else if false void) : void"
+      (show <$> testTypecheck "if true void else if false void") `shouldBe` Right "(if true void else (if false void else void) : void) : void"
       (show <$> testTypecheck "if 15 void else if false void") `shouldSatisfy` isErrorKind (TypeMismatch "bool" "int")
       (show <$> testTypecheck "if true 15 else 16") `shouldBe` Right "(if true 15 else 16) : int"
       (show <$> testTypecheck "if true 15 else true") `shouldSatisfy` isErrorKind (TypeMismatch "int" "bool")
-      (show <$> testTypecheck "if true { 15; }") `shouldBe` Right "(if true {\n15;\n} : void) : void"
+      (show <$> testTypecheck "if true { 15; }") `shouldBe` Right "(if true {\n15;\n} : void else void) : void"
       -- TODO: is this one reasonable behavior? maybe we should be okay with this, even though they didn't
       --       "discard" the value with a semicolon?
       --       what does rust do?
-      (show <$> testTypecheck "if true { 15 }") `shouldSatisfy` isErrorKind (TypeMismatch "void" "int")
+      (show <$> testTypecheck "if true { 15 }") `shouldSatisfy` isErrorKind (TypeMismatch "int" "void")
     it "typechecks loops" do
       (show <$> testTypecheck "loop { 15 }") `shouldSatisfy` isErrorKind (TypeMismatch "void" "int")
       (show <$> testTypecheck "loop { 15; }") `shouldBe` Right "loop {\n15;\n} : void"
@@ -84,7 +84,7 @@ spec = do
               loop {
               (if ((n : int) == 0 : bool) {
               break;
-              } : void) : void
+              } : void else void) : void
               acc = ((acc : int) * (n : int) : int);
               n = ((n : int) - 1 : int);
               } : void

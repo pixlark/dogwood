@@ -51,7 +51,8 @@ data Expr
   | UnaryOperator Operator (LST Expr)
   | FunctionCall {function :: LST Expr, arguments :: [LST Expr]}
   | ExprBody Body
-  | IfChain (NE.NonEmpty (LST Expr, LST Expr)) (Maybe (LST Expr))
+  | -- | IfChain (NE.NonEmpty (LST Expr, LST Expr)) (Maybe (LST Expr))
+    IfThen (LST Expr) (LST Expr) (LST Expr)
   deriving (Eq)
 
 newtype LValue = LVariable T.Text
@@ -126,23 +127,13 @@ instance Show Expr where
     tell ")"
   show (Variable sym) = T.unpack sym
   show (ExprBody body) = show body
-  show (IfChain bodies elseBody) = execWriter $ do
-    let first = NE.head bodies
-    writeIf first
-    let rest = NE.tail bodies
-    forM_ rest $ \body -> do
-      tell " else "
-      writeIf body
-    forM_ elseBody $ \body -> do
-      tell " else "
-      tell $ show body
-    where
-      writeIf :: (LST Expr, LST Expr) -> Writer String ()
-      writeIf (condition, body) = do
-        tell "if "
-        tell $ show condition
-        tell " "
-        tell $ show body
+  show (IfThen condition body elseBody) = execWriter $ do
+    tell "if "
+    tell $ show condition
+    tell " "
+    tell $ show body
+    tell " else "
+    tell $ show elseBody
 
 instance Show LValue where
   show (LVariable name) = T.unpack name

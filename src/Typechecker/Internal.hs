@@ -166,29 +166,43 @@ typecheckExpr (LST (L.FunctionCall {function, arguments}) span) = do
 typecheckExpr (LST (L.ExprBody body) span) = do
   tBody <- typecheckBody (LST body span)
   return $ TST (T.ExprBody (node tBody)) span
-typecheckExpr (LST (L.IfChain bodies elseBody) span) = do
-  tBodies <- forM bodies $ \(condition, body) -> do
-    tCondition <- typecheckExpr condition
-    let tyCondition = typeOf (node tCondition)
-    -- make sure all the conditions are actually boolean
-    when (tyCondition `doesNotUnify` T.makeValueExpr T.Bool) $ throwSpan (spanOf tCondition) (typeMismatch (T.makeValueExpr T.Bool) tyCondition)
-    tBody <- typecheckExpr body
-    return (tCondition, tBody)
-  tElseBody <- traverse typecheckExpr elseBody
-  -- probably a less nasty way to do this, but I have a headache
-  let tAllBodies = (snd <$> tBodies) `NE.appendList` ((Data.List.singleton <$> tElseBody) `orElse` [])
-      -- if there's an else component to this if expression, then it's capable of evaluating to something other
-      -- than void. if there's no else component, then all the bodies must evaluate to void (since the "default"
-      -- else will evaluate to void).
-      expectBodyType =
-        if isJust tElseBody
-          then typeOf $ node $ NE.head tAllBodies
-          else T.makeValueExpr T.Void
-  -- make sure all the bodies have the same type
-  forM_ tAllBodies $ \body -> do
-    let bodyType = typeOf $ node body
-    when (bodyType `doesNotUnify` expectBodyType) $ throwSpan (spanOf body) (typeMismatch expectBodyType bodyType)
-  return $ TST (T.IfChain expectBodyType tBodies tElseBody) span
+typecheckExpr (LST (L.IfThen condition body elseBody) span) = do
+  tCondition <- typecheckExpr condition
+  let tyCondition = typeOf (node tCondition)
+  when (tyCondition `doesNotUnify` T.makeValueExpr T.Bool) $ throwSpan (spanOf tCondition) (typeMismatch (T.makeValueExpr T.Bool) tyCondition)
+
+  tBody <- typecheckExpr body
+  tElseBody <- typecheckExpr elseBody
+
+  let tyBody = typeOf (node tBody)
+      tyElseBody = typeOf (node tElseBody)
+  when (tyBody `doesNotUnify` tyElseBody) $ throwSpan (spanOf tCondition) (typeMismatch tyBody tyElseBody)
+  return $ TST (T.IfThen tyBody tCondition tBody tElseBody) span
+
+-- return $ TST (T.If)
+
+-- tBodies <- forM bodies $ \(condition, body) -> do
+--   tCondition <- typecheckExpr condition
+--   let tyCondition = typeOf (node tCondition)
+--   -- make sure all the conditions are actually boolean
+--   when (tyCondition `doesNotUnify` T.makeValueExpr T.Bool) $ throwSpan (spanOf tCondition) (typeMismatch (T.makeValueExpr T.Bool) tyCondition)
+--   tBody <- typecheckExpr body
+--   return (tCondition, tBody)
+-- tElseBody <- traverse typecheckExpr elseBody
+-- -- probably a less nasty way to do this, but I have a headache
+-- let tAllBodies = (snd <$> tBodies) `NE.appendList` ((Data.List.singleton <$> tElseBody) `orElse` [])
+--     -- if there's an else component to this if expression, then it's capable of evaluating to something other
+--     -- than void. if there's no else component, then all the bodies must evaluate to void (since the "default"
+--     -- else will evaluate to void).
+--     expectBodyType =
+--       if isJust tElseBody
+--         then typeOf $ node $ NE.head tAllBodies
+--         else T.makeValueExpr T.Void
+-- -- make sure all the bodies have the same type
+-- forM_ tAllBodies $ \body -> do
+--   let bodyType = typeOf $ node body
+--   when (bodyType `doesNotUnify` expectBodyType) $ throwSpan (spanOf body) (typeMismatch expectBodyType bodyType)
+-- return $ TST (T.IfChain expectBodyType tBodies tElseBody) span
 
 typeMismatch :: T.TypeExpr -> T.TypeExpr -> ErrorKind
 typeMismatch expected got = TypeMismatch {expectedType = Text.show expected, gotType = Text.show got}

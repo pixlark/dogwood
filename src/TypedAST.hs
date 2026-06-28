@@ -48,7 +48,8 @@ data Expr
   | UnaryOperator TypeExpr Operator (TST Expr)
   | FunctionCall {type_ :: TypeExpr, function :: TST Expr, arguments :: [TST Expr]}
   | ExprBody Body
-  | IfChain TypeExpr (NE.NonEmpty (TST Expr, TST Expr)) (Maybe (TST Expr))
+  | -- | IfChain TypeExpr (NE.NonEmpty (TST Expr, TST Expr)) (Maybe (TST Expr))
+    IfThen TypeExpr (TST Expr) (TST Expr) (TST Expr)
   deriving (Eq)
 
 makeValueExpr :: ValueTypeExpr -> TypeExpr
@@ -75,7 +76,9 @@ typeOf (BinaryOperator t _ _ _) = t
 typeOf (UnaryOperator t _ _) = t
 typeOf (FunctionCall {type_}) = type_
 typeOf (ExprBody (Body t _)) = t
-typeOf (IfChain t _ _) = t
+typeOf (IfThen t _ _ _) = t
+
+-- typeOf (IfChain t _ _) = t
 
 data LValue = LVariable TypeExpr T.Text
   deriving (Eq)
@@ -145,25 +148,15 @@ instance Show Expr where
     tell $ printf ") : %s)" (show type_)
   show (Variable t sym) = printf "(%s : %s)" sym (show t)
   show (ExprBody body) = show body
-  show (IfChain t bodies elseBody) = execWriter $ do
-    tell "("
-    let first = NE.head bodies
-    writeIf first
-    let rest = NE.tail bodies
-    forM_ rest $ \body -> do
-      tell " else "
-      writeIf body
-    forM_ elseBody $ \body -> do
-      tell " else "
-      tell $ show body
-    tell $ printf ") : %s" (show t)
-    where
-      writeIf :: (TST Expr, TST Expr) -> Writer String ()
-      writeIf (condition, body) = do
-        tell "if "
-        tell $ show condition
-        tell " "
-        tell $ show body
+  show (IfThen ty condition body elseBody) = execWriter $ do
+    tell "(if "
+    tell $ show condition
+    tell " "
+    tell $ show body
+    tell " else "
+    tell $ show elseBody
+    tell ") : "
+    tell $ show ty
 
 instance Show LValue where
   show (LVariable _ name) = T.unpack name

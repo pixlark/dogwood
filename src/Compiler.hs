@@ -340,65 +340,67 @@ compileExpr (TST (FunctionCall ty fn args) span) = do
   argNames <- mapM compileExpr args
   emit ty (RCall fnName argNames) span
 compileExpr (TST (ExprBody body) span) = compileBody body span
-compileExpr (TST (IfChain ty bodies elseBody) span) = withRegion "Compiling if-chain..." do
-  -- pre-allocate blocks for each condition
-  conditionIds <- mapM (const allocateBlock) bodies
-  scribe $ format "Allocated block(s) {} for the condition(s) of the if-chain" (Only (Shown (NE.toList conditionIds)))
-  -- pre-allocate an id for the else body
-  -- if there is no else body, we just generate an empty block and rely on later passes to clean that up
-  elseBlockId <- allocateBlock
-  scribe $ format "Allocated block {} for the else body" (Only (Shown elseBlockId))
-  -- pre-allocate an id for what comes after the entire if chain
-  postChainId <- allocateBlock
-  scribe $ format "Allocated block {} to follow the if-chain" (Only (Shown postChainId))
+compileExpr (TST (IfThen ty condition body elseBody) span) = withRegion "Compiling if-chain..." do
+  return undefined
 
-  -- this block concludes by jumping to the first if condition
-  let firstConditionId = NE.head conditionIds
-  setControl (Jump firstConditionId) span
-  scribe $ format "Moving to next piece ({}) of the if-chain..." (Only (Shown firstConditionId))
-  switchToBlock firstConditionId
+-- -- pre-allocate blocks for each condition
+-- conditionIds <- mapM (const allocateBlock) bodies
+-- scribe $ format "Allocated block(s) {} for the condition(s) of the if-chain" (Only (Shown (NE.toList conditionIds)))
+-- -- pre-allocate an id for the else body
+-- -- if there is no else body, we just generate an empty block and rely on later passes to clean that up
+-- elseBlockId <- allocateBlock
+-- scribe $ format "Allocated block {} for the else body" (Only (Shown elseBlockId))
+-- -- pre-allocate an id for what comes after the entire if chain
+-- postChainId <- allocateBlock
+-- scribe $ format "Allocated block {} to follow the if-chain" (Only (Shown postChainId))
 
-  -- then we go through all the bodies one-by-one
-  results <- forM (bodies `NE.zip` NE.fromList (NE.tail conditionIds ++ [elseBlockId])) $
-    \((condition, body), nextConditionId) -> do
-      -- compile the condition
-      resultName <- compileExpr condition
-      -- we know the condition won't have any other predecessors
-      markCurrentBlockSealed (spanOf condition)
+-- -- this block concludes by jumping to the first if condition
+-- let firstConditionId = NE.head conditionIds
+-- setControl (Jump firstConditionId) span
+-- scribe $ format "Moving to next piece ({}) of the if-chain..." (Only (Shown firstConditionId))
+-- switchToBlock firstConditionId
 
-      -- allocate a block for the body of this branch
-      bodyId <- allocateBlock
-      currentBlock <- gets currentBlock
-      scribe $ format "Allocated block {} for the body of this condition ({})" (Shown bodyId, Shown currentBlock)
-      -- if the condition is true, jump to the body block
-      -- otherwise, jump to the next block in the chain
-      setControl (JumpIf resultName bodyId nextConditionId) (spanOf condition)
-      markSealed bodyId (spanOf body)
-      switchToBlock bodyId
-      -- then compile the body
-      bodyResultName <- compileExpr body
-      -- we know the body won't have any other predecessors
-      markCurrentBlockSealed (spanOf body)
-      -- when the body is done, we should jump past the entire chain
-      setControl (Jump postChainId) (spanOf body)
-      scribe $ format "Moving to next piece ({}) of the if-chain..." (Only (Shown nextConditionId))
-      switchToBlock nextConditionId
+-- -- then we go through all the bodies one-by-one
+-- results <- forM (bodies `NE.zip` NE.fromList (NE.tail conditionIds ++ [elseBlockId])) $
+--   \((condition, body), nextConditionId) -> do
+--     -- compile the condition
+--     resultName <- compileExpr condition
+--     -- we know the condition won't have any other predecessors
+--     markCurrentBlockSealed (spanOf condition)
 
-      -- we save the name of the body's result for later (to use in the phi instruction)
-      return (bodyId, bodyResultName)
+--     -- allocate a block for the body of this branch
+--     bodyId <- allocateBlock
+--     currentBlock <- gets currentBlock
+--     scribe $ format "Allocated block {} for the body of this condition ({})" (Shown bodyId, Shown currentBlock)
+--     -- if the condition is true, jump to the body block
+--     -- otherwise, jump to the next block in the chain
+--     setControl (JumpIf resultName bodyId nextConditionId) (spanOf condition)
+--     markSealed bodyId (spanOf body)
+--     switchToBlock bodyId
+--     -- then compile the body
+--     bodyResultName <- compileExpr body
+--     -- we know the body won't have any other predecessors
+--     markCurrentBlockSealed (spanOf body)
+--     -- when the body is done, we should jump past the entire chain
+--     setControl (Jump postChainId) (spanOf body)
+--     scribe $ format "Moving to next piece ({}) of the if-chain..." (Only (Shown nextConditionId))
+--     switchToBlock nextConditionId
 
-  -- generate the else body (even if it's empty)
-  elseResultName <- case elseBody of
-    Nothing -> emit mkVoid RVoid span
-    Just elseBody -> compileExpr elseBody
-  setControl (Jump postChainId) span
-  markCurrentBlockSealed span
-  markSealed postChainId span
-  switchToBlock postChainId
-  -- now, to get the result out we have to use the phi function
-  scribe "Generating phi instruction for result of if-chain"
-  let operands = NE.toList $ results `NE.append` NE.singleton (elseBlockId, elseResultName)
-  addCompletePhi postChainId ty operands span
+--     -- we save the name of the body's result for later (to use in the phi instruction)
+--     return (bodyId, bodyResultName)
+
+-- -- generate the else body (even if it's empty)
+-- elseResultName <- case elseBody of
+--   Nothing -> emit mkVoid RVoid span
+--   Just elseBody -> compileExpr elseBody
+-- setControl (Jump postChainId) span
+-- markCurrentBlockSealed span
+-- markSealed postChainId span
+-- switchToBlock postChainId
+-- -- now, to get the result out we have to use the phi function
+-- scribe "Generating phi instruction for result of if-chain"
+-- let operands = NE.toList $ results `NE.append` NE.singleton (elseBlockId, elseResultName)
+-- addCompletePhi postChainId ty operands span
 
 compileStmt :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Stmt -> Eff es (Maybe Name)
 compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do

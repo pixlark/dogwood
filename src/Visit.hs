@@ -84,13 +84,12 @@ runExprVisitor v expr@(TST (FunctionCall type_ function arguments) span_) =
 runExprVisitor v expr@(TST (ExprBody body) span_) =
   onExpr v expr $
     runBodyVisitor v (TST body span_)
-runExprVisitor v expr@(TST (IfChain typeExpr branches elseBody) span_) =
+runExprVisitor v expr@(TST (IfThen typeExpr condition body elseBody) span_) =
   onExpr v expr $ do
     runTypeExprVisitor v (TST typeExpr span_)
-    forM_ (NE.toList branches) $ \(condition, body) -> do
-      runExprVisitor v condition
-      runExprVisitor v body
-    forM_ elseBody (runExprVisitor v)
+    runExprVisitor v condition
+    runExprVisitor v body
+    runExprVisitor v elseBody
 
 runStmtVisitor :: (Monad m) => Visitor m -> TST Stmt -> m ()
 runStmtVisitor v stmt@(TST (Let _ type_ value) _) =
