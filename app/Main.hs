@@ -13,7 +13,7 @@ import Error
 import GHC.Exception (prettyCallStack)
 import IR (ShowWithSource (..))
 import Lexer
-import Logging (runLog, standardLogger)
+import Logging (runLog, standardLogger, standardLoggerWithIgnoredFunctions)
 import NeatInterpolation
 import Parser
 import Typechecker (runTypecheckCallStack)
@@ -29,13 +29,14 @@ import Typechecker (runTypecheckCallStack)
 
 main :: IO ()
 main = do
-  result <- runEff $ runLog standardLogger $ execCompilerCallStack source
+  result <- runEff $ runLog (standardLoggerWithIgnoredFunctions loggerIgnoredFunctions) $ execCompilerCallStack source
   case result of
     Left (cs, e) -> do
       putStrLn $ prettyCallStack cs
       putStrLn $ T.unpack $ displayError source e
-    Right Compiler {sealed, program} -> do
+    Right Compiler {sealed, program, userMap} -> do
       print $ sort sealed
+      print userMap
       putStrLn $ showWithSource source program
   where
     source =
@@ -52,3 +53,4 @@ main = do
           }
         }
       |]
+    loggerIgnoredFunctions = ["markSealed"]

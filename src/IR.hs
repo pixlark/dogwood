@@ -118,6 +118,10 @@ instance ShowWithSource Program where
       )
       blocks
 
+instance Hashable Name where
+  hash (Name name) = hash name
+  hashWithSalt salt (Name name) = hashWithSalt salt name
+
 instance Hashable BlockId where
   hash (BlockId id) = hash id
   hashWithSalt salt (BlockId id) = hashWithSalt salt id

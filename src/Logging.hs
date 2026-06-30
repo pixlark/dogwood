@@ -2,7 +2,7 @@
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Logging (Log, scribe, runLog, standardLogger, noOpLogger, withRegion) where
+module Logging (Log, scribe, runLog, standardLogger, standardLoggerWithIgnoredFunctions, noOpLogger, withRegion) where
 
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as Text
@@ -28,6 +28,7 @@ withRegion name f = do
   putStaticRep (Log logger')
   r <- f
   putStaticRep (Log logger)
+  unsafeEff_ $ logMessage logger $ printf "/{%s}" (Text.unpack name)
   return r
 
 scribe :: (HasCallStack, Log :> es) => Text -> Eff es ()
@@ -39,12 +40,15 @@ runLog :: (IOE :> es) => Logger -> Eff (Log : es) a -> Eff es a
 runLog logger = evalStaticRep (Log logger)
 
 standardLogger :: Logger
-standardLogger = Logger {logMessage}
+standardLogger = standardLoggerWithIgnoredFunctions []
+
+standardLoggerWithIgnoredFunctions :: [String] -> Logger
+standardLoggerWithIgnoredFunctions ignoredFunctions = Logger {logMessage}
   where
     logMessage :: (HasCallStack) => String -> IO ()
     logMessage msg = do
       let stack = callStack
-          ignoreStackNames = ["withRegion", "scribe", "logMessage", "a use of `logMessage'", "$sel:logMessage:Logger"]
+          ignoreStackNames = ["withRegion", "scribe", "logMessage", "a use of `logMessage'", "$sel:logMessage:Logger"] ++ ignoredFunctions
           fixedStack = filter (not . (`elem` ignoreStackNames) . fst) (getCallStack stack)
           fnName = printf "[%s]" $ fst (safeHead fixedStack `orElse` ("???", undefined))
           padTo = 25

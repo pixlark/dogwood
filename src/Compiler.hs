@@ -2,13 +2,11 @@
 
 module Compiler where
 
-import AST (SyntaxTree (..))
 import Common hiding (scribe)
 import Control.Monad (join)
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as HashMap
-import Data.List (findIndex)
-import qualified Data.List.NonEmpty as NE
+import Data.List (findIndex, nub)
 import qualified Data.Text.Lazy
 import IR
 import LexicalScopes hiding (lookupVariable)
@@ -45,6 +43,7 @@ data Compiler = Compiler
     variableTypes :: HashMap VarId TypeExpr,
     variableSpans :: HashMap VarId Span,
     incompletePhis :: HashMap BlockId [PhiReference],
+    userMap :: HashMap Name ([Name], BlockId),
     sealed :: [BlockId],
     -- | If we're inside a loop, this points to the basic block that follows the loop
     -- | (in other words, where we jump when we hit a break statement)
@@ -75,6 +74,7 @@ mkCompiler =
       variableTypes = HashMap.empty,
       variableSpans = HashMap.empty,
       incompletePhis = HashMap.empty,
+      userMap = HashMap.empty,
       sealed = [BlockId 0],
       currentBreakBlocks = []
     }
@@ -167,6 +167,15 @@ emitWithName name ty rhs span = do
   currentBlock <- gets currentBlock
   modifyBlock currentBlock span $ \block@Block {instructions} -> do
     return block {instructions = instructions ++ [ssa]}
+
+  -- update the users map (if we reference any names on our RHS)
+  let usesNames = nub $ case rhs of
+        RBinOp _ left right -> [left, right]
+        RUnaryOp _ name -> [name]
+        RCall fn args -> fn : args
+        _ -> []
+  unless (null usesNames) $ modify (\c -> c {userMap = HashMap.insert name (usesNames, currentBlock) c.userMap})
+
   return name
 
 emit :: (HasCallStack, State Compiler :> es, Error Err :> es) => TypeExpr -> RHS -> Span -> Eff es Name
@@ -222,14 +231,20 @@ addCompletePhi blockId ty operands span = do
 
 setPhiOperands :: (HasCallStack, State Compiler :> es, Error Err :> es) => PhiReference -> [(BlockId, Name)] -> Span -> Eff es ()
 setPhiOperands phiRef operands span = do
+  -- find the block that this phi reference points to
   block <- getBlock phiRef.inBlock span
+  -- find the phi in the block that the phi reference points to
   Phi ty name _ phiSpan <- case [phi | phi@(Phi _ n _ _) <- block.phis, n == phiRef.name] of
     [phi] -> return phi
     _ -> throwSpan span InternalCompilerError
+  -- update the phi to contains the new operands
   let phi' = Phi ty name operands phiSpan
       phis' = [if n == name then phi' else phi | phi@(Phi _ n _ _) <- block.phis]
+  -- modify the block
   modifyBlock phiRef.inBlock span $ \block ->
     return block {phis = phis'}
+  -- update the users map
+  modify (\c -> c {userMap = HashMap.insert name (snd <$> operands, phiRef.inBlock) c.userMap})
 
 setIncompletePhi :: (HasCallStack, State Compiler :> es) => BlockId -> PhiReference -> Eff es ()
 setIncompletePhi blockId phiRef = do
@@ -297,6 +312,11 @@ recursivelySetPhiOperands phiRef span = do
     name <- readVariable phiRef.forVariable pred span
     return (pred, name)
   setPhiOperands phiRef operands span
+  tryRemoveTrivialPhi phiRef
+
+tryRemoveTrivialPhi :: (HasCallStack, State Compiler :> es) => PhiReference -> Eff es ()
+tryRemoveTrivialPhi phiRef = do
+  return ()
 
 markSealed :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => BlockId -> Span -> Eff es ()
 markSealed blockId span = withRegion (format "Marking {} as sealed" (Only (Shown blockId))) do
@@ -340,67 +360,57 @@ compileExpr (TST (FunctionCall ty fn args) span) = do
   argNames <- mapM compileExpr args
   emit ty (RCall fnName argNames) span
 compileExpr (TST (ExprBody body) span) = compileBody body span
-compileExpr (TST (IfThen ty condition body elseBody) span) = withRegion "Compiling if-chain..." do
-  return undefined
+compileExpr (TST (IfThen ty condition body elseBody) span) = withRegion "Compiling if-then..." do
+  -- Allocate a sealed block for the condition
+  conditionBlock <- allocateBlock
+  scribe $ format "Allocating block {} for the condition" (Only (Shown conditionBlock))
+  setControl (Jump conditionBlock) span
+  markSealed conditionBlock span
 
--- -- pre-allocate blocks for each condition
--- conditionIds <- mapM (const allocateBlock) bodies
--- scribe $ format "Allocated block(s) {} for the condition(s) of the if-chain" (Only (Shown (NE.toList conditionIds)))
--- -- pre-allocate an id for the else body
--- -- if there is no else body, we just generate an empty block and rely on later passes to clean that up
--- elseBlockId <- allocateBlock
--- scribe $ format "Allocated block {} for the else body" (Only (Shown elseBlockId))
--- -- pre-allocate an id for what comes after the entire if chain
--- postChainId <- allocateBlock
--- scribe $ format "Allocated block {} to follow the if-chain" (Only (Shown postChainId))
+  -- Compile the condition into that block
+  resultName <- withRegion "Compiling the condition..." $ compileExpr condition
 
--- -- this block concludes by jumping to the first if condition
--- let firstConditionId = NE.head conditionIds
--- setControl (Jump firstConditionId) span
--- scribe $ format "Moving to next piece ({}) of the if-chain..." (Only (Shown firstConditionId))
--- switchToBlock firstConditionId
+  -- Allocate a block for the body and the elseBody
+  bodyBlock <- allocateBlock
+  scribe $ format "Allocating block {} for the body" (Only (Shown bodyBlock))
+  elseBodyBlock <- allocateBlock
+  scribe $ format "Allocating block {} for the else-body" (Only (Shown elseBodyBlock))
 
--- -- then we go through all the bodies one-by-one
--- results <- forM (bodies `NE.zip` NE.fromList (NE.tail conditionIds ++ [elseBlockId])) $
---   \((condition, body), nextConditionId) -> do
---     -- compile the condition
---     resultName <- compileExpr condition
---     -- we know the condition won't have any other predecessors
---     markCurrentBlockSealed (spanOf condition)
+  -- Now whatever the current block is should jump conditionally to those blocks
+  setControl (JumpIf resultName bodyBlock elseBodyBlock) span
 
---     -- allocate a block for the body of this branch
---     bodyId <- allocateBlock
---     currentBlock <- gets currentBlock
---     scribe $ format "Allocated block {} for the body of this condition ({})" (Shown bodyId, Shown currentBlock)
---     -- if the condition is true, jump to the body block
---     -- otherwise, jump to the next block in the chain
---     setControl (JumpIf resultName bodyId nextConditionId) (spanOf condition)
---     markSealed bodyId (spanOf body)
---     switchToBlock bodyId
---     -- then compile the body
---     bodyResultName <- compileExpr body
---     -- we know the body won't have any other predecessors
---     markCurrentBlockSealed (spanOf body)
---     -- when the body is done, we should jump past the entire chain
---     setControl (Jump postChainId) (spanOf body)
---     scribe $ format "Moving to next piece ({}) of the if-chain..." (Only (Shown nextConditionId))
---     switchToBlock nextConditionId
+  -- Now we can mark both of them as sealed (they only have one predecessor each)
+  markSealed bodyBlock span
+  markSealed elseBodyBlock span
 
---     -- we save the name of the body's result for later (to use in the phi instruction)
---     return (bodyId, bodyResultName)
+  -- Allocate an unsealed block to follow the if (and grab its result with a phi instruction)
+  postBlock <- allocateBlock
+  scribe $ format "Allocating block {} for the if-result" (Only (Shown postBlock))
 
--- -- generate the else body (even if it's empty)
--- elseResultName <- case elseBody of
---   Nothing -> emit mkVoid RVoid span
---   Just elseBody -> compileExpr elseBody
--- setControl (Jump postChainId) span
--- markCurrentBlockSealed span
--- markSealed postChainId span
--- switchToBlock postChainId
--- -- now, to get the result out we have to use the phi function
--- scribe "Generating phi instruction for result of if-chain"
--- let operands = NE.toList $ results `NE.append` NE.singleton (elseBlockId, elseResultName)
--- addCompletePhi postChainId ty operands span
+  -- Now we can actually compile into those blocks
+  switchToBlock bodyBlock
+  bodyResultName <- withRegion "Compiling the body..." $ compileExpr body
+  finalBodyBlock <- gets currentBlock
+  setControl (Jump postBlock) span
+
+  switchToBlock elseBodyBlock
+  elseBodyResultName <- withRegion "Compiling the else-body..." $ compileExpr elseBody
+  finalElseBodyBlock <- gets currentBlock
+  setControl (Jump postBlock) span
+
+  -- Generate the phi instruction for the post block
+  phiName <- addCompletePhi postBlock ty [(finalBodyBlock, bodyResultName), (finalElseBodyBlock, elseBodyResultName)] span
+  scribe $ format "Result is collected from phi instruction into {}" (Only (Shown phiName))
+
+  -- Now that the postBlock has all its predecessors determined, we can seal it
+  markSealed postBlock span
+
+  -- And switch to it before returning so that the rest of the program compiles into it
+  -- (We can do this because we sealed the block, which fulfills our responsibility
+  -- to it as its creator).
+  switchToBlock postBlock
+
+  return phiName
 
 compileStmt :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Stmt -> Eff es (Maybe Name)
 compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do
@@ -440,18 +450,23 @@ compileStmt (TST (Loop (TST body bodySpan)) span) = withRegion "Compiling loop s
   -- also pre-allocate a block for the block that will follow the loop
   -- (this is where we'll jump to when we hit a break statement)
   postLoopBlockId <- allocateBlock
+  scribe $ format "Allocated block {} to follow the loop" (Only (Shown postLoopBlockId))
   modify (\c -> c {currentBreakBlocks = postLoopBlockId : c.currentBreakBlocks})
   -- the current block should conclude by jumping to the new loop block
   setControl (Jump loopBlock) span
   -- switch our context so that we're emitting instructions into the loop block
   switchToBlock loopBlock
   -- and now we can actually compile the body of the loop itself
-  _ <- compileBody body bodySpan
+  _ <- withRegion "Compiling body of loop..." $ compileBody body bodySpan
   modify (\c -> c {currentBreakBlocks = tail c.currentBreakBlocks})
   -- the loop concludes by unconditionally jumping to its beginning
   setControl (Jump loopBlock) span
+  -- now that the body of the loop has been compiled, we know the start of the loop
+  -- has no other predecessors
   markSealed loopBlock span
-  -- and switch our context to it
+  -- same with the post-loop block (all breaks have been compiled)
+
+  markSealed postLoopBlockId span
   switchToBlock postLoopBlockId
   return Nothing
 compileStmt (TST Break span) = withRegion "Compiling break statement..." do
@@ -471,16 +486,15 @@ compileStmt (TST Break span) = withRegion "Compiling break statement..." do
       -- ideally once we introduce an optimizer pass, it will be able to trivially tell from the CFG
       -- that this block is never executed, and eliminate it before any code generation is actually done
       nextBlock <- allocateBlock
+      markSealed nextBlock span
       scribe $ format "Allocated block {} to dump post-break instructions" (Only (Shown nextBlock))
       switchToBlock nextBlock
   return Nothing
 
 compileProgram :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Stmt -> Eff es ()
-compileProgram stmt@(TST _ span) = withRegion "Compiling program..." do
+compileProgram stmt@(TST _ _) = withRegion "Compiling program..." do
   _ <- compileStmt stmt
-  compiler <- get
-  -- seal the final block
-  markSealed compiler.currentBlock span
+  return ()
 
 compileAndCheck :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Stmt -> Eff es ()
 compileAndCheck stmt = do
