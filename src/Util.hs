@@ -1,8 +1,7 @@
-module Util (eitherFromMaybe, orElse, safeHead, safeLast, zoomState, (!?)) where
+module Util (eitherFromMaybe, orElse, safeHead, safeLast, zoomState, (!?), modifyElement, modifyElementBy) where
 
 import Data.Maybe
 import Effectful
-import Effectful.Error.Static
 import Effectful.State.Static.Local
 
 eitherFromMaybe :: e -> Maybe a -> Either e a
@@ -49,3 +48,12 @@ xs !? n
         (const Nothing)
         xs
         n
+
+modifyElementBy :: [a] -> (a -> Bool) -> (a -> a) -> Maybe [a]
+modifyElementBy list predicate modifier = case filter (predicate . snd) (zip [0 ..] list) of
+  [] -> Nothing
+  [(i, x)] -> Just $ take i list ++ [modifier x] ++ drop (i + 1) list
+  _ -> Nothing
+
+modifyElement :: (Eq a) => [a] -> a -> (a -> a) -> Maybe [a]
+modifyElement list elem = modifyElementBy list (== elem)

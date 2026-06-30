@@ -4,9 +4,10 @@ module Compiler where
 
 import Common hiding (scribe)
 import Control.Monad (join)
+import Data.Function (on)
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as HashMap
-import Data.List (findIndex, nub)
+import Data.List (findIndex, nub, nubBy)
 import qualified Data.Text.Lazy
 import IR
 import LexicalScopes hiding (lookupVariable)
@@ -29,6 +30,12 @@ data PhiReference = PhiReference {name :: Name, forVariable :: VarId, inBlock ::
 instance Show PhiReference where
   show (PhiReference {name, forVariable, inBlock}) = Data.Text.Lazy.unpack $ format "φ({} for {} in {})" (Shown name, Shown forVariable, Shown inBlock)
 
+data UserReference
+  = PhiUser Name BlockId
+  | SSAUser Name BlockId
+  | ControlUser BlockId
+  deriving (Show, Eq)
+
 data Compiler = Compiler
   { nameCounter :: Int,
     blockCounter :: Int,
@@ -43,13 +50,21 @@ data Compiler = Compiler
     variableTypes :: HashMap VarId TypeExpr,
     variableSpans :: HashMap VarId Span,
     incompletePhis :: HashMap BlockId [PhiReference],
-    userMap :: HashMap Name ([Name], BlockId),
+    userMap :: HashMap Name [UserReference],
     sealed :: [BlockId],
     -- | If we're inside a loop, this points to the basic block that follows the loop
     -- | (in other words, where we jump when we hit a break statement)
     currentBreakBlocks :: [BlockId]
   }
   deriving (Show, Eq)
+
+addUser :: (HasCallStack, State Compiler :> es) => Name -> UserReference -> Eff es ()
+addUser usesName userRef = do
+  modify (\c -> c {userMap = addUser' c.userMap})
+  where
+    addUser' map =
+      let existing = HashMap.lookup usesName map `orElse` []
+       in HashMap.insert usesName (existing ++ [userRef]) map
 
 lookupVariable :: (HasCallStack, State Compiler :> es, Error Err :> es) => Span -> Text -> Eff es (VarId, BlockId)
 lookupVariable span name = zoomState scopes (\s t -> t {scopes = s}) (LexicalScopes.lookupVariable span name)
@@ -146,8 +161,9 @@ setControl control span = do
     Jump target -> do
       scribe $ format "Jump {} -> {}" (Shown currentBlock, Shown target)
       addPredecessor currentBlock target span
-    JumpIf _ target1 target2 -> do
+    JumpIf name target1 target2 -> do
       scribe $ format "JumpIf {} -> ({}, {})" (Shown currentBlock, Shown target1, Shown target2)
+      addUser name (ControlUser currentBlock)
       addPredecessor currentBlock target1 span
       addPredecessor currentBlock target2 span
     Halt -> return ()
@@ -174,7 +190,8 @@ emitWithName name ty rhs span = do
         RUnaryOp _ name -> [name]
         RCall fn args -> fn : args
         _ -> []
-  unless (null usesNames) $ modify (\c -> c {userMap = HashMap.insert name (usesNames, currentBlock) c.userMap})
+  unless (null usesNames) $ do
+    forM_ usesNames $ \usesName -> addUser usesName (SSAUser name currentBlock)
 
   return name
 
@@ -229,14 +246,21 @@ addCompletePhi blockId ty operands span = do
     return block {phis = block.phis ++ [phi]}
   return name
 
+getPhi :: (HasCallStack, State Compiler :> es, Error Err :> es) => PhiReference -> Span -> Eff es Phi
+getPhi phiRef span = do
+  -- find the block that this phi reference points to
+  block <- getBlock phiRef.inBlock span
+  -- find the phi in the block that the phi reference points to
+  case [phi | phi@(Phi _ n _ _) <- block.phis, n == phiRef.name] of
+    [phi] -> return phi
+    _ -> throwSpan span InternalCompilerError
+
 setPhiOperands :: (HasCallStack, State Compiler :> es, Error Err :> es) => PhiReference -> [(BlockId, Name)] -> Span -> Eff es ()
 setPhiOperands phiRef operands span = do
   -- find the block that this phi reference points to
   block <- getBlock phiRef.inBlock span
   -- find the phi in the block that the phi reference points to
-  Phi ty name _ phiSpan <- case [phi | phi@(Phi _ n _ _) <- block.phis, n == phiRef.name] of
-    [phi] -> return phi
-    _ -> throwSpan span InternalCompilerError
+  Phi ty name _ phiSpan <- getPhi phiRef span
   -- update the phi to contains the new operands
   let phi' = Phi ty name operands phiSpan
       phis' = [if n == name then phi' else phi | phi@(Phi _ n _ _) <- block.phis]
@@ -244,7 +268,7 @@ setPhiOperands phiRef operands span = do
   modifyBlock phiRef.inBlock span $ \block ->
     return block {phis = phis'}
   -- update the users map
-  modify (\c -> c {userMap = HashMap.insert name (snd <$> operands, phiRef.inBlock) c.userMap})
+  forM_ (snd <$> operands) $ \usesName -> addUser usesName (PhiUser name phiRef.inBlock)
 
 setIncompletePhi :: (HasCallStack, State Compiler :> es) => BlockId -> PhiReference -> Eff es ()
 setIncompletePhi blockId phiRef = do
@@ -312,11 +336,48 @@ recursivelySetPhiOperands phiRef span = do
     name <- readVariable phiRef.forVariable pred span
     return (pred, name)
   setPhiOperands phiRef operands span
-  tryRemoveTrivialPhi phiRef
+  tryRemoveTrivialPhi phiRef span
 
-tryRemoveTrivialPhi :: (HasCallStack, State Compiler :> es) => PhiReference -> Eff es ()
-tryRemoveTrivialPhi phiRef = do
-  return ()
+data PhiReduction = PRUnreachable | PRNoReduce | PRReduceTo Name
+  deriving (Show)
+
+tryRemoveTrivialPhi :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => PhiReference -> Span -> Eff es ()
+tryRemoveTrivialPhi phiRef span = do
+  Phi _ name operands _ <- getPhi phiRef span
+  let operands' = nub $ filter (/= name) $ snd <$> operands
+      reduceTo = case operands' of
+        [] -> PRUnreachable
+        [name'] -> PRReduceTo name'
+        _ -> PRNoReduce
+
+  scribe $ format "phiRef {} reduction status: {}" (Shown phiRef, Shown reduceTo)
+
+  case reduceTo of
+    PRUnreachable -> return ()
+    PRNoReduce -> return ()
+    PRReduceTo reduceTo -> do
+      users <- (`orElse` []) . HashMap.lookup name <$> gets userMap
+      let users' = filter (\case PhiUser n _ -> n /= name; _ -> False) users
+      forM_ users' $ \user -> do
+        case user of
+          PhiUser userName blockId -> replacePhiUser blockId userName name reduceTo
+          SSAUser userName blockId -> replaceSSAUser blockId userName name reduceTo
+          ControlUser blockId -> replaceControlUser blockId name reduceTo
+  where
+    replacePhiUser blockId userName replaceName withName = do
+      block <- getBlock blockId span
+      Phi ty name operands phiSpan <- case [phi | phi@(Phi _ n _ _) <- block.phis, n == userName] of
+        [phi] -> return phi
+        _ -> throwSpan span InternalCompilerError
+      let operands' = map (\(id, n) -> (id, if n == replaceName then withName else n)) operands
+      let phi' = Phi ty name operands' phiSpan
+      phis' <- modifyElementBy block.phis (\(Phi _ n _ _) -> n == userName) (const phi') `orThrowSpan` (span, InternalCompilerError)
+      modifyBlock blockId span $ \block -> do
+        return block {phis = phis'}
+    replaceSSAUser blockId userName replaceName withName = do
+      return ()
+    replaceControlUser blockId replaceName withName = do
+      return ()
 
 markSealed :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => BlockId -> Span -> Eff es ()
 markSealed blockId span = withRegion (format "Marking {} as sealed" (Only (Shown blockId))) do

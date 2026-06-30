@@ -99,7 +99,7 @@ library prototype-core
     -- Import common warning flags.
     import:           warnings, extensions
 
-    exposed-modules:    AST, AST2, TypedAST, Parser, Parser.Internal, Lexer, Lexer.Internal,
+    exposed-modules:    AST, TypedAST, Parser, Parser.Internal, Lexer, Lexer.Internal,
                         Typechecker, Typechecker.Internal, Util, Error, Compiler, Visit, LoopPass,
                         Common, EmitC, IR, LexicalScopes, Logging, LoweredAST, LowerPass
 

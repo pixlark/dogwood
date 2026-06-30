@@ -22,6 +22,8 @@ There is a separate CLAUDE.md for each of these packages located in their respec
 
 To build, run `cabal build`.
 
+To run the main executable, run `cabal run`.
+
 To run the test suite, run `cabal test`.
 
 ### Effects system
