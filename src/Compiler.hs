@@ -232,7 +232,7 @@ addEmptyPhi blockId varId span = do
   compiler <- get
   ty <- HashMap.lookup varId compiler.variableTypes `orThrowSpan` (span, InternalCompilerError)
   name <- mkName
-  let phi = Phi ty name [] span
+  let phi = Phi {ty, name, operands = [], span}
   modifyBlock blockId span $ \block -> do
     return block {phis = block.phis ++ [phi]}
   let phiRef = PhiReference name varId blockId
@@ -241,7 +241,7 @@ addEmptyPhi blockId varId span = do
 addCompletePhi :: (HasCallStack, State Compiler :> es, Error Err :> es) => BlockId -> TypeExpr -> [(BlockId, Name)] -> Span -> Eff es Name
 addCompletePhi blockId ty operands span = do
   name <- mkName
-  let phi = Phi ty name operands span
+  let phi = Phi {ty, name, operands, span}
   modifyBlock blockId span $ \block -> do
     return block {phis = block.phis ++ [phi]}
   return name
@@ -251,7 +251,7 @@ getPhi phiRef span = do
   -- find the block that this phi reference points to
   block <- getBlock phiRef.inBlock span
   -- find the phi in the block that the phi reference points to
-  case [phi | phi@(Phi _ n _ _) <- block.phis, n == phiRef.name] of
+  case [phi | phi@Phi {name} <- block.phis, name == phiRef.name] of
     [phi] -> return phi
     _ -> throwSpan span InternalCompilerError
 
@@ -260,15 +260,15 @@ setPhiOperands phiRef operands span = do
   -- find the block that this phi reference points to
   block <- getBlock phiRef.inBlock span
   -- find the phi in the block that the phi reference points to
-  Phi ty name _ phiSpan <- getPhi phiRef span
+  phi <- getPhi phiRef span
   -- update the phi to contains the new operands
-  let phi' = Phi ty name operands phiSpan
-      phis' = [if n == name then phi' else phi | phi@(Phi _ n _ _) <- block.phis]
+  let phi' = phi {operands}
+      phis' = [if p.name == phi.name then phi' else p | p <- block.phis]
   -- modify the block
   modifyBlock phiRef.inBlock span $ \block ->
     return block {phis = phis'}
   -- update the users map
-  forM_ (snd <$> operands) $ \usesName -> addUser usesName (PhiUser name phiRef.inBlock)
+  forM_ (snd <$> operands) $ \usesName -> addUser usesName (PhiUser phi.name phiRef.inBlock)
 
 setIncompletePhi :: (HasCallStack, State Compiler :> es) => BlockId -> PhiReference -> Eff es ()
 setIncompletePhi blockId phiRef = do
@@ -343,8 +343,8 @@ data PhiReduction = PRUnreachable | PRNoReduce | PRReduceTo Name
 
 tryRemoveTrivialPhi :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => PhiReference -> Span -> Eff es ()
 tryRemoveTrivialPhi phiRef span = do
-  Phi _ name operands _ <- getPhi phiRef span
-  let operands' = nub $ filter (/= name) $ snd <$> operands
+  phi <- getPhi phiRef span
+  let operands' = nub $ filter (/= phi.name) $ snd <$> phi.operands
       reduceTo = case operands' of
         [] -> PRUnreachable
         [name'] -> PRReduceTo name'
@@ -356,22 +356,19 @@ tryRemoveTrivialPhi phiRef span = do
     PRUnreachable -> return ()
     PRNoReduce -> return ()
     PRReduceTo reduceTo -> do
-      users <- (`orElse` []) . HashMap.lookup name <$> gets userMap
-      let users' = filter (\case PhiUser n _ -> n /= name; _ -> False) users
+      users <- (`orElse` []) . HashMap.lookup phi.name <$> gets userMap
+      let users' = filter (\case PhiUser n _ -> n /= phi.name; _ -> False) users
       forM_ users' $ \user -> do
         case user of
-          PhiUser userName blockId -> replacePhiUser blockId userName name reduceTo
-          SSAUser userName blockId -> replaceSSAUser blockId userName name reduceTo
-          ControlUser blockId -> replaceControlUser blockId name reduceTo
+          PhiUser userName blockId -> replacePhiUser blockId userName phi.name reduceTo
+          SSAUser userName blockId -> replaceSSAUser blockId userName phi.name reduceTo
+          ControlUser blockId -> replaceControlUser blockId phi.name reduceTo
   where
     replacePhiUser blockId userName replaceName withName = do
       block <- getBlock blockId span
-      Phi ty name operands phiSpan <- case [phi | phi@(Phi _ n _ _) <- block.phis, n == userName] of
-        [phi] -> return phi
-        _ -> throwSpan span InternalCompilerError
-      let operands' = map (\(id, n) -> (id, if n == replaceName then withName else n)) operands
-      let phi' = Phi ty name operands' phiSpan
-      phis' <- modifyElementBy block.phis (\(Phi _ n _ _) -> n == userName) (const phi') `orThrowSpan` (span, InternalCompilerError)
+      userPhi <- block.phis `getSingleElement` (\p -> p.name == userName) `orThrowSpan` (span, InternalCompilerError)
+      let userPhi' = userPhi {operands = map (\(id, n) -> (id, if n == replaceName then withName else n)) userPhi.operands}
+      phis' <- modifyElementBy block.phis (\p -> p.name == userName) (const userPhi') `orThrowSpan` (span, InternalCompilerError)
       modifyBlock blockId span $ \block -> do
         return block {phis = phis'}
     replaceSSAUser blockId userName replaceName withName = do

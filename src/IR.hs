@@ -30,7 +30,7 @@ data RHS
     RCall Name [Name]
   deriving (Eq)
 
-data Phi = Phi T.TypeExpr Name [(BlockId, Name)] Span
+data Phi = Phi {ty :: T.TypeExpr, name :: Name, operands :: [(BlockId, Name)], span :: Span}
   deriving (Eq)
 
 data Control = Halt | Jump BlockId | JumpIf Name BlockId BlockId
@@ -68,10 +68,10 @@ instance Show RHS where
   show (RCall fn args) = printf "call %s (%s)" (show fn) (intercalate ", " $ map show args)
 
 instance Show Phi where
-  show (Phi ty name phiPairs _) = printf "%s: %s = phi %s" (show name) (show ty) (intercalate ", " $ map (\(id, name) -> printf "%s[%s]" (show id) (show name)) phiPairs)
+  show Phi {ty, name, operands} = printf "%s: %s = phi %s" (show name) (show ty) (intercalate ", " $ map (\(id, name) -> printf "%s[%s]" (show id) (show name)) operands)
 
 instance ShowWithSource Phi where
-  showWithSource source phi@(Phi _ _ _ span) = printf "%s// %s" left' (Text.takeWhile (/= '\n') $ fst $ getLineForSpan source span)
+  showWithSource source phi@Phi {span} = printf "%s// %s" left' (Text.takeWhile (/= '\n') $ fst $ getLineForSpan source span)
     where
       left = show phi
       leftLen = length left

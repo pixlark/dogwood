@@ -1,4 +1,4 @@
-module Util (eitherFromMaybe, orElse, safeHead, safeLast, zoomState, (!?), modifyElement, modifyElementBy) where
+module Util (eitherFromMaybe, orElse, safeHead, safeLast, zoomState, (!?), modifyElement, modifyElementBy, getSingleElement) where
 
 import Data.Maybe
 import Effectful
@@ -48,6 +48,12 @@ xs !? n
         (const Nothing)
         xs
         n
+
+getSingleElement :: [a] -> (a -> Bool) -> Maybe a
+getSingleElement list predicate = case filter predicate list of
+  [] -> Nothing
+  [x] -> Just x
+  _ -> Nothing
 
 modifyElementBy :: [a] -> (a -> Bool) -> (a -> a) -> Maybe [a]
 modifyElementBy list predicate modifier = case filter (predicate . snd) (zip [0 ..] list) of
