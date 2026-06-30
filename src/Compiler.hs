@@ -179,7 +179,7 @@ switchToBlock id = do
 
 emitWithName :: (HasCallStack, State Compiler :> es, Error Err :> es) => Name -> TypeExpr -> RHS -> Span -> Eff es Name
 emitWithName name ty rhs span = do
-  let ssa = SSA ty name rhs span
+  let ssa = SSA {ty, name, rhs, span}
   currentBlock <- gets currentBlock
   modifyBlock currentBlock span $ \block@Block {instructions} -> do
     return block {instructions = instructions ++ [ssa]}
@@ -224,7 +224,8 @@ compileBody (Body ty stmts) span = do
 writeVariable :: (HasCallStack, State Compiler :> es, Error Err :> es) => VarId -> BlockId -> Name -> Span -> Eff es ()
 writeVariable varId blockId name span = do
   vars <- gets variables
-  when (((/= name) <$> HashMap.lookup (varId, blockId) vars) `orElse` False) $ throwSpan span InternalCompilerError
+  -- We allow overwrites, in case a phi reduction happens
+  -- when (((/= name) <$> HashMap.lookup (varId, blockId) vars) `orElse` False) $ throwSpan span InternalCompilerError
   modify (\c -> c {variables = HashMap.insert (varId, blockId) name vars})
 
 addEmptyPhi :: (HasCallStack, State Compiler :> es, Error Err :> es) => BlockId -> VarId -> Span -> Eff es PhiReference
@@ -324,12 +325,15 @@ readVariableRecursive varId blockId span = do
           -- Then we fill out the phi's operands by recursing through
           -- each predecessor (basically the same as in the last branch,
           -- except multiple times).
-          recursivelySetPhiOperands phiRef span
-          return phiRef.name
+          name <- recursivelySetPhiOperands phiRef span
+          {- HLINT ignore -}
+          return name
+  -- ((format "{}" . Only . Shown) <$> gets variables) >>= scribe
+  -- scribe $ format "writeVariable {} {} {}" (Shown varId, Shown blockId, Shown name)
   writeVariable varId blockId name span
   return name
 
-recursivelySetPhiOperands :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => PhiReference -> Span -> Eff es ()
+recursivelySetPhiOperands :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => PhiReference -> Span -> Eff es Name
 recursivelySetPhiOperands phiRef span = do
   Block {predecessors} <- getBlock phiRef.inBlock span
   operands <- forM predecessors $ \pred -> do
@@ -341,7 +345,19 @@ recursivelySetPhiOperands phiRef span = do
 data PhiReduction = PRUnreachable | PRNoReduce | PRReduceTo Name
   deriving (Show)
 
-tryRemoveTrivialPhi :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => PhiReference -> Span -> Eff es ()
+replaceNameInRHS :: Name -> Name -> RHS -> RHS
+replaceNameInRHS from to (RBinOp op left right) = RBinOp op left' right'
+  where
+    left' = if from == left then to else left
+    right' = if from == right then to else right
+replaceNameInRHS from to (RUnaryOp op name) = RUnaryOp op (if from == name then to else name)
+replaceNameInRHS from to (RCall fn args) = RCall fn' args'
+  where
+    fn' = if from == fn then to else fn
+    args' = map (\a -> if from == a then to else a) args
+replaceNameInRHS _ _ rhs = rhs
+
+tryRemoveTrivialPhi :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => PhiReference -> Span -> Eff es Name
 tryRemoveTrivialPhi phiRef span = do
   phi <- getPhi phiRef span
   let operands' = nub $ filter (/= phi.name) $ snd <$> phi.operands
@@ -353,16 +369,33 @@ tryRemoveTrivialPhi phiRef span = do
   scribe $ format "phiRef {} reduction status: {}" (Shown phiRef, Shown reduceTo)
 
   case reduceTo of
-    PRUnreachable -> return ()
-    PRNoReduce -> return ()
+    PRUnreachable -> return phiRef.name
+    PRNoReduce -> return phiRef.name
     PRReduceTo reduceTo -> do
+      -- find all the places that use the value produced by this phi
       users <- (`orElse` []) . HashMap.lookup phi.name <$> gets userMap
       let users' = filter (\case PhiUser n _ -> n /= phi.name; _ -> False) users
+      scribe $ format "found {} users" (Only (length users'))
+      -- for each place that uses this phi's value, rewrite them to use the original value instead
       forM_ users' $ \user -> do
+        scribe $ format "rewriting user: {}" (Only (Shown user))
         case user of
           PhiUser userName blockId -> replacePhiUser blockId userName phi.name reduceTo
           SSAUser userName blockId -> replaceSSAUser blockId userName phi.name reduceTo
           ControlUser blockId -> replaceControlUser blockId phi.name reduceTo
+      -- then, for each place that used this phi's value, if that place was _itself_ a phi, it could potentially
+      -- have become trivial itself. so, we recurse onto it
+      forM_ users' $ \user -> do
+        case user of
+          PhiUser userName blockId -> do
+            _ <- tryRemoveTrivialPhi (PhiReference userName undefined blockId) span
+            return ()
+          _ -> return ()
+      -- finally, this phi has become completely useless (it literally has no users), so we remove it
+      -- from the block
+      modifyBlock phiRef.inBlock span $ \block -> do
+        return block {phis = filter (\p -> p.name /= phi.name) block.phis}
+      return reduceTo
   where
     replacePhiUser blockId userName replaceName withName = do
       block <- getBlock blockId span
@@ -372,9 +405,20 @@ tryRemoveTrivialPhi phiRef span = do
       modifyBlock blockId span $ \block -> do
         return block {phis = phis'}
     replaceSSAUser blockId userName replaceName withName = do
-      return ()
+      block <- getBlock blockId span
+      userSSA <- block.instructions `getSingleElement` (\s -> s.name == userName) `orThrowSpan` (span, InternalCompilerError)
+      let userSSA' = userSSA {rhs = replaceNameInRHS replaceName withName userSSA.rhs}
+      instructions' <- modifyElementBy block.instructions (\s -> s.name == userName) (const userSSA') `orThrowSpan` (span, InternalCompilerError)
+      modifyBlock blockId span $ \block -> do
+        return block {instructions = instructions'}
     replaceControlUser blockId replaceName withName = do
-      return ()
+      block <- getBlock blockId span
+      control' <- case block.control of
+        Halt -> throwSpan span InternalCompilerError
+        Jump _ -> throwSpan span InternalCompilerError
+        JumpIf name t1 t2 -> return $ JumpIf (if name == replaceName then withName else name) t1 t2
+      modifyBlock blockId span $ \block -> do
+        return block {control = control'}
 
 markSealed :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => BlockId -> Span -> Eff es ()
 markSealed blockId span = withRegion (format "Marking {} as sealed" (Only (Shown blockId))) do
@@ -424,6 +468,7 @@ compileExpr (TST (IfThen ty condition body elseBody) span) = withRegion "Compili
   scribe $ format "Allocating block {} for the condition" (Only (Shown conditionBlock))
   setControl (Jump conditionBlock) span
   markSealed conditionBlock span
+  switchToBlock conditionBlock
 
   -- Compile the condition into that block
   resultName <- withRegion "Compiling the condition..." $ compileExpr condition

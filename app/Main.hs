@@ -42,15 +42,13 @@ main = do
     source =
       [text|
         {
-          let n: int = 5;
-          let acc: int = 1;
-          loop {
-            if n == 0 {
-              break;
-            }
-            acc = acc * n;
-            n = n - 1;
+          let x: int = 5;
+          if true {
+            let y: int = 1;
+          } else {
+            let z: int = 2;
           }
+          let a: int = x + 1;
         }
       |]
     loggerIgnoredFunctions = ["markSealed"]

@@ -36,8 +36,7 @@ data Phi = Phi {ty :: T.TypeExpr, name :: Name, operands :: [(BlockId, Name)], s
 data Control = Halt | Jump BlockId | JumpIf Name BlockId BlockId
   deriving (Eq)
 
-data SSA
-  = SSA T.TypeExpr Name RHS Span
+data SSA = SSA {ty :: T.TypeExpr, name :: Name, rhs :: RHS, span :: Span}
   deriving (Eq)
 
 data Block = Block {phis :: [Phi], instructions :: [SSA], control :: Control, predecessors :: [BlockId]}
@@ -85,10 +84,10 @@ instance Show Control where
   show (JumpIf name id1 id2) = printf "jump if %s to %s else %s" (show name) (show id1) (show id2)
 
 instance Show SSA where
-  show (SSA ty name rhs _) = printf "%s: %s = %s" (show name) (show ty) (show rhs)
+  show SSA {ty, name, rhs} = printf "%s: %s = %s" (show name) (show ty) (show rhs)
 
 instance ShowWithSource SSA where
-  showWithSource source ssa@(SSA _ _ _ span) = printf "%s// %s" left' (Text.takeWhile (/= '\n') $ fst $ getLineForSpan source span)
+  showWithSource source ssa@SSA {span} = printf "%s// %s" left' (Text.takeWhile (/= '\n') $ fst $ getLineForSpan source span)
     where
       left = show ssa
       leftLen = length left
