@@ -44,11 +44,11 @@ main = do
         {
           let x: int = 5;
           if true {
-            let y: int = 1;
+            x = 10;
           } else {
-            let z: int = 2;
+            let y: int = 1;
           }
-          let a: int = x + 1;
+          x
         }
       |]
     loggerIgnoredFunctions = ["markSealed"]
