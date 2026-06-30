@@ -1,6 +1,6 @@
 {-# LANGUAGE QuasiQuotes #-}
 
-module Error (ErrorKind (..), Span (..), Err (..), Result, displayError, isErrorKind, throwSpan, orThrowSpan, getLineForSpan) where
+module Error (ErrorKind (..), Span (..), Err (..), Result, displayError, isErrorKind, throwSpan, orThrowSpan, orThrowSpanM, getLineForSpan) where
 
 import Control.Monad
 import Control.Monad.Writer
@@ -176,3 +176,8 @@ throwSpan span kind = throwError $ Err kind span
 
 orThrowSpan :: (HasCallStack, Error Err :> es) => Maybe a -> (Span, ErrorKind) -> Eff es a
 orThrowSpan m (span, kind) = maybe (throwSpan span kind) return m
+
+orThrowSpanM :: (HasCallStack, Error Err :> es) => Eff es (Maybe a) -> (Span, ErrorKind) -> Eff es a
+orThrowSpanM m e = do
+  m' <- m
+  orThrowSpan m' e

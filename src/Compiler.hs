@@ -66,6 +66,14 @@ addUser usesName userRef = do
       let existing = HashMap.lookup usesName map `orElse` []
        in HashMap.insert usesName (existing ++ [userRef]) map
 
+removeUser :: (HasCallStack, State Compiler :> es) => Name -> UserReference -> Eff es ()
+removeUser usesName userRef = do
+  modify (\c -> c {userMap = removeUser' c.userMap})
+  where
+    removeUser' map =
+      let existing = HashMap.lookup usesName map `orElse` []
+       in HashMap.insert usesName (filter (/= userRef) existing) map
+
 lookupVariable :: (HasCallStack, State Compiler :> es, Error Err :> es) => Span -> Text -> Eff es (VarId, BlockId)
 lookupVariable span name = zoomState scopes (\s t -> t {scopes = s}) (LexicalScopes.lookupVariable span name)
 
@@ -247,21 +255,21 @@ addCompletePhi blockId ty operands span = do
     return block {phis = block.phis ++ [phi]}
   return name
 
-getPhi :: (HasCallStack, State Compiler :> es, Error Err :> es) => PhiReference -> Span -> Eff es Phi
+getPhi :: (HasCallStack, State Compiler :> es, Error Err :> es) => PhiReference -> Span -> Eff es (Maybe Phi)
 getPhi phiRef span = do
   -- find the block that this phi reference points to
   block <- getBlock phiRef.inBlock span
   -- find the phi in the block that the phi reference points to
   case [phi | phi@Phi {name} <- block.phis, name == phiRef.name] of
-    [phi] -> return phi
-    _ -> throwSpan span InternalCompilerError
+    [phi] -> return $ Just phi
+    _ -> return Nothing
 
 setPhiOperands :: (HasCallStack, State Compiler :> es, Error Err :> es) => PhiReference -> [(BlockId, Name)] -> Span -> Eff es ()
 setPhiOperands phiRef operands span = do
   -- find the block that this phi reference points to
   block <- getBlock phiRef.inBlock span
   -- find the phi in the block that the phi reference points to
-  phi <- getPhi phiRef span
+  phi <- getPhi phiRef span `orThrowSpanM` (span, InternalCompilerError)
   -- update the phi to contains the new operands
   let phi' = phi {operands}
       phis' = [if p.name == phi.name then phi' else p | p <- block.phis]
@@ -359,7 +367,7 @@ replaceNameInRHS _ _ rhs = rhs
 
 tryRemoveTrivialPhi :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => PhiReference -> Span -> Eff es Name
 tryRemoveTrivialPhi phiRef span = do
-  phi <- getPhi phiRef span
+  phi <- getPhi phiRef span `orThrowSpanM` (span, InternalCompilerError)
   let operands' = nub $ filter (/= phi.name) $ snd <$> phi.operands
       reduceTo = case operands' of
         [] -> PRUnreachable
@@ -374,7 +382,7 @@ tryRemoveTrivialPhi phiRef span = do
     PRReduceTo reduceTo -> do
       -- find all the places that use the value produced by this phi
       users <- (`orElse` []) . HashMap.lookup phi.name <$> gets userMap
-      let users' = filter (\case PhiUser n _ -> n /= phi.name; _ -> False) users
+      let users' = filter (\case PhiUser n _ -> n /= phi.name; _ -> True) users
       scribe $ format "found {} users" (Only (length users'))
       -- for each place that uses this phi's value, rewrite them to use the original value instead
       forM_ users' $ \user -> do
@@ -383,18 +391,30 @@ tryRemoveTrivialPhi phiRef span = do
           PhiUser userName blockId -> replacePhiUser blockId userName phi.name reduceTo
           SSAUser userName blockId -> replaceSSAUser blockId userName phi.name reduceTo
           ControlUser blockId -> replaceControlUser blockId phi.name reduceTo
+        -- update the user map too
+        addUser reduceTo user
+
+      -- this phi has become completely useless (it literally has no users)
+      -- so we delete it from the block
+      modifyBlock phiRef.inBlock span $ \block -> do
+        return block {phis = filter (\p -> p.name /= phi.name) block.phis}
+      -- and any place where it's marked as a user, we remove
+      forM_ phi.operands $ \(_, operandName) ->
+        removeUser operandName (PhiUser phi.name phiRef.inBlock)
+      -- and we remove its own entries from userMap as well
+      modify (\c -> c {userMap = HashMap.delete phi.name c.userMap})
+
       -- then, for each place that used this phi's value, if that place was _itself_ a phi, it could potentially
       -- have become trivial itself. so, we recurse onto it
       forM_ users' $ \user -> do
         case user of
           PhiUser userName blockId -> do
-            _ <- tryRemoveTrivialPhi (PhiReference userName undefined blockId) span
-            return ()
+            let recursePhiRef = PhiReference userName undefined blockId
+            -- a previous recursion might have removed this phi reference, so make sure it still exists
+            stillExists <- isJust <$> getPhi recursePhiRef span
+            when stillExists $ void $ tryRemoveTrivialPhi recursePhiRef span
           _ -> return ()
-      -- finally, this phi has become completely useless (it literally has no users), so we remove it
-      -- from the block
-      modifyBlock phiRef.inBlock span $ \block -> do
-        return block {phis = filter (\p -> p.name /= phi.name) block.phis}
+
       return reduceTo
   where
     replacePhiUser blockId userName replaceName withName = do

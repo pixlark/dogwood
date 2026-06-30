@@ -8,6 +8,7 @@ module Common
     forM_,
     msum,
     unless,
+    void,
     when,
     isLeft,
     isRight,
@@ -57,6 +58,7 @@ module Common
     Span (..),
     getLineForSpan,
     orThrowSpan,
+    orThrowSpanM,
     throwSpan,
     Log,
     scribe,
@@ -67,7 +69,7 @@ module Common
 where
 
 import Control.Applicative (Alternative ((<|>)))
-import Control.Monad (forM, forM_, msum, unless, when)
+import Control.Monad (forM, forM_, msum, unless, void, when)
 import Data.Either (isLeft, isRight)
 import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
@@ -78,7 +80,7 @@ import Effectful.Error.Static (CallStack, Error, HasCallStack, runError, runErro
 import Effectful.Reader.Static (Reader, ask, asks, local, runReader, withReader)
 import Effectful.State.Static.Local (State, evalState, execState, get, gets, modify, put, runState, state)
 import Effectful.Writer.Static.Local (Writer, runWriter, tell)
-import Error (Err (..), ErrorKind (..), Result, Span (..), getLineForSpan, orThrowSpan, throwSpan)
+import Error (Err (..), ErrorKind (..), Result, Span (..), getLineForSpan, orThrowSpan, orThrowSpanM, throwSpan)
 import Logging (Log, scribe, withRegion)
 import Text.Printf (printf)
 import Util ((!?))
