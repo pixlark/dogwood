@@ -1,14 +1,18 @@
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Main where
 
+import Clang (compileExecutable)
+import Common
 import Compiler (Compiler (..), execCompilerCallStack)
 import Control.Monad.Except
 import Control.Monad.State.Lazy
 import Data.Bifunctor
 import Data.List (sort)
 import qualified Data.Text as T
-import Effectful (runEff)
+import Effectful (runEff, runPureEff)
+import EmitC (runEmitC)
 import Error
 import GHC.Exception (prettyCallStack)
 import IR (ShowWithSource (..))
@@ -38,17 +42,25 @@ main = do
       print $ sort sealed
       print userMap
       putStrLn $ showWithSource source program
+
+      generatedC <- runEff $ runEmitC program userMap
+      putStrLn $ T.unpack generatedC
+
+      outputPath <- runEff $ runErrorNoCallStack @Err $ compileExecutable generatedC
+      return ()
   where
     source =
       [text|
         {
-          let x: int = 5;
-          if true {
-            x = 10;
-          } else {
-            let y: int = 1;
+          let n: int = 5;
+          let acc: int = 1;
+          loop {
+            if n == 0 {
+              break;
+            }
+            acc = acc * n;
+            n = n - 1;
           }
-          x
         }
       |]
     loggerIgnoredFunctions = ["markSealed"]

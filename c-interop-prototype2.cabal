@@ -101,7 +101,7 @@ library prototype-core
 
     exposed-modules:    AST, TypedAST, Parser, Parser.Internal, Lexer, Lexer.Internal,
                         Typechecker, Typechecker.Internal, Util, Error, Compiler, Visit, LoopPass,
-                        Common, EmitC, IR, LexicalScopes, Logging, LoweredAST, LowerPass
+                        Common, EmitC, IR, LexicalScopes, Logging, LoweredAST, LowerPass, Clang
 
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.18.3.0,
@@ -112,7 +112,9 @@ library prototype-core
                       effectful-plugin,
                       unordered-containers,
                       hashable,
-                      text-format
+                      text-format,
+                      neat-interpolation,
+                      process
 
     -- Directories containing source files.
     hs-source-dirs:   src
