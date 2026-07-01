@@ -11,6 +11,7 @@ lowerAST :: AST.AST a -> (a -> b) -> L.LST b
 lowerAST (AST.AST x span) f = L.LST (f x) span
 
 lowerValueTypeExpr :: AST.ValueTypeExpr -> L.ValueTypeExpr
+lowerValueTypeExpr AST.Any = L.Any
 lowerValueTypeExpr AST.Void = L.Void
 lowerValueTypeExpr AST.Bool = L.Bool
 lowerValueTypeExpr AST.Int = L.Int
@@ -65,10 +66,7 @@ lowerExpr ast = lowerAST ast $ \case
     L.FunctionCall (lowerExpr fn) (map lowerExpr args)
   AST.ExprBody body -> L.ExprBody (lowerBody body)
   AST.IfChain _ _ -> error "unreachable"
-
--- L.IfChain
---   (NE.map (\(cond, body) -> (lowerExpr cond, lowerExpr body)) branches)
---   (fmap lowerExpr elseBody)
+  AST.Builtin name -> L.Builtin name
 
 lowerLValue :: AST.AST AST.LValue -> L.LST L.LValue
 lowerLValue ast = lowerAST ast $ \(AST.LVariable name) -> L.LVariable name

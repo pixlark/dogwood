@@ -19,7 +19,7 @@ instance SyntaxTree LST where
 instance Functor LST where
   fmap f (LST x span) = LST (f x) span
 
-data ValueTypeExpr = Void | Bool | Int | NamespacedIdentifier [Text] | Function [LST TypeExpr] (LST TypeExpr)
+data ValueTypeExpr = Any | Void | Bool | Int | NamespacedIdentifier [Text] | Function [LST TypeExpr] (LST TypeExpr)
   deriving (Eq)
 
 data TypeExpr = TypeExpr {reference :: Bool, valueExpr :: ValueTypeExpr}
@@ -53,6 +53,7 @@ data Expr
   | ExprBody Body
   | -- | IfChain (NE.NonEmpty (LST Expr, LST Expr)) (Maybe (LST Expr))
     IfThen (LST Expr) (LST Expr) (LST Expr)
+  | Builtin Text
   deriving (Eq)
 
 newtype LValue = LVariable T.Text
@@ -80,6 +81,7 @@ instance (Show a) => Show (LST a) where
   show (LST value _) = show value
 
 instance Show ValueTypeExpr where
+  show Any = "any"
   show Void = "void"
   show Bool = "bool"
   show Int = "int"
@@ -134,6 +136,7 @@ instance Show Expr where
     tell $ show body
     tell " else "
     tell $ show elseBody
+  show (Builtin name) = printf "builtin %s" name
 
 instance Show LValue where
   show (LVariable name) = T.unpack name

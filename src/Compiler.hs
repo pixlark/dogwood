@@ -534,6 +534,15 @@ compileExpr (TST (IfThen ty condition body elseBody) span) = withRegion "Compili
   switchToBlock postBlock
 
   return phiName
+compileExpr (TST (Builtin ty bName) span) = do
+  bName' <- translateBuiltin bName
+  emit ty (RBuiltin bName') span
+  where
+    translateBuiltin "print" = return "__builtin_print"
+    translateBuiltin _ = throwSpan span InternalCompilerError
+compileExpr (TST (Boxed ty value) span) = do
+  inner <- compileExpr (TST value span)
+  emit mkAny (RBox ty inner) span
 
 compileStmt :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Stmt -> Eff es (Maybe Name)
 compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do

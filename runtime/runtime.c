@@ -23,9 +23,14 @@ traverses that set in addition to the stack roots.
 #include <string.h>
 #include <stdbool.h>
 
-#ifndef ENABLE_TESTS
-#define printf(...)
-#define fprintf(...)
+#include "runtime.h"
+
+#ifdef ENABLE_TESTS
+#define log(...) printf(__VA_ARGS__)
+#define flog(...) fprintf(__VA_ARGS__)
+#else
+#define log(...)
+#define flog(...)
 #endif
 
 #define FORCEINLINE __attribute__((always_inline)) inline
@@ -88,7 +93,7 @@ void shadow_stack_push_frame(int ptr_count, void ***ptrs)
 void shadow_stack_pop_frame()
 {
     if (shadow_stack == NULL) {
-        fprintf(stderr, "\n\nRUNTIME ERROR: TRIED TO POP THE SHADOW STACK WHILE EMPTY\n\n");
+        flog(stderr, "\n\nRUNTIME ERROR: TRIED TO POP THE SHADOW STACK WHILE EMPTY\n\n");
         abort();
     }
 
@@ -129,7 +134,7 @@ static AllocationHeader *data_to_header(void *data)
 {
     ptr_ptr_map_itr itr = ptr_ptr_map_get(&allocation_map, data);
     if (ptr_ptr_map_is_end(itr)) {
-        fprintf(stderr, "\n\nRUNTIME ERROR: data_to_header PASSED BAD POINTER %p\n\n", data);
+        flog(stderr, "\n\nRUNTIME ERROR: data_to_header PASSED BAD POINTER %p\n\n", data);
         abort();
     }
     AllocationHeader *header = itr.data->val;
@@ -173,7 +178,7 @@ static FORCEINLINE bool is_marked(AllocationHeader *header)
 
 static FORCEINLINE void mark_allocation(AllocationHeader *header)
 {
-    fprintf(stderr, "marking allocation: %p\n", header_to_data(header));
+    flog(stderr, "marking allocation: %p\n", header_to_data(header));
     header->size |= 0x80000000;
 }
 
@@ -188,7 +193,7 @@ static void unmark_all_allocations()
          !ptr_ptr_map_is_end(itr);
          itr = ptr_ptr_map_next(itr)) {
         AllocationHeader *header = itr.data->val;
-        fprintf(stderr, "unmarking %p\n", itr.data->key);
+        flog(stderr, "unmarking %p\n", itr.data->key);
         unmark_allocation(header);
     }
 }
@@ -233,7 +238,7 @@ static FORCEINLINE void _collect_garbage(bool dry_run)
             void **root_ptr = frame->ptrs[i];
             void *root = *root_ptr;
             if (root != NULL) {
-                fprintf(stderr, "found root: %p\n", root);
+                flog(stderr, "found root: %p\n", root);
                 mark_from_root(root);
             }
         }
@@ -273,6 +278,90 @@ size_t debug_get_allocation_count()
     return ptr_ptr_map_size(&allocation_map);
 }
 
+Type make_type_void()
+{
+    Type type;
+    type.tag = TYPE_VOID;
+    type.inner_count = 0;
+    type.inner = NULL;
+    return type;
+}
+
+Type make_type_bool()
+{
+    Type type;
+    type.tag = TYPE_BOOL;
+    type.inner_count = 0;
+    type.inner = NULL;
+    return type;
+}
+
+Type make_type_int()
+{
+    Type type;
+    type.tag = TYPE_INT;
+    type.inner_count = 0;
+    type.inner = NULL;
+    return type;
+}
+
+Type make_type_fn(Type ret, size_t arg_count, Type *args)
+{
+    Type type;
+    type.tag = TYPE_FN;
+    type.inner_count = 1 + arg_count;
+    Type *inner = malloc(sizeof(Type) * type.inner_count);
+    memcpy(inner, args, sizeof(Type) * arg_count);
+    inner[arg_count] = ret;
+    type.inner = inner;
+    return type;
+}
+
+Box box_value(void *value, Type type)
+{
+    Box box;
+    box.type = type;
+    switch (type.tag) {
+    case TYPE_VOID:
+        box.value = malloc(sizeof(uint8_t));
+        *((uint8_t *)box.value) = *((uint8_t *)value);
+        break;
+    case TYPE_BOOL:
+        box.value = malloc(sizeof(bool));
+        *((bool *)box.value) = *((bool *)value);
+        break;
+    case TYPE_INT:
+        box.value = malloc(sizeof(int64_t));
+        *((int64_t *)box.value) = *((int64_t *)value);
+        break;
+    case TYPE_FN:
+        box.value = malloc(sizeof(void*));
+        *((void **)box.value) = *((void **)value);
+        break;
+    default: abort();
+    }
+    return box;
+}
+
+uint8_t __builtin_print(Box box)
+{
+    switch (box.type.tag) {
+    case TYPE_VOID:
+        printf("void\n");
+        break;
+    case TYPE_BOOL:
+        printf("%s\n", *((bool *)box.value) ? "true" : "false");
+        break;
+    case TYPE_INT:
+        printf("%ld\n", *((int64_t *)box.value));
+        break;
+    case TYPE_FN:
+        printf("fn@%p\n", *((void **)box.value));
+        break;
+    }
+    return 0;
+}
+
 #ifdef ENABLE_TESTS
 
 #include <assert.h>
@@ -280,7 +369,7 @@ size_t debug_get_allocation_count()
 
 void test_collect()
 {
-    fprintf(stderr, "==== test_collect ====\n");
+    flog(stderr, "==== test_collect ====\n");
 
     static uint32_t empty_bitmap = 0;
 
@@ -315,7 +404,7 @@ void test_collect()
     n = allocate(sizeof(int), (uint8_t *)&empty_bitmap);
     b = allocate(sizeof(bool), (uint8_t *)&empty_bitmap);
 
-    fprintf(stderr, "foo: %p\nbar: %p\nn: %p\nb: %p\n", foo, bar, n, b);
+    flog(stderr, "foo: %p\nbar: %p\nn: %p\nb: %p\n", foo, bar, n, b);
 
     foo->a = true;
     foo->b = n;
@@ -369,7 +458,7 @@ void test_collect()
 
 void test_cyclic_collect()
 {
-    fprintf(stderr, "==== test_cyclic_collect ====\n");
+    flog(stderr, "==== test_cyclic_collect ====\n");
 
     static uint32_t empty_bitmap = 0;
 
@@ -417,7 +506,7 @@ int main()
     gc_init();
     test_collect();
     test_cyclic_collect();
-    fprintf(stderr, "tests complete!\n");
+    flog(stderr, "tests complete!\n");
 }
 
 #endif

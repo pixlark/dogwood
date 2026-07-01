@@ -149,6 +149,7 @@ parseTypeExpr = produceSpannedAST $ do
   reference <- matchGlyph "&"
   cur <- gets current
   valueExpr <- case cur.kind of
+    Keyword "any" -> do advance; return A.Any
     Keyword "void" -> do advance; return A.Void
     Keyword "bool" -> do advance; return A.Bool
     Keyword "int" -> do advance; return A.Int
@@ -331,6 +332,10 @@ parseExpr = do
   cur <- gets current
   case cur.kind of
     Keyword "if" -> do parseIfExpr
+    Keyword "builtin" -> produceSpannedAST $ do
+      advance
+      (AST name _) <- readSymbol
+      returnWrap $ A.Builtin name
     Glyph "{" -> do
       body <- parseBody
       return $ A.ExprBody <$> body

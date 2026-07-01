@@ -7,7 +7,9 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Text as T
 
 data TST a = TST a Span
-  deriving (Eq)
+
+instance (Eq a) => Eq (TST a) where
+  (TST a _) == (TST b _) = a == b
 
 instance Functor TST where
   fmap f (TST x span) = TST (f x) span
@@ -16,7 +18,7 @@ instance SyntaxTree TST where
   node (TST x _) = x
   spanOf (TST _ s) = s
 
-data ValueTypeExpr = Any | Void | Bool | Int | NamespacedIdentifier [Text] | Function [TST TypeExpr] (TST TypeExpr)
+data ValueTypeExpr = Any | Undefined | Void | Bool | Int | NamespacedIdentifier [Text] | Function [TST TypeExpr] (TST TypeExpr)
   deriving (Eq)
 
 data TypeExpr = TypeExpr {reference :: Bool, valueExpr :: ValueTypeExpr}
@@ -50,6 +52,8 @@ data Expr
   | ExprBody Body
   | -- | IfChain TypeExpr (NE.NonEmpty (TST Expr, TST Expr)) (Maybe (TST Expr))
     IfThen TypeExpr (TST Expr) (TST Expr) (TST Expr)
+  | Builtin TypeExpr Text
+  | Boxed TypeExpr Expr
   deriving (Eq)
 
 makeValueExpr :: ValueTypeExpr -> TypeExpr
@@ -59,6 +63,8 @@ makeReferenceExpr :: ValueTypeExpr -> TypeExpr
 makeReferenceExpr valueExpr = TypeExpr {reference = True, valueExpr}
 
 mkAny = makeValueExpr Any
+
+mkUndefined = makeValueExpr Undefined
 
 mkVoid = makeValueExpr Void
 
@@ -77,8 +83,10 @@ typeOf (UnaryOperator t _ _) = t
 typeOf (FunctionCall {type_}) = type_
 typeOf (ExprBody (Body t _)) = t
 typeOf (IfThen t _ _ _) = t
-
--- typeOf (IfChain t _ _) = t
+typeOf (Builtin t _) = t
+-- the type annotation on Boxed isn't the type of the expression (a boxed expression is always of
+-- the Any type), but rather the type of the interior, boxed expression
+typeOf (Boxed _ _) = mkAny
 
 data LValue = LVariable TypeExpr T.Text
   deriving (Eq)
@@ -157,6 +165,8 @@ instance Show Expr where
     tell $ show elseBody
     tell ") : "
     tell $ show ty
+  show (Builtin ty name) = printf "builtin %s : %s" name (show ty)
+  show (Boxed _ e) = show e
 
 instance Show LValue where
   show (LVariable _ name) = T.unpack name

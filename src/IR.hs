@@ -28,6 +28,9 @@ data RHS
   | RUnaryOp T.Operator Name
   | -- Control flow
     RCall Name [Name]
+  | -- Misc
+    RBuiltin Text
+  | RBox T.TypeExpr Name
   deriving (Eq)
 
 data Phi = Phi {ty :: T.TypeExpr, name :: Name, operands :: [(BlockId, Name)], span :: Span}
@@ -65,6 +68,8 @@ instance Show RHS where
   show (RBinOp op l r) = printf "%s %s %s" (show l) (show op) (show r)
   show (RUnaryOp op v) = printf "%s%s" (show op) (show v)
   show (RCall fn args) = printf "call %s (%s)" (show fn) (intercalate ", " $ map show args)
+  show (RBuiltin name) = Text.unpack name
+  show (RBox ty name) = printf "box %s : %s" (show name) (show ty)
 
 instance Show Phi where
   show Phi {ty, name, operands} = printf "%s: %s = phi %s" (show name) (show ty) (intercalate ", " $ map (\(id, name) -> printf "%s[%s]" (show id) (show name)) operands)

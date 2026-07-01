@@ -26,6 +26,7 @@ makeTypechecker = Typechecker {scopes = mkScopes}
 type TypecheckerE a = Eff '[State Typechecker, Error Err] a
 
 convertValueTypeExpr :: L.ValueTypeExpr -> T.ValueTypeExpr
+convertValueTypeExpr L.Any = T.Any
 convertValueTypeExpr L.Void = T.Void
 convertValueTypeExpr L.Bool = T.Bool
 convertValueTypeExpr L.Int = T.Int
@@ -123,8 +124,17 @@ typecheckBody (LST (L.Body stmts) span) = do
     put (c {scopes = scopes'})
   return $ TST (T.Body retType tStmts') span
 
+getBuiltins :: Span -> [(Text, T.TypeExpr)]
+getBuiltins span =
+  [ ("print", T.makeValueExpr $ T.Function [(TST T.mkAny span)] (TST T.mkVoid span))
+  ]
+
+potentiallyBox :: T.TypeExpr -> T.Expr -> T.Expr
+potentiallyBox (T.TypeExpr {valueExpr = T.Any}) e = T.Boxed (typeOf e) e
+potentiallyBox _ e = e
+
 typecheckExpr :: (State Typechecker :> es, Error Err :> es) => LST L.Expr -> Eff es (TST T.Expr)
-typecheckExpr (LST L.UndefinedLit span) = return $ TST T.UndefinedLit span
+typecheckExpr (LST L.UndefinedLit span) = return $ TST (T.Boxed T.mkUndefined T.UndefinedLit) span
 typecheckExpr (LST L.VoidLit span) = return $ TST T.VoidLit span
 typecheckExpr (LST (L.BoolLit b) span) = return $ TST (T.BoolLit b) span
 typecheckExpr (LST (L.IntLit n) span) = return $ TST (T.IntLit n) span
@@ -161,7 +171,8 @@ typecheckExpr (LST (L.FunctionCall {function, arguments}) span) = do
     let tyArg = typeOf (node tArg)
     let tyParam = node param
     when (tyArg `doesNotUnify` tyParam) $ throwSpan (spanOf tArg) (typeMismatch tyParam tyArg)
-    return tArg
+    let tArg' = potentiallyBox tyParam <$> tArg
+    return tArg'
   return $ TST (T.FunctionCall {type_ = node ret, function = tFunction, arguments = tArguments}) span
 typecheckExpr (LST (L.ExprBody body) span) = do
   tBody <- typecheckBody (LST body span)
@@ -178,31 +189,10 @@ typecheckExpr (LST (L.IfThen condition body elseBody) span) = do
       tyElseBody = typeOf (node tElseBody)
   when (tyBody `doesNotUnify` tyElseBody) $ throwSpan (spanOf tCondition) (typeMismatch tyBody tyElseBody)
   return $ TST (T.IfThen tyBody tCondition tBody tElseBody) span
-
--- return $ TST (T.If)
-
--- tBodies <- forM bodies $ \(condition, body) -> do
---   tCondition <- typecheckExpr condition
---   let tyCondition = typeOf (node tCondition)
---   -- make sure all the conditions are actually boolean
---   when (tyCondition `doesNotUnify` T.makeValueExpr T.Bool) $ throwSpan (spanOf tCondition) (typeMismatch (T.makeValueExpr T.Bool) tyCondition)
---   tBody <- typecheckExpr body
---   return (tCondition, tBody)
--- tElseBody <- traverse typecheckExpr elseBody
--- -- probably a less nasty way to do this, but I have a headache
--- let tAllBodies = (snd <$> tBodies) `NE.appendList` ((Data.List.singleton <$> tElseBody) `orElse` [])
---     -- if there's an else component to this if expression, then it's capable of evaluating to something other
---     -- than void. if there's no else component, then all the bodies must evaluate to void (since the "default"
---     -- else will evaluate to void).
---     expectBodyType =
---       if isJust tElseBody
---         then typeOf $ node $ NE.head tAllBodies
---         else T.makeValueExpr T.Void
--- -- make sure all the bodies have the same type
--- forM_ tAllBodies $ \body -> do
---   let bodyType = typeOf $ node body
---   when (bodyType `doesNotUnify` expectBodyType) $ throwSpan (spanOf body) (typeMismatch expectBodyType bodyType)
--- return $ TST (T.IfChain expectBodyType tBodies tElseBody) span
+typecheckExpr (LST (L.Builtin name) span) = do
+  let builtins = getBuiltins span
+  ty <- lookup name builtins `orThrowSpan` (span, InvalidBuiltinName name)
+  return $ TST (T.Builtin ty name) span
 
 typeMismatch :: T.TypeExpr -> T.TypeExpr -> ErrorKind
 typeMismatch expected got = TypeMismatch {expectedType = Text.show expected, gotType = Text.show got}
@@ -222,17 +212,19 @@ typecheckStmt (LST (L.Let {name, type_, value}) span) = do
   let typeAnnotation = convertLST $ convertTypeExpr <$> type_
   let expectType = typeOf (node tValue)
   when (node typeAnnotation `doesNotUnify` expectType) $ throwSpan (spanOf value) (typeMismatch (node typeAnnotation) expectType)
+  let tValue' = potentiallyBox expectType <$> tValue
   let scopes' = bindNewVariable (node name) (node typeAnnotation) scopes
   typechecker <- get
   put typechecker {scopes = scopes'}
-  return $ TST (T.Let {name = convertLST name, type_ = typeAnnotation, value = tValue}) span
+  return $ TST (T.Let {name = convertLST name, type_ = typeAnnotation, value = tValue'}) span
 typecheckStmt (LST (L.Assign {lvalue, value}) span) = do
   tLValue <- typecheckLValue lvalue
   tValue <- typecheckExpr value
   let (T.LVariable tyL _) = (node tLValue)
       tyR = typeOf (node tValue)
   when (tyL `doesNotUnify` tyR) $ throwSpan (spanOf value) (typeMismatch tyL tyR)
-  return $ TST (T.Assign tLValue tValue) span
+  let tValue' = potentiallyBox tyL <$> tValue
+  return $ TST (T.Assign tLValue tValue') span
 typecheckStmt (LST (L.ExprStmt value semicolon) span) = do
   tValue <- typecheckExpr value
   return $ TST (T.ExprStmt tValue semicolon) span

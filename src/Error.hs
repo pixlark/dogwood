@@ -28,6 +28,7 @@ data ErrorKind
   | CallingNonFunction Text
   | WrongArgumentCount {expectedCount :: Int, gotCount :: Int}
   | BreakOutsideLoop
+  | InvalidBuiltinName Text
   deriving (Eq)
 
 data Span = Span Int Int
@@ -163,6 +164,7 @@ instance Show ErrorKind where
   show (CallingNonFunction ty) = printf "Tried to invoke something that's not a function (of type %s)" ty
   show (WrongArgumentCount expected got) = printf "Expected %d arguments, but received %d" expected got
   show BreakOutsideLoop = "Cannot use a break statement outside of a loop"
+  show (InvalidBuiltinName name) = printf "Invalid builtin name '%s'" name
 
 type Result a = Either Err a
 

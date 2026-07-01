@@ -52,6 +52,8 @@ main = do
     source =
       [text|
         {
+          let print: fn(any) -> void = builtin print;
+
           let n: int = 5;
           let acc: int = 1;
           loop {
@@ -61,6 +63,8 @@ main = do
             acc = acc * n;
             n = n - 1;
           }
+
+          print(acc);
         }
       |]
     loggerIgnoredFunctions = ["markSealed"]

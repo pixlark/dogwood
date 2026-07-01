@@ -15,7 +15,8 @@ import TypedAST
 import Util (getSingleElement, orElse)
 
 emitValueType :: forall es. (Writer Text :> es) => Eff es () -> ValueTypeExpr -> Eff es ()
-emitValueType name Any = do tell "uint8_t"; name
+emitValueType name Any = do tell "Box"; name
+emitValueType name Undefined = do tell "uint8_t"; name -- for now
 emitValueType name Void = do tell "uint8_t"; name -- for now
 emitValueType name Bool = do tell "bool"; name
 emitValueType name Int = do tell "int64_t"; name
@@ -69,7 +70,8 @@ emitZeroValue (TypeExpr {reference = True}) = tell "NULL"
 emitZeroValue (TypeExpr {valueExpr}) = emitZeroValue' valueExpr
   where
     emitZeroValue' :: (Writer Text :> es) => ValueTypeExpr -> Eff es ()
-    emitZeroValue' Any = undefined
+    emitZeroValue' Any = tell "{0}"
+    emitZeroValue' Undefined = tell "0"
     emitZeroValue' Void = tell "0"
     emitZeroValue' Bool = tell "false"
     emitZeroValue' Int = tell "0"
@@ -112,6 +114,21 @@ emitRHS (RCall fn args) = do
     Just arg -> tell $ Text.show arg
     Nothing -> tell ", "
   tell ")"
+emitRHS (RBuiltin name) = do
+  tell name
+emitRHS (RBox ty name) = do
+  tell "box_value(&"
+  tell $ Text.show name
+  tell ", "
+  case ty.valueExpr of
+    Any -> undefined
+    Undefined -> tell "make_type_void()"
+    Void -> tell "make_type_void()"
+    Bool -> tell "make_type_bool()"
+    Int -> tell "make_type_int()"
+    (NamespacedIdentifier _) -> undefined
+    (Function args ret) -> tell "make_type_fn(make_type_void(), 0, NULL)"
+  tell ")"
 
 emitC :: (Writer Text :> es) => Program -> HashMap Name [UserReference] -> Eff es ()
 emitC (Program blocks) userMap = do
@@ -122,10 +139,7 @@ emitC (Program blocks) userMap = do
       #include <stdio.h>
       #include <stdint.h>
       #include <stdbool.h>
-
-      void print__void(uint8_t _x) { printf("void\n"); }
-      void print__int(int x) { printf("%d\n", x); }
-      void print__bool(bool x) { printf("%s\n", x ? "true" : "false"); }
+      #include <runtime.h>
 
       int main() {
     |]

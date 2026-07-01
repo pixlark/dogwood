@@ -63,7 +63,9 @@ keywords =
     "true",
     "false",
     "break",
-    "undefined"
+    "undefined",
+    "builtin",
+    "any"
   ]
 
 validGlyphs :: [T.Text]

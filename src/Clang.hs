@@ -11,7 +11,7 @@ import System.Process
 compileExecutable :: (Error Err :> es, IOE :> es) => Text -> Eff es FilePath
 compileExecutable source = do
   liftIO $ Text.IO.writeFile "generated.c" source
-  exitCode <- liftIO $ withCreateProcess (proc "clang" ["generated.c", "-o", "a.out"]) $ \_ _ _ p -> waitForProcess p
+  exitCode <- liftIO $ withCreateProcess (proc "clang" ["-g", "generated.c", "-o", "a.out", "-I", "runtime", "-L", "runtime", "-lruntime"]) $ \_ _ _ p -> waitForProcess p
   case exitCode of
     ExitSuccess -> return "a.out"
     ExitFailure _ -> throwSpan (Span 0 0) InternalCompilerError

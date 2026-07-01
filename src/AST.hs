@@ -22,7 +22,7 @@ instance SyntaxTree AST where
 instance Functor AST where
   fmap f (AST x span) = AST (f x) span
 
-data ValueTypeExpr = Void | Bool | Int | NamespacedIdentifier [Text] | Function [AST TypeExpr] (AST TypeExpr)
+data ValueTypeExpr = Any | Void | Bool | Int | NamespacedIdentifier [Text] | Function [AST TypeExpr] (AST TypeExpr)
   deriving (Eq)
 
 data TypeExpr = TypeExpr {reference :: Bool, valueExpr :: ValueTypeExpr}
@@ -55,6 +55,7 @@ data Expr
   | FunctionCall {function :: AST Expr, arguments :: [AST Expr]}
   | ExprBody Body
   | IfChain (NE.NonEmpty (AST Expr, AST Expr)) (Maybe (AST Expr))
+  | Builtin Text
   deriving (Eq)
 
 newtype LValue = LVariable T.Text
@@ -82,6 +83,7 @@ instance (Show a) => Show (AST a) where
   show (AST value _) = show value
 
 instance Show ValueTypeExpr where
+  show Any = "any"
   show Void = "void"
   show Bool = "bool"
   show Int = "int"
@@ -146,6 +148,7 @@ instance Show Expr where
         tell $ show condition
         tell " "
         tell $ show body
+  show (Builtin name) = printf "builtin %s" name
 
 instance Show LValue where
   show (LVariable name) = T.unpack name
