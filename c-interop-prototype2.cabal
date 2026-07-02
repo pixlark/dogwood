@@ -87,7 +87,8 @@ executable prototype
                       transformers,
                       prototype-core,
                       neat-interpolation,
-                      effectful-core
+                      effectful-core,
+                      optparse-applicative
 
     -- Directories containing source files.
     hs-source-dirs:   app
@@ -99,9 +100,27 @@ library prototype-core
     -- Import common warning flags.
     import:           warnings, extensions
 
-    exposed-modules:    AST, TypedAST, Parser, Parser.Internal, Lexer, Lexer.Internal,
-                        Typechecker, Typechecker.Internal, Util, Error, Compiler, Visit, LoopPass,
-                        Common, EmitC, IR, LexicalScopes, Logging, LoweredAST, LowerPass, Clang
+    exposed-modules:
+        -- Frontend
+        Frontend, Config,
+        -- Compiler passes
+        Lexer, Lexer.Internal,
+        Parser, Parser.Internal,
+        LowerPass,
+        Typechecker, Typechecker.Internal,
+        LoopPass,
+        Compiler, Compiler.Internal,
+        EmitC,
+        Clang,
+        -- Representations
+        AST, LoweredAST, TypedAST, IR,
+        Visit,
+        -- Utility
+        Common, Util, LexicalScopes,
+        -- Logging
+        Logging,
+        -- Error handling
+        Error
 
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.18.3.0,
@@ -114,7 +133,8 @@ library prototype-core
                       hashable,
                       text-format,
                       neat-interpolation,
-                      process
+                      process,
+                      directory
 
     -- Directories containing source files.
     hs-source-dirs:   src
@@ -131,7 +151,14 @@ test-suite prototype-tests
     hs-source-dirs:   test
     -- test-module:      Spec
     main-is:          Main.hs
-    other-modules:    LexerSpec, ParserSpec, LowerPassSpec, TypecheckerSpec, LoopPassSpec, CompilerSpec
+    other-modules:
+        LexerSpec,
+        ParserSpec,
+        LowerPassSpec,
+        TypecheckerSpec,
+        LoopPassSpec,
+        CompilerSpec,
+        IntegrationSpec
     build-depends:    base ^>=4.18.3.0,
                       text ^>=2.1,
                       mtl,
@@ -140,5 +167,8 @@ test-suite prototype-tests
                       neat-interpolation,
                       effectful-core,
                       effectful-plugin,
-                      prototype-core
+                      prototype-core,
+                      directory,
+                      filepath,
+                      process
     ghc-options:      -fplugin=Effectful.Plugin

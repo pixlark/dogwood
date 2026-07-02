@@ -1,12 +1,8 @@
 {-# LANGUAGE TypeApplications #-}
 
-module LoopPass where
+module LoopPass (runLoopPass) where
 
 import Common
-import Error
-import LowerPass (runLowerPass)
-import Parser (parseStmt, runParse)
-import Typechecker
 import TypedAST
 import Visit
 
@@ -33,9 +29,5 @@ loopPass stmt = do
     Left e -> throwError e
     Right () -> return ()
 
-runLoopPass :: Text -> Result (TST Stmt)
-runLoopPass source = do
-  ast <- runParse source parseStmt
-  tst <- runTypecheck (runLowerPass ast)
-  _ <- runPureEff $ runErrorNoCallStack (loopPass tst)
-  return tst
+runLoopPass :: (HasCallStack, Error Err :> es) => TST Stmt -> Eff es ()
+runLoopPass = loopPass

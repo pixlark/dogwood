@@ -20,6 +20,12 @@ The current state of the compiler is divided into the following phases:
  - The `Compiler` phase, which transforms the typed AST into a static single assignment intermediate representation.
     - Located in `Compiler.hs`
     - The IR is defined in `IR.hs`
+ - The `EmitC` phase, which turns the IR into generated C code.
+    - Located in `EmitC.hs`
+ - The `Clang` phase, which invokes `clang` to compile the generated C code.
+    - Located in `Clang.hs`
+
+All these phases are orchestrated and piped into each other in `Frontend.hs`.
 
 #### `Compiler` phase
 

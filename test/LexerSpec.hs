@@ -16,11 +16,6 @@ runLex source = run lexer
       return $ if tok.kind == Eof then Nothing else Just tok
     run l = runPureEff $ evalState l $ runErrorNoCallStack $ unfoldM maybeNextToken
 
--- run l = do
---   startingState <- get
---   result <- tryError $ unfoldM maybeNextToken
---   return undefined
-
 spec =
   describe "the Lexer module" $ do
     it "tracks source spans correctly" $ do

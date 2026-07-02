@@ -2,7 +2,7 @@
 
 module AST where
 
-import Common hiding (Writer, tell)
+import Common hiding (Writer, execWriter, tell)
 import Control.Monad.Writer
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text as T
@@ -42,6 +42,7 @@ data Operator
   | Multiply
   | Divide
   | Not
+  | Modulo
   deriving (Eq)
 
 data Expr
@@ -111,6 +112,7 @@ instance Show Operator where
   show Multiply = "*"
   show Divide = "/"
   show Not = "!"
+  show Modulo = "%"
 
 instance Show Expr where
   show UndefinedLit = "undefined"

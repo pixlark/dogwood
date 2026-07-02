@@ -4,24 +4,35 @@ module CompilerSpec (spec) where
 
 import Common
 import Compiler
-import Data.List (nub)
+import Data.Bifunctor (Bifunctor (first))
 import Data.Text (unpack)
 import Error (displayError)
 import IR
 import Logging (noOpLogger, runLog)
+import qualified LoopPass
+import qualified LowerPass
 import NeatInterpolation
+import qualified Parser
 import Test.Hspec
+import qualified Typechecker
 import TypedAST (ValueTypeExpr (..), makeValueExpr)
+import Util (stripCallStack)
 
--- | Helper to run the compiler and return the resulting program
-testCompile :: Text -> IO (Either Text Program)
+testCompile :: Text -> IO (Either String Program)
 testCompile source = do
-  result <- runEff $ runLog noOpLogger $ runCompiler source
-  return $ case result of
-    Left err -> Left (displayError source err)
-    Right program -> Right program
+  result <- runEff $ runLog noOpLogger $ runError $ do
+    -- Passes 1 and 2: Lexing and parsing
+    ast <- Parser.runParser source Parser.parseStmt
+    -- Pass 3: Lowering
+    let loweredAST = LowerPass.runLowerPass ast
+    -- Pass 4: Typechecking
+    typedAST <- Typechecker.runTypechecker loweredAST
+    -- Pass 5: Loop validation
+    LoopPass.runLoopPass typedAST
+    -- Pass 6: Compile to IR
+    Compiler.runCompiler typedAST
+  return $ (unpack . displayError source) `first` stripCallStack result
 
--- | Get all phi instructions from a program
 getPhis :: Program -> [Phi]
 getPhis (Program blocks) = concatMap (\(_, block) -> block.phis) blocks
 
@@ -54,7 +65,7 @@ spec = do
               |]
         result <- testCompile source
         case result of
-          Left err -> expectationFailure (unpack err)
+          Left err -> expectationFailure err
           Right program -> do
             let phis = getPhis program
             -- The only phi left should be the one determining the value of the if expression
@@ -77,7 +88,7 @@ spec = do
               |]
         result <- testCompile source
         case result of
-          Left err -> expectationFailure (unpack err)
+          Left err -> expectationFailure err
           Right program -> do
             let phis = getPhis program
             -- There should be two phis now, one for the if expression, and one for the final value of x
@@ -105,7 +116,7 @@ spec = do
               |]
         result <- testCompile source
         case result of
-          Left err -> expectationFailure (unpack err)
+          Left err -> expectationFailure err
           Right program -> do
             let phis = getPhis program
             -- There should be two phis, one for each if expression, but none for x
@@ -128,7 +139,7 @@ spec = do
               |]
         result <- testCompile source
         case result of
-          Left err -> expectationFailure (unpack err)
+          Left err -> expectationFailure err
           Right program -> do
             let phis = getPhis program
             length phis `shouldBe` 2
@@ -157,7 +168,7 @@ spec = do
               |]
         result <- testCompile source
         case result of
-          Left err -> expectationFailure (unpack err)
+          Left err -> expectationFailure err
           Right program -> do
             let phis = getPhis program
             length phis `shouldBe` 2

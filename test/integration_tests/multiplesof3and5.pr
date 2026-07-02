@@ -1,0 +1,16 @@
+{
+    let print: fn(any) -> void = builtin print;
+
+    let n: int = 1;
+    let acc: int = 0;
+    loop {
+        if n >= 1000 {
+            break;
+        }
+
+        acc = acc + if (n % 3 == 0 || n % 5 == 0) n else 0;
+        n = n + 1;
+    }
+
+    print(acc);
+}

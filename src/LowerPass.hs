@@ -1,7 +1,6 @@
-module LowerPass where
+module LowerPass (runLowerPass) where
 
 import qualified AST
-import Common
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified LoweredAST as L
@@ -37,6 +36,7 @@ lowerOperator AST.Minus = L.Minus
 lowerOperator AST.Multiply = L.Multiply
 lowerOperator AST.Divide = L.Divide
 lowerOperator AST.Not = L.Not
+lowerOperator AST.Modulo = L.Modulo
 
 lowerExpr :: AST.AST AST.Expr -> L.LST L.Expr
 lowerExpr (AST.AST (AST.IfChain ((condition, body) :| []) elseBody) span) =

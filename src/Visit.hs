@@ -13,7 +13,6 @@ module Visit
 where
 
 import Common
-import qualified Data.List.NonEmpty as NE
 import TypedAST
 
 data Visitor m = Visitor
@@ -90,6 +89,13 @@ runExprVisitor v expr@(TST (IfThen typeExpr condition body elseBody) span_) =
     runExprVisitor v condition
     runExprVisitor v body
     runExprVisitor v elseBody
+runExprVisitor v expr@(TST (Builtin typeExpr _) span) =
+  onExpr v expr do
+    runTypeExprVisitor v (TST typeExpr span)
+runExprVisitor v expr@(TST (Boxed typeExpr innerExpr) span) =
+  onExpr v expr do
+    runTypeExprVisitor v (TST typeExpr span)
+    runExprVisitor v (TST innerExpr span)
 
 runStmtVisitor :: (Monad m) => Visitor m -> TST Stmt -> m ()
 runStmtVisitor v stmt@(TST (Let _ type_ value) _) =

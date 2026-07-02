@@ -7,18 +7,23 @@ import Data.Text (show)
 import Error
 import LowerPass (runLowerPass)
 import NeatInterpolation
-import Parser (parseStmt, runParse)
+import Parser (parseStmt)
+import qualified Parser
 import Test.Hspec
-import Typechecker.Internal
+import qualified Typechecker
 import TypedAST (TST (..))
 import qualified TypedAST as T
+import Util (stripCallStack)
 import Prelude hiding (show)
 
--- | Helper to run the full parse -> lower -> typecheck pipeline
-testTypecheck :: Text -> Result (TST T.Stmt)
-testTypecheck source = do
-  ast <- runParse source parseStmt
-  runTypecheck (runLowerPass ast)
+testTypecheck :: (HasCallStack) => Text -> Result (TST T.Stmt)
+testTypecheck source = stripCallStack $ runPureEff $ runError $ do
+  -- Passes 1 and 2: Lexing and parsing
+  ast <- Parser.runParser source Parser.parseStmt
+  -- Pass 3: Lowering
+  let loweredAST = LowerPass.runLowerPass ast
+  -- Pass 4: Typechecking
+  Typechecker.runTypechecker loweredAST
 
 spec :: SpecWith ()
 spec = do
@@ -63,7 +68,7 @@ spec = do
       (show <$> testTypecheck "{ let x: int = 5; { let x: bool = false; x || false } x + 5 }") `shouldBe` Right "{\nlet x: int = 5;\n{\nlet x: bool = false;\n((x : bool) || false : bool)\n} : bool\n((x : int) + 5 : int)\n} : int"
     it "typchecks complex programs" do
       let source =
-            [text| 
+            [text|
               {
                 let n: int = 5;
                 let acc: int = 1;

@@ -1,3 +1,10 @@
-module Parser (makeParser, makeParserCallStack, runParse, runParseCallStack, parseStmt, parseExpr) where
+module Parser
+  ( makeParser,
+    makeParserCallStack,
+    parseStmt,
+    parseExpr,
+    runParser,
+  )
+where
 
 import Parser.Internal

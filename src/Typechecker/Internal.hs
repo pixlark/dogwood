@@ -2,9 +2,6 @@ module Typechecker.Internal where
 
 import AST (SyntaxTree (..))
 import Common
-import qualified Data.List
-import Data.List.NonEmpty (NonEmpty (..), (<|))
-import qualified Data.List.NonEmpty as NE
 import qualified Data.Text as Text
 import LexicalScopes hiding (lookupVariable)
 import qualified LexicalScopes
@@ -52,9 +49,10 @@ convertOperator L.Minus = T.Minus
 convertOperator L.Multiply = T.Multiply
 convertOperator L.Divide = T.Divide
 convertOperator L.Not = T.Not
+convertOperator L.Modulo = T.Modulo
 
 numericOperators :: [T.Operator]
-numericOperators = [T.Plus, T.Minus, T.Multiply, T.Divide]
+numericOperators = [T.Plus, T.Minus, T.Multiply, T.Divide, T.Modulo]
 
 booleanOperators :: [T.Operator]
 booleanOperators = [T.Or, T.And, T.Not]
@@ -76,6 +74,7 @@ operationOutputs T.Minus = T.makeValueExpr T.Int
 operationOutputs T.Multiply = T.makeValueExpr T.Int
 operationOutputs T.Divide = T.makeValueExpr T.Int
 operationOutputs T.Not = T.makeValueExpr T.Bool
+operationOutputs T.Modulo = T.makeValueExpr T.Int
 
 isPrimitive :: T.TypeExpr -> Bool
 isPrimitive T.TypeExpr {reference = True} = False
@@ -243,3 +242,9 @@ runTypecheck stmt = runPureEff $ runErrorNoCallStack $ evalState makeTypechecker
 
 runTypecheckCallStack :: LST L.Stmt -> Either (CallStack, Err) (TST T.Stmt)
 runTypecheckCallStack stmt = runPureEff $ runError $ evalState makeTypechecker $ typecheckStmt stmt
+
+runTypechecker ::
+  (HasCallStack, Error Err :> es) =>
+  LST L.Stmt ->
+  Eff es (TST T.Stmt)
+runTypechecker = evalState makeTypechecker . typecheckStmt

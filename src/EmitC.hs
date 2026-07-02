@@ -3,12 +3,8 @@
 module EmitC where
 
 import Common
-import Compiler (UserReference)
-import Data.HashMap.Lazy (HashMap)
-import qualified Data.HashMap.Lazy as HashMap
 import Data.List (intersperse)
 import qualified Data.Text as Text
-import qualified Data.Text.Lazy as LazyText
 import IR
 import NeatInterpolation
 import TypedAST
@@ -92,6 +88,7 @@ emitOperator Minus = "-"
 emitOperator Multiply = "*"
 emitOperator Divide = "/"
 emitOperator Not = "!"
+emitOperator Modulo = "%"
 
 emitRHS :: (Writer Text :> es) => RHS -> Eff es ()
 emitRHS RUndefined = undefined
@@ -127,11 +124,11 @@ emitRHS (RBox ty name) = do
     Bool -> tell "make_type_bool()"
     Int -> tell "make_type_int()"
     (NamespacedIdentifier _) -> undefined
-    (Function args ret) -> tell "make_type_fn(make_type_void(), 0, NULL)"
+    (Function _ _) -> tell "make_type_fn(make_type_void(), 0, NULL)"
   tell ")"
 
-emitC :: (Writer Text :> es) => Program -> HashMap Name [UserReference] -> Eff es ()
-emitC (Program blocks) userMap = do
+emitC :: (Writer Text :> es) => Program -> Eff es ()
+emitC (Program blocks) = do
   tell
     [text|
       #include <stdlib.h>
@@ -218,7 +215,5 @@ emitC (Program blocks) userMap = do
     |]
   tell "\n"
 
-runEmitC :: Program -> HashMap Name [UserReference] -> Eff es Text
-runEmitC program userMap = do
-  (_, emitted) <- runWriter (emitC program userMap)
-  return emitted
+runEmitC :: (HasCallStack) => Program -> Eff es Text
+runEmitC = execWriter . emitC

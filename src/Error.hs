@@ -122,7 +122,7 @@ displayError source (Err error span@(Span spanStart _)) = execWriter $ do
     then do
       tell " "
       tell $ pad lineNumber
-      tell "     "
+      tell "   "
       tell excerpt
       tell "\n   "
       tellRed "e "
@@ -142,7 +142,7 @@ displayError source (Err error span@(Span spanStart _)) = execWriter $ do
   forM_ [lineNumber + spansLines .. postContextEnd] $ \line -> do
     tell " "
     tell $ pad line
-    tell "     "
+    tell "   "
     tell $ getLine source line
     tell "\n"
 

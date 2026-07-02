@@ -3,8 +3,6 @@ module IR where
 import Common
 import Data.Hashable (Hashable (..))
 import Data.List (intercalate)
-import Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NE
 import qualified Data.Text as Text
 import qualified TypedAST as T
 

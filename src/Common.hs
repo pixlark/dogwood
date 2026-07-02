@@ -24,6 +24,8 @@ module Common
     traceShow,
     traceShowId,
     Eff,
+    IOE,
+    liftIO,
     runEff,
     runPureEff,
     (:>),
@@ -50,6 +52,7 @@ module Common
     runState,
     state,
     Writer,
+    execWriter,
     runWriter,
     tell,
     Err (..),
@@ -75,11 +78,11 @@ import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import Data.Text.Format (Format, Only (..), Shown (..), format)
 import Debug.Trace (trace, traceId, traceShow, traceShowId)
-import Effectful (Eff, runEff, runPureEff, (:>))
+import Effectful (Eff, IOE, liftIO, runEff, runPureEff, (:>))
 import Effectful.Error.Static (CallStack, Error, HasCallStack, runError, runErrorNoCallStack, throwError, tryError)
 import Effectful.Reader.Static (Reader, ask, asks, local, runReader, withReader)
 import Effectful.State.Static.Local (State, evalState, execState, get, gets, modify, put, runState, state)
-import Effectful.Writer.Static.Local (Writer, runWriter, tell)
+import Effectful.Writer.Static.Local (Writer, execWriter, runWriter, tell)
 import Error (Err (..), ErrorKind (..), Result, Span (..), getLineForSpan, orThrowSpan, orThrowSpanM, throwSpan)
 import Logging (Log, scribe, withRegion)
 import Text.Printf (printf)

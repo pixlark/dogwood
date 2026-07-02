@@ -10,8 +10,6 @@ import Lexer.Internal (Lexer, Token (..), TokenKind (..), makeLexer, nextToken)
 data Parser = Parser {current :: Token, lexer :: Lexer, lastTokenEnd :: Int}
   deriving (Show)
 
-type ParserE a = Eff '[State Parser, Error Err] a
-
 advance :: (State Parser :> es, Error Err :> es) => Eff es ()
 advance = do
   parser <- get
@@ -186,6 +184,7 @@ parseAtom = produceSpannedAST $ do
     Keyword "false" -> do advance; returnWrap (A.BoolLit False)
     IntLiteral n -> do advance; returnWrap (A.IntLit n)
     Symbol sym -> do advance; returnWrap (A.Variable sym)
+    Keyword "if" -> parseIfExpr >>= returnDirect
     Glyph "(" -> do
       advance
       (AST expr _) <- parseExpr
@@ -260,7 +259,8 @@ parseBinaryMultiplicative =
   parseBinary
     parseUnary
     [ (Glyph "*", A.BinaryOperator A.Multiply),
-      (Glyph "/", A.BinaryOperator A.Divide)
+      (Glyph "/", A.BinaryOperator A.Divide),
+      (Glyph "%", A.BinaryOperator A.Modulo)
     ]
 
 parseBinaryAdditive :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
@@ -331,7 +331,6 @@ parseExpr :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST 
 parseExpr = do
   cur <- gets current
   case cur.kind of
-    Keyword "if" -> do parseIfExpr
     Keyword "builtin" -> produceSpannedAST $ do
       advance
       (AST name _) <- readSymbol
@@ -438,26 +437,17 @@ parseStmt = produceSpannedAST $ do
         Nothing -> do
           expr <- parseExpr
           semicolon <- matchGlyph ";"
-          -- semicolon <- case expr of
-          --   -- allow omitting the semicolon after certain expressions that
-          --   -- get used like statements
-          --   AST (A.IfChain _ _) _ -> matchGlyph ";"
-          --   AST (A.ExprBody _) _ -> matchGlyph ";"
-          --   _ -> do expectGlyph ";"; return True
           returnWrap $ A.ExprStmt {value = expr, semicolon}
 
-runParse :: Text -> ParserE a -> Result a
-runParse source f = case makeParser lexer of
-  Left e -> Left e
-  Right parser -> run parser
-  where
-    lexer = makeLexer source
-    run p = runPureEff $ runErrorNoCallStack $ evalState p f
-
-runParseCallStack :: Text -> ParserE a -> Either (CallStack, Err) a
-runParseCallStack source f = case makeParserCallStack lexer of
-  Left e -> Left e
-  Right parser -> run parser
-  where
-    lexer = makeLexer source
-    run p = runPureEff $ runError $ evalState p f
+runParser ::
+  (HasCallStack, Error Err :> es) =>
+  Text ->
+  Eff (State Parser : es) a ->
+  Eff es a
+runParser source f = do
+  let lexer = makeLexer source
+  let parser = makeParser lexer
+  parser <- case parser of
+    Left e -> throwError e
+    Right p -> return p
+  evalState parser f

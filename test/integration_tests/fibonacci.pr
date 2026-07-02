@@ -1,0 +1,19 @@
+{
+    let print: fn(any) -> void = builtin print;
+
+    let a: int = 0;
+    let b: int = 1;
+    let n: int = 20;
+    loop {
+        if n == 0 {
+            break;
+        }
+
+        print(a);
+        let tmp: int = a;
+        a = b;
+        b = tmp + b;
+
+        n = n - 1;
+    }
+}

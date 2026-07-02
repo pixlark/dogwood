@@ -3,7 +3,6 @@ module LexicalScopes where
 import Common
 import Data.List.NonEmpty (NonEmpty ((:|)), (<|))
 import qualified Data.List.NonEmpty as NE
-import TypedAST
 
 type LexicalScopes a = NonEmpty [(Text, a)]
 

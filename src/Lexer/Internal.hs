@@ -98,7 +98,8 @@ validGlyphs =
     ",",
     ":",
     "::",
-    ";"
+    ";",
+    "%"
   ]
 
 validGlyphStarts :: [Char]

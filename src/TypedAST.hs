@@ -1,9 +1,8 @@
 module TypedAST where
 
 import AST (SyntaxTree (..))
-import Common hiding (Writer, tell)
-import Control.Monad.Trans.Writer (Writer, execWriter, tell)
-import qualified Data.List.NonEmpty as NE
+import Common hiding (Writer, execWriter, tell)
+import Control.Monad.Trans.Writer (execWriter, tell)
 import qualified Data.Text as T
 
 data TST a = TST a Span
@@ -38,6 +37,7 @@ data Operator
   | Multiply
   | Divide
   | Not
+  | Modulo
   deriving (Eq)
 
 data Expr
@@ -108,6 +108,7 @@ instance (Show a) => Show (TST a) where
 
 instance Show ValueTypeExpr where
   show Any = "any"
+  show Undefined = "undefined"
   show Void = "void"
   show Bool = "bool"
   show Int = "int"
@@ -135,6 +136,7 @@ instance Show Operator where
   show Multiply = "*"
   show Divide = "/"
   show Not = "!"
+  show Modulo = "%"
 
 instance Show Expr where
   show UndefinedLit = "undefined"

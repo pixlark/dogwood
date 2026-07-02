@@ -1,5 +1,9 @@
 dist-newstyle/
 haddocks/
+a.out
+generated.c
+test.pr
+.testdata/
 
 # https://github.com/github/gitignore/blob/main/Haskell.gitignore
 dist
@@ -25,5 +29,3 @@ cabal.project.local
 cabal.project.local~
 .HTF/
 .ghc.environment.*
-a.out
-generated.c
