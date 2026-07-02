@@ -5,11 +5,10 @@
 module Compiler.Internal.Users where
 
 import Common
-import Data.HashMap.Lazy (HashMap)
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
 import IR (BlockId, Name)
 import Util
-
-import qualified Data.HashMap.Lazy as HashMap
 
 -- | Uniquely identifies an instruction
 data UserReference

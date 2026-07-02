@@ -11,7 +11,7 @@ function-arrows: leading
 comma-style: trailing
 
 # Styling of import/export lists (choices: leading, trailing, or diff-friendly)
-import-export-style: diff-friendly
+import-export-style: trailing
 
 # Rules for grouping import declarations
 import-grouping: by-scope

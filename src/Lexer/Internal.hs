@@ -130,6 +130,7 @@ makeToken length kind = do
   cursor <- gets cursor
   return $ Token kind $ Span (cursor - length) length
 
+{- HLINT ignore "Redundant <$>" -}
 nextToken :: (State Lexer :> es, Error Err :> es) => Eff es Token
 nextToken = do
   skipWhitespace
@@ -158,7 +159,6 @@ nextToken = do
                 advance
                 c' <- current
                 case c' of
-                  {- HLINT ignore -}
                   Nothing -> eitherFromMaybe unrecognizedCharacter <$> tryMakeSingleGlyph c >>= except
                   Just c' -> eitherFromMaybe unrecognizedCharacter <$> tryMakeDoubleOrSingleGlyph c c' >>= except
             | otherwise -> throwError unrecognizedCharacter

@@ -100,8 +100,11 @@ unifies t1 t2 = t1 == t2
 doesNotUnify :: T.TypeExpr -> T.TypeExpr -> Bool
 doesNotUnify t1 t2 = not (t1 `unifies` t2)
 
-typecheckBody :: (State Typechecker :> es, Error Err :> es) => LST L.Body -> Eff es (TST T.Body)
-typecheckBody (LST (L.Body stmts) span) = do
+typecheckBody ::
+  (HasCallStack, State Typechecker :> es, Error Err :> es, Log :> es)
+  => LST L.Body
+  -> Eff es (TST T.Body)
+typecheckBody (LST (L.Body stmts) span) = withRegion "Entering scope..." do
   -- each body opens a new lexical scope
   pushScope
 
@@ -112,7 +115,6 @@ typecheckBody (LST (L.Body stmts) span) = do
     case tStmt of
       (TST (T.ExprStmt {value, semicolon = False}) _) -> return (tStmt, typeOf (node value))
       _ -> return (tStmt, T.makeValueExpr T.Void)
-  {- HLINT ignore -}
   let (tStmts', retTypes) = unzip tStmts
       retType = safeLast retTypes `orElse` T.makeValueExpr T.Void
 
@@ -122,15 +124,22 @@ typecheckBody (LST (L.Body stmts) span) = do
 
 getBuiltins :: Span -> [(Text, T.TypeExpr)]
 getBuiltins span =
-  [ ("print", T.makeValueExpr $ T.Function [(TST T.mkAny span)] (TST T.mkVoid span))
+  [ ("print", T.makeValueExpr $ T.Function [TST T.mkAny span] (TST T.mkVoid span))
   ]
 
-potentiallyBox :: T.TypeExpr -> T.Expr -> T.Expr
-potentiallyBox (T.TypeExpr {valueExpr = T.Any}) e = T.Boxed (typeOf e) e
-potentiallyBox _ e = e
+potentiallyBox :: (HasCallStack, Log :> es) => T.TypeExpr -> T.Expr -> Eff es T.Expr
+potentiallyBox (T.TypeExpr {valueExpr = T.Any}) e = do
+  scribe $ format "Boxing expression {} to coerce to any (original type: {})" (Shown e, Shown (typeOf e))
+  return $ T.Boxed (typeOf e) e
+potentiallyBox _ e = return e
 
-typecheckExpr :: (State Typechecker :> es, Error Err :> es) => LST L.Expr -> Eff es (TST T.Expr)
-typecheckExpr (LST L.UndefinedLit span) = return $ TST (T.Boxed T.mkUndefined T.UndefinedLit) span
+typecheckExpr ::
+  (HasCallStack, State Typechecker :> es, Error Err :> es, Log :> es)
+  => LST L.Expr
+  -> Eff es (TST T.Expr)
+typecheckExpr (LST L.UndefinedLit span) = do
+  scribe "Encountered undefined value - boxing it"
+  return $ TST (T.Boxed T.mkUndefined T.UndefinedLit) span
 typecheckExpr (LST L.VoidLit span) = return $ TST T.VoidLit span
 typecheckExpr (LST (L.BoolLit b) span) = return $ TST (T.BoolLit b) span
 typecheckExpr (LST (L.IntLit n) span) = return $ TST (T.IntLit n) span
@@ -146,28 +155,33 @@ typecheckExpr (LST (L.BinaryOperator op l r) span) = do
   let op' = convertOperator op
       operandTy = typeOf (node tL)
       outputTy = operationOutputs op'
-  when (not $ operatorSupportsType op' operandTy) $ throwSpan span (OperatorSupport (Text.show op) (Text.show operandTy))
+  unless (operatorSupportsType op' operandTy) $ throwSpan span (OperatorSupport (Text.show op) (Text.show operandTy))
   return $ TST (T.BinaryOperator outputTy op' tL tR) span
 typecheckExpr (LST (L.UnaryOperator op value) span) = do
   tValue <- typecheckExpr value
   let op' = convertOperator op
       operandTy = typeOf (node tValue)
       outputTy = operationOutputs op'
-  when (not $ operatorSupportsType op' operandTy) $ throwSpan span (OperatorSupport (Text.show op) (Text.show operandTy))
+  unless (operatorSupportsType op' operandTy) $ throwSpan span (OperatorSupport (Text.show op) (Text.show operandTy))
   return $ TST (T.UnaryOperator outputTy op' tValue) span
 typecheckExpr (LST (L.FunctionCall {function, arguments}) span) = do
+  -- Make sure that the thing we're calling is actually a function
   tFunction <- typecheckExpr function
   let ty = typeOf (node tFunction)
   (params, ret) <- case ty of
     T.TypeExpr _ (T.Function params ret) -> return (params, ret)
-    _ -> throwSpan span $ (CallingNonFunction (Text.show ty))
+    _ -> throwSpan span $ CallingNonFunction (Text.show ty)
+  -- Make sure we've passed the right number of arguments
   when (length params /= length arguments) $ throwSpan span (WrongArgumentCount (length params) (length arguments))
+  -- Also check the type of each argument
   tArguments <- forM (arguments `zip` params) $ \(arg, param) -> do
     tArg <- typecheckExpr arg
     let tyArg = typeOf (node tArg)
     let tyParam = node param
     when (tyArg `doesNotUnify` tyParam) $ throwSpan (spanOf tArg) (typeMismatch tyParam tyArg)
-    let tArg' = potentiallyBox tyParam <$> tArg
+    -- If a function's parameter has the type "any", then the value passed through that argument
+    -- will get coerced to "any", meaning it has to be boxed up.
+    tArg' <- potentiallyBox tyParam `traverse` tArg
     return tArg'
   return $ TST (T.FunctionCall {type_ = node ret, function = tFunction, arguments = tArguments}) span
 typecheckExpr (LST (L.ExprBody body) span) = do
@@ -201,22 +215,26 @@ typecheckLValue (LST (L.LVariable name) span) = do
   ty <- lookupVariable name `orThrowSpanM` (span, UnboundVariable name)
   return $ TST (T.LVariable ty name) span
 
-typecheckStmt :: (State Typechecker :> es, Error Err :> es) => LST L.Stmt -> Eff es (TST T.Stmt)
+typecheckStmt ::
+  (HasCallStack, State Typechecker :> es, Error Err :> es, Log :> es)
+  => LST L.Stmt
+  -> Eff es (TST T.Stmt)
 typecheckStmt (LST (L.Let {name, type_, value}) span) = do
   tValue <- typecheckExpr value
   let typeAnnotation = convertLST $ convertTypeExpr <$> type_
   let expectType = typeOf (node tValue)
   when (node typeAnnotation `doesNotUnify` expectType) $ throwSpan (spanOf value) (typeMismatch (node typeAnnotation) expectType)
-  let tValue' = potentiallyBox expectType <$> tValue
+  tValue' <- potentiallyBox expectType `traverse` tValue
+  scribe $ format "Binding variable {} (type: {})" (node name, Shown type_)
   bindNewVariable (node name) (node typeAnnotation)
   return $ TST (T.Let {name = convertLST name, type_ = typeAnnotation, value = tValue'}) span
 typecheckStmt (LST (L.Assign {lvalue, value}) span) = do
   tLValue <- typecheckLValue lvalue
   tValue <- typecheckExpr value
-  let (T.LVariable tyL _) = (node tLValue)
+  let (T.LVariable tyL _) = node tLValue
       tyR = typeOf (node tValue)
   when (tyL `doesNotUnify` tyR) $ throwSpan (spanOf value) (typeMismatch tyL tyR)
-  let tValue' = potentiallyBox tyL <$> tValue
+  tValue' <- potentiallyBox tyL `traverse` tValue
   return $ TST (T.Assign tLValue tValue') span
 typecheckStmt (LST (L.ExprStmt value semicolon) span) = do
   tValue <- typecheckExpr value
@@ -231,14 +249,8 @@ typecheckStmt (LST (L.Loop body) span) = do
   when (ty `doesNotUnify` T.makeValueExpr T.Void) $ throwSpan (spanOf body) (typeMismatch (T.makeValueExpr T.Void) ty)
   return $ TST (T.Loop tBody) span
 
-runTypecheck :: LST L.Stmt -> Result (TST T.Stmt)
-runTypecheck stmt = runPureEff $ runErrorNoCallStack $ evalState mkTypechecker $ typecheckStmt stmt
-
-runTypecheckCallStack :: LST L.Stmt -> Either (CallStack, Err) (TST T.Stmt)
-runTypecheckCallStack stmt = runPureEff $ runError $ evalState mkTypechecker $ typecheckStmt stmt
-
-runTypechecker
-  :: (HasCallStack, Error Err :> es)
+runTypechecker ::
+  (HasCallStack, Error Err :> es, Log :> es)
   => LST L.Stmt
   -> Eff es (TST T.Stmt)
 runTypechecker = evalState mkTypechecker . typecheckStmt

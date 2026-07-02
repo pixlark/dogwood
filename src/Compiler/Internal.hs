@@ -5,14 +5,13 @@ module Compiler.Internal where
 import AST (SyntaxTree (..))
 import Common hiding (scribe)
 import Compiler.Internal.Compiler
+import Control.Monad (join)
+import qualified Data.HashMap.Strict as HashMap
 import IR
 import LexicalScopes
 import Typechecker (unifies)
 import TypedAST
 import Util
-
-import Control.Monad (join)
-import qualified Data.HashMap.Lazy as HashMap
 
 compileBody :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => Body -> Span -> Eff es Name
 compileBody (Body ty stmts) span = do
@@ -43,7 +42,7 @@ compileExpr (TST (Variable _ name) span) = do
   AbstractVariable {varId} <- lookupVariable name `orThrowSpanM` (span, InternalCompilerError)
   scribe $ format "Looking up variable {} ({})" (name, Shown varId)
   activeBlock <- gets activeBlock
-  determineVariableNameInBlock varId activeBlock span
+  determineNameInBlock varId activeBlock span
 compileExpr (TST (BinaryOperator ty op l r) span) = do
   lName <- compileExpr l
   rName <- compileExpr r

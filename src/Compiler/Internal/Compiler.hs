@@ -5,19 +5,18 @@ module Compiler.Internal.Compiler where
 import Common hiding (scribe)
 import Compiler.Internal.Program
 import Compiler.Internal.Users
-import IR
-import LexicalScopes
-import qualified Logging
-import TypedAST
-import Util
-
-import Data.HashMap.Lazy (HashMap)
-import qualified Data.HashMap.Lazy as HashMap
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import Data.Hashable
 import Data.List (nub)
 import qualified Data.Text.Lazy
+import IR
+import LexicalScopes
+import qualified Logging
+import TypedAST
+import Util
 
 newtype VarId = VarId Int
   deriving (Show, Eq)
@@ -123,11 +122,9 @@ mkVarId = do
 -- Scope handling
 --
 
-lookupVariableById
-  :: (HasCallStack, State s :> es, HasLexicalScopes AbstractVariable s, Error Err :> es)
-  => Span
-  -> VarId
-  -> Eff es AbstractVariable
+lookupVariableById ::
+  (HasCallStack, State s :> es, HasLexicalScopes AbstractVariable s, Error Err :> es)
+  => Span -> VarId -> Eff es AbstractVariable
 lookupVariableById span id = do
   scopes <- gets getScopes
   lookupByValue span (\v -> v.varId == id) scopes `orThrowSpanM` (span, InternalCompilerError)
@@ -160,11 +157,9 @@ addPredecessor from to span = do
 -- Modifying the active block
 --
 
-setControl
-  :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es)
-  => Control
-  -> Span
-  -> Eff es ()
+setControl ::
+  (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es)
+  => Control -> Span -> Eff es ()
 setControl control span = do
   activeBlock <- gets activeBlock
 
@@ -248,18 +243,18 @@ setVariableNameInBlock varId blockId name _ = do
 -- | value of that variable.
 -- | This will generate phi instructions as necessary.
 -- | Equivalent to `readVariable` in the Braun construction.
-determineVariableNameInBlock :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => VarId -> BlockId -> Span -> Eff es Name
-determineVariableNameInBlock varId blockId span = do
+determineNameInBlock :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => VarId -> BlockId -> Span -> Eff es Name
+determineNameInBlock varId blockId span = do
   variables <- gets variablesPerBlock
   case HashMap.lookup (varId, blockId) variables of
     -- local value numbering
     -- (this variable is already bound to an SSA value in this block)
     Just name -> return name
     -- global value numbering
-    Nothing -> determineVariableNameInBlockRecursive varId blockId span
+    Nothing -> determineNameInBlockRec varId blockId span
 
-determineVariableNameInBlockRecursive :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => VarId -> BlockId -> Span -> Eff es Name
-determineVariableNameInBlockRecursive varId blockId span = do
+determineNameInBlockRec :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => VarId -> BlockId -> Span -> Eff es Name
+determineNameInBlockRec varId blockId span = do
   blockIsSealed <- isSealed blockId
   Block {predecessors} <- getBlock blockId span
   varSpan <- spanForVariable varId span
@@ -276,7 +271,7 @@ determineVariableNameInBlockRecursive varId blockId span = do
       | length predecessors == 1 -> do
           -- If we know we only have one predecessor, we can just recurse
           -- into that predecessor.
-          determineVariableNameInBlock varId (head predecessors) span
+          determineNameInBlock varId (head predecessors) span
       | otherwise -> do
           -- Multiple predecessors means we need a phi instruction.
 
@@ -290,7 +285,7 @@ determineVariableNameInBlockRecursive varId blockId span = do
           -- each predecessor (basically the same as in the last branch,
           -- except multiple times).
           name <- recursivelySetPhiOperands phiRef span
-          {- HLINT ignore -}
+
           return name
   setVariableNameInBlock varId blockId name span
   return name
@@ -299,7 +294,9 @@ determineVariableNameInBlockRecursive varId blockId span = do
 -- Phi handling
 --
 
-addEmptyPhi :: (HasCallStack, State Compiler :> es, Error Err :> es) => BlockId -> VarId -> Span -> Eff es PhiReference
+addEmptyPhi ::
+  (HasCallStack, State Compiler :> es, Error Err :> es)
+  => BlockId -> VarId -> Span -> Eff es PhiReference
 addEmptyPhi blockId varId span = do
   AbstractVariable {ty} <- lookupVariableById span varId
   name <- mkName
@@ -309,7 +306,9 @@ addEmptyPhi blockId varId span = do
   let phiRef = PhiReference name varId blockId
   return phiRef
 
-addCompletePhi :: (HasCallStack, State Compiler :> es, Error Err :> es) => BlockId -> TypeExpr -> [(BlockId, Name)] -> Span -> Eff es Name
+addCompletePhi ::
+  (HasCallStack, State Compiler :> es, Error Err :> es)
+  => BlockId -> TypeExpr -> [(BlockId, Name)] -> Span -> Eff es Name
 addCompletePhi blockId ty operands span = do
   name <- mkName
   let phi = Phi {ty, name, operands, span}
@@ -349,11 +348,13 @@ setIncompletePhi blockId phiRef = do
       incompletePhis' = HashMap.insert blockId phisForBlock' incompletePhis
   modify (\c -> c {incompletePhis = incompletePhis'})
 
-recursivelySetPhiOperands :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => PhiReference -> Span -> Eff es Name
+recursivelySetPhiOperands ::
+  (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es)
+  => PhiReference -> Span -> Eff es Name
 recursivelySetPhiOperands phiRef span = do
   Block {predecessors} <- getBlock phiRef.inBlock span
   operands <- forM predecessors $ \pred -> do
-    name <- determineVariableNameInBlock phiRef.forVariable pred span
+    name <- determineNameInBlock phiRef.forVariable pred span
     return (pred, name)
   setPhiOperands phiRef operands span
   tryRemoveTrivialPhi phiRef span
@@ -373,7 +374,9 @@ replaceNameInRHS from to (RCall fn args) = RCall fn' args'
     args' = map (\a -> if from == a then to else a) args
 replaceNameInRHS _ _ rhs = rhs
 
-tryRemoveTrivialPhi :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => PhiReference -> Span -> Eff es Name
+tryRemoveTrivialPhi ::
+  (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es)
+  => PhiReference -> Span -> Eff es Name
 tryRemoveTrivialPhi phiRef span = do
   phi <- getPhi phiRef span `orThrowSpanM` (span, InternalCompilerError)
   let operands' = nub $ filter (/= phi.name) $ snd <$> phi.operands

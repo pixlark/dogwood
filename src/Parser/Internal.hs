@@ -232,17 +232,17 @@ parseUnary = produceSpannedAST $ do
       returnWrap $ A.UnaryOperator op inner
     _ -> do expr <- parsePostfix; returnDirect expr
 
+{- HLINT ignore "Use <$>" -}
 parseBinary ::
-  (State Parser :> es, Error Err :> es) =>
-  Eff es (AST A.Expr) ->
-  [(TokenKind, AST A.Expr -> AST A.Expr -> A.Expr)] ->
-  Eff es (AST A.Expr)
+  (State Parser :> es, Error Err :> es)
+  => Eff es (AST A.Expr)
+  -> [(TokenKind, AST A.Expr -> AST A.Expr -> A.Expr)]
+  -> Eff es (AST A.Expr)
 parseBinary nextParser operators = produceSpannedAST $ do
   left <- nextParser
   current <- gets current
   results <- forM operators $ \(operator, combiner) ->
     if current.kind == operator
-      {- HLINT ignore -}
       then do
         advance
         right <- recurse
@@ -440,10 +440,10 @@ parseStmt = produceSpannedAST $ do
           returnWrap $ A.ExprStmt {value = expr, semicolon}
 
 runParser ::
-  (HasCallStack, Error Err :> es) =>
-  Text ->
-  Eff (State Parser : es) a ->
-  Eff es a
+  (HasCallStack, Error Err :> es)
+  => Text
+  -> Eff (State Parser : es) a
+  -> Eff es a
 runParser source f = do
   let lexer = makeLexer source
   let parser = makeParser lexer

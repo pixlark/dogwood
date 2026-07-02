@@ -13,6 +13,13 @@ instance (Eq a) => Eq (TST a) where
 instance Functor TST where
   fmap f (TST x span) = TST (f x) span
 
+instance Foldable TST where
+  foldMap f (TST x _) = f x
+
+instance Traversable TST where
+  traverse :: (Applicative f) => (a -> f b) -> TST a -> f (TST b)
+  traverse f (TST x span) = (\x -> TST x span) <$> f x
+
 instance SyntaxTree TST where
   node (TST x _) = x
   spanOf (TST _ s) = s

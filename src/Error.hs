@@ -104,9 +104,6 @@ displayError source (Err error span@(Span spanStart _)) = execWriter $ do
   let postContextEnd = min (lineNumber + 3) totalLines
   let spansLines = T.length (T.filter (== '\n') excerpt) + 1
   let pad = leftPad 3
-  -- tell $ T.pack $ printf "getLineForSpan: %s\n" (show (excerpt, Span start len))
-  -- tell $ T.pack $ printf "%d %d %s %s\n" preContextStart postContextEnd (show [preContextStart .. lineNumber - 1]) (show [lineNumber + 1 .. postContextEnd])
-  -- tell $ T.pack $ printf "lineNumber: %d\n" lineNumber
 
   tell $ T.show error
   tell "\n\n"

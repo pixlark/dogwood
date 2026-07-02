@@ -1,53 +1,67 @@
 module Frontend (run) where
 
 import qualified Clang
-import Common (liftIO, runEff, runError, runReader)
+import Common (HasCallStack, liftIO, runEff, runError, runReader, withRegion)
 import qualified Compiler
 import Config (ConfigData (..), LogLevel (..))
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
+import qualified Data.Text.Lazy as LazyText
 import Effectful.Error.Static (prettyCallStack)
 import qualified EmitC
 import Error (displayError)
-import Logging (noOpLogger, runLog, standardLoggerWithIgnoredFunctions)
+import Logging (noOpLogger, runLog, scribe, standardLoggerWithIgnoredFunctions)
 import qualified LoopPass
 import qualified LowerPass
 import qualified Parser
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import qualified Typechecker
 
-run :: ConfigData -> IO ExitCode
+run :: (HasCallStack) => ConfigData -> IO ExitCode
 run cfg = do
   source <- Text.IO.readFile (Text.unpack cfg.sourceFile)
 
   let logger = if cfg.logLevel == Loud then standardLoggerWithIgnoredFunctions ignoredFunctions else noOpLogger
 
-  let write str = if cfg.logLevel == Quiet then return () else putStrLn str
+  let write = case cfg.logLevel of
+        Quiet -> const $ return ()
+        Default -> putStrLn
+        Loud -> runEff . runLog logger . scribe . LazyText.pack
+
+  let region msg f = case cfg.logLevel of
+        Quiet -> f
+        Default -> do liftIO $ putStrLn msg; f
+        Loud -> withRegion (LazyText.pack msg) f
 
   executableName <- runEff $ runLog logger $ runError $ runReader cfg $ do
     -- Passes 1 and 2: Lexing and parsing
-    liftIO $ write "Lexing and parsing..."
-    ast <- Parser.runParser source Parser.parseStmt
-    -- Pass 3: Lowering
-    liftIO $ write "Lowering AST..."
-    let loweredAST = LowerPass.runLowerPass ast
-    -- Pass 4: Typechecking
-    liftIO $ write "Typechecking AST..."
-    typedAST <- Typechecker.runTypechecker loweredAST
-    -- Pass 5: Loop validation
-    liftIO $ write "Validating loops..."
-    LoopPass.runLoopPass typedAST
-    -- Pass 6: Compile to IR
-    liftIO $ write "Compiling to IR..."
-    program <- Compiler.runCompiler typedAST
-    -- Pass 7: Generate C
-    liftIO $ write "Generating C..."
-    generatedC <- EmitC.runEmitC program
-    -- Pass 8: Compile C with clang
-    liftIO $ write "Compiling with clang..."
-    executableName <- Clang.compileExecutable generatedC
+    ast <- region "Lexing and parsing..." do
+      Parser.runParser source Parser.parseStmt
 
-    {- HLINT ignore -}
+    -- Pass 3: Lowering
+    loweredAST <- region "Lowering AST..." do
+      return $ LowerPass.runLowerPass ast
+
+    -- Pass 4: Typechecking
+    typedAST <- region "Typechecking AST..." do
+      Typechecker.runTypechecker loweredAST
+
+    -- Pass 5: Loop validation
+    region "Validating loops..." do
+      LoopPass.runLoopPass typedAST
+
+    -- Pass 6: Compile to IR
+    program <- region "Compiling to IR..." do
+      Compiler.runCompiler typedAST
+
+    -- Pass 7: Generate C
+    generatedC <- region "Generating C..." do
+      EmitC.runEmitC program
+
+    -- Pass 8: Compile C with clang
+    executableName <- region "Compiling with clang..." do
+      Clang.compileExecutable generatedC
+
     return executableName
 
   exitCode <- case executableName of
@@ -62,4 +76,4 @@ run cfg = do
   return exitCode
   where
     -- functions that we want to ignore when marking the current function in the logging framework
-    ignoredFunctions = ["markSealed"]
+    ignoredFunctions = ["markSealed", "potentiallyBox"]
