@@ -7,9 +7,9 @@ Some guidelines on behaviour:
    2. To perform long, difficult, or otherwise tedious tasks around the codebase, such as generating boilerplate, implementing utility functions, performing large-scale refactors, etc.
 
  - Unless otherwise directed, questions are meant to be answered verbally so that the user can implement your suggestions themselves. Do not modify the source code unless specifically requested.
- 
+
  - Sometimes the user's request will be unfulfillable in the way that it was requested because they failed to foresee an issue. In these instances, stop what you're doing and explain the issue to the user so that they can make a decision. Don't just try to solve it yourself.
- 
+
  - When authoring new source code, always look at similar code and do your best to match the way it does things.
 
 ### Project overview
@@ -17,6 +17,8 @@ Some guidelines on behaviour:
 This project is a compiler for a new programming language. The compiler is written in Haskell. It is split into three packages: the main executable `prototype`, which has its source code in the `app` directory, the core library `prototype-core`, which has its source code in the `src` directory, and the test suite `prototype-tests`, which has its source code in the `test` directory.
 
 There is a separate CLAUDE.md for each of these packages located in their respective directories.
+
+There is also the `runtime` directory, which contains the runtime implementation for the language (in C). There is a CLAUDE.md for this directory as well.
 
 ### Building and testing
 

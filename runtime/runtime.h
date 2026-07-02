@@ -35,4 +35,4 @@ Type make_type_int();
 Type make_type_fn(Type ret, size_t arg_count, Type *args);
 Box box_value(void *value, Type type);
 
-uint8_t __builtin_print(Box box);
+uint8_t builtin_print(Box box);

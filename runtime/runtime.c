@@ -343,7 +343,7 @@ Box box_value(void *value, Type type)
     return box;
 }
 
-uint8_t __builtin_print(Box box)
+uint8_t builtin_print(Box box)
 {
     switch (box.type.tag) {
     case TYPE_VOID:
@@ -426,7 +426,7 @@ void test_collect()
     assert(!is_marked(_foo));
     assert(is_marked(data_to_header(bar)));
     assert(is_marked(data_to_header(n)));
-    assert(is_marked(data_to_header(b)));    
+    assert(is_marked(data_to_header(b)));
 
     // if we remove our direct access to b, it shouldn't affect anything
     // because it's still accessible through bar

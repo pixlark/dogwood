@@ -536,7 +536,7 @@ compileExpr (TST (Builtin ty bName) span) = do
   bName' <- translateBuiltin bName
   emit ty (RBuiltin bName') span
   where
-    translateBuiltin "print" = return "__builtin_print"
+    translateBuiltin "print" = return "builtin_print"
     translateBuiltin _ = throwSpan span InternalCompilerError
 compileExpr (TST (Boxed ty value) span) = do
   inner <- compileExpr (TST value span)
