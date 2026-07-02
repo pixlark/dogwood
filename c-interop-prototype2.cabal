@@ -109,7 +109,11 @@ library prototype-core
         LowerPass,
         Typechecker, Typechecker.Internal,
         LoopPass,
-        Compiler, Compiler.Internal,
+        Compiler,
+            Compiler.Internal,
+            Compiler.Internal.Users,
+            Compiler.Internal.Compiler,
+            Compiler.Internal.Program,
         EmitC,
         Clang,
         -- Representations

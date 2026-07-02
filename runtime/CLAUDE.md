@@ -4,6 +4,8 @@ This directory contains the runtime implementation for the language.
 
 It is compiled as a shared library (`libruntime.so`), and linked in to compiled programs.
 
+To rebuild the runtime, run `./makeruntime` from the project root.
+
 #### Builtin functions
 
 Builtin functions (declared with the `builtin` keyword in the language) have their actual implementations here (prefixed with `builtin_`).

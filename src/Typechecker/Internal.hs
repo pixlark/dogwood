@@ -1,26 +1,26 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeApplications #-}
+
 module Typechecker.Internal where
 
 import AST (SyntaxTree (..))
 import Common
 import qualified Data.Text as Text
-import LexicalScopes hiding (lookupVariable)
-import qualified LexicalScopes
+import LexicalScopes
 import LoweredAST (LST (..))
 import qualified LoweredAST as L
 import TypedAST (TST (..), typeOf)
 import qualified TypedAST as T
 import Util
 
-lookupVariable :: (State Typechecker :> es, Error Err :> es) => Span -> Text -> Eff es T.TypeExpr
-lookupVariable span name = zoomState scopes (\s t -> t {scopes = s}) (LexicalScopes.lookupVariable span name)
-
 newtype Typechecker = Typechecker {scopes :: LexicalScopes T.TypeExpr}
 
-makeTypechecker :: Typechecker
-makeTypechecker = Typechecker {scopes = mkScopes}
+instance HasLexicalScopes T.TypeExpr Typechecker where
+  getScopes = scopes
+  setScopes scopes t = t {scopes}
 
--- type Typechecker a = Except Err a
-type TypecheckerE a = Eff '[State Typechecker, Error Err] a
+mkTypechecker :: Typechecker
+mkTypechecker = Typechecker {scopes = mkScopes}
 
 convertValueTypeExpr :: L.ValueTypeExpr -> T.ValueTypeExpr
 convertValueTypeExpr L.Any = T.Any
@@ -103,7 +103,7 @@ doesNotUnify t1 t2 = not (t1 `unifies` t2)
 typecheckBody :: (State Typechecker :> es, Error Err :> es) => LST L.Body -> Eff es (TST T.Body)
 typecheckBody (LST (L.Body stmts) span) = do
   -- each body opens a new lexical scope
-  modify (\c -> c {scopes = pushScope c.scopes})
+  pushScope
 
   tStmts <- forM stmts $ \stmt -> do
     tStmt <- typecheckStmt stmt
@@ -117,10 +117,7 @@ typecheckBody (LST (L.Body stmts) span) = do
       retType = safeLast retTypes `orElse` T.makeValueExpr T.Void
 
   -- close the lexical scope
-  do
-    c <- get
-    scopes' <- popScope c.scopes `orThrowSpan` (span, InternalCompilerError)
-    put (c {scopes = scopes'})
+  popScope `orThrowSpanM` (span, InternalCompilerError)
   return $ TST (T.Body retType tStmts') span
 
 getBuiltins :: Span -> [(Text, T.TypeExpr)]
@@ -138,7 +135,7 @@ typecheckExpr (LST L.VoidLit span) = return $ TST T.VoidLit span
 typecheckExpr (LST (L.BoolLit b) span) = return $ TST (T.BoolLit b) span
 typecheckExpr (LST (L.IntLit n) span) = return $ TST (T.IntLit n) span
 typecheckExpr (LST (L.Variable name) span) = do
-  ty <- lookupVariable span name
+  ty <- lookupVariable name `orThrowSpanM` (span, UnboundVariable name)
   return $ TST (T.Variable ty name) span
 typecheckExpr (LST (L.BinaryOperator op l r) span) = do
   tL <- typecheckExpr l
@@ -201,20 +198,17 @@ convertLST (LST a span) = TST a span
 
 typecheckLValue :: (State Typechecker :> es, Error Err :> es) => LST L.LValue -> Eff es (TST T.LValue)
 typecheckLValue (LST (L.LVariable name) span) = do
-  ty <- lookupVariable span name
+  ty <- lookupVariable name `orThrowSpanM` (span, UnboundVariable name)
   return $ TST (T.LVariable ty name) span
 
 typecheckStmt :: (State Typechecker :> es, Error Err :> es) => LST L.Stmt -> Eff es (TST T.Stmt)
 typecheckStmt (LST (L.Let {name, type_, value}) span) = do
-  scopes <- gets scopes
   tValue <- typecheckExpr value
   let typeAnnotation = convertLST $ convertTypeExpr <$> type_
   let expectType = typeOf (node tValue)
   when (node typeAnnotation `doesNotUnify` expectType) $ throwSpan (spanOf value) (typeMismatch (node typeAnnotation) expectType)
   let tValue' = potentiallyBox expectType <$> tValue
-  let scopes' = bindNewVariable (node name) (node typeAnnotation) scopes
-  typechecker <- get
-  put typechecker {scopes = scopes'}
+  bindNewVariable (node name) (node typeAnnotation)
   return $ TST (T.Let {name = convertLST name, type_ = typeAnnotation, value = tValue'}) span
 typecheckStmt (LST (L.Assign {lvalue, value}) span) = do
   tLValue <- typecheckLValue lvalue
@@ -238,13 +232,13 @@ typecheckStmt (LST (L.Loop body) span) = do
   return $ TST (T.Loop tBody) span
 
 runTypecheck :: LST L.Stmt -> Result (TST T.Stmt)
-runTypecheck stmt = runPureEff $ runErrorNoCallStack $ evalState makeTypechecker $ typecheckStmt stmt
+runTypecheck stmt = runPureEff $ runErrorNoCallStack $ evalState mkTypechecker $ typecheckStmt stmt
 
 runTypecheckCallStack :: LST L.Stmt -> Either (CallStack, Err) (TST T.Stmt)
-runTypecheckCallStack stmt = runPureEff $ runError $ evalState makeTypechecker $ typecheckStmt stmt
+runTypecheckCallStack stmt = runPureEff $ runError $ evalState mkTypechecker $ typecheckStmt stmt
 
-runTypechecker ::
-  (HasCallStack, Error Err :> es) =>
-  LST L.Stmt ->
-  Eff es (TST T.Stmt)
-runTypechecker = evalState makeTypechecker . typecheckStmt
+runTypechecker
+  :: (HasCallStack, Error Err :> es)
+  => LST L.Stmt
+  -> Eff es (TST T.Stmt)
+runTypechecker = evalState mkTypechecker . typecheckStmt

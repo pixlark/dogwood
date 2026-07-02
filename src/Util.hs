@@ -9,9 +9,11 @@ module Util
     modifyElementBy,
     getSingleElement,
     stripCallStack,
+    insertAssoc,
   )
 where
 
+import Data.List (findIndex)
 import Data.Maybe
 import Effectful
 import Effectful.Error.Static (CallStack)
@@ -80,3 +82,10 @@ modifyElement list elem = modifyElementBy list (== elem)
 stripCallStack :: Either (CallStack, a) b -> Either a b
 stripCallStack (Left (_, x)) = Left x
 stripCallStack (Right x) = Right x
+
+insertAssoc :: (Eq a) => a -> b -> [(a, b)] -> [(a, b)]
+insertAssoc key value list = case idx of
+  Nothing -> list ++ [(key, value)]
+  Just idx -> take idx list ++ [(key, value)] ++ drop (idx + 1) list
+  where
+    idx = findIndex ((== key) . fst) list

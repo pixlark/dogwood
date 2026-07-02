@@ -9,9 +9,6 @@ import qualified TypedAST as T
 newtype BlockId = BlockId Int
   deriving (Eq, Ord)
 
-newtype VarId = VarId Int
-  deriving (Show, Eq)
-
 newtype Name = Name Int
   deriving (Eq)
 
@@ -127,7 +124,3 @@ instance Hashable Name where
 instance Hashable BlockId where
   hash (BlockId id) = hash id
   hashWithSalt salt (BlockId id) = hashWithSalt salt id
-
-instance Hashable VarId where
-  hash (VarId id) = hash id
-  hashWithSalt salt (VarId id) = hashWithSalt salt id
