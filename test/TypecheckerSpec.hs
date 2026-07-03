@@ -2,20 +2,20 @@
 
 module TypecheckerSpec where
 
-import Common
+import DW.Common
 import Data.Text (show)
-import Error
-import Logging (noOpLogger, runLog)
-import LowerPass (runLowerPass)
+import DW.Error
+import DW.Logging (noOpLogger, runLog)
+import qualified DW.LowerPass as LowerPass
 import NeatInterpolation
-import Parser (parseStmt)
-import qualified Parser
+import DW.Parser (parseStmt)
+import qualified DW.Parser as Parser
 import Test.Hspec
 import TestUtil
-import qualified Typechecker
-import TypedAST (TST (..))
-import qualified TypedAST as T
-import Util (stripCallStack)
+import qualified DW.Typechecker as Typechecker
+import DW.TypedAST (TST (..))
+import qualified DW.TypedAST as T
+import DW.Util (stripCallStack)
 import Prelude hiding (show)
 
 testTypecheck source = fmap stripCallStack $ runEff $ runError $ runLog noOpLogger do

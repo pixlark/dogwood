@@ -2,9 +2,9 @@
 
 module LexerSpec (spec) where
 
-import Common
+import DW.Common
 import Control.Monad.Loops (unfoldM)
-import Lexer
+import DW.Lexer
 import Test.Hspec
 
 runLex :: Text -> Result [Token]

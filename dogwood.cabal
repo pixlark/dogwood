@@ -102,33 +102,33 @@ library dogwood-core
 
     exposed-modules:
         -- Frontend
-        Frontend, Config,
+        DW.Frontend, DW.Config,
         -- Compiler passes
-        Lexer,
-            Lexer.Internal,
-        Parser,
-            Parser.Internal,
-        LowerPass,
-        Typechecker,
-            Typechecker.Internal,
-        LoopPass,
-        Compiler,
-            Compiler.Internal,
-            Compiler.Internal.Users,
-            Compiler.Internal.Compiler,
-            Compiler.Internal.Program,
-        EmitC,
-            EmitC.Internal.EmitEffect,
-        Clang,
+        DW.Lexer,
+            DW.Lexer.Internal,
+        DW.Parser,
+            DW.Parser.Internal,
+        DW.LowerPass,
+        DW.Typechecker,
+            DW.Typechecker.Internal,
+        DW.LoopPass,
+        DW.Compiler,
+            DW.Compiler.Internal,
+            DW.Compiler.Internal.Users,
+            DW.Compiler.Internal.Compiler,
+            DW.Compiler.Internal.Program,
+        DW.EmitC,
+            DW.EmitC.Internal.EmitEffect,
+        DW.Clang,
         -- Representations
-        AST, LoweredAST, TypedAST, IR,
-        Visit,
+        DW.AST, DW.LoweredAST, DW.TypedAST, DW.IR,
+        DW.Visit,
         -- Utility
-        Common, Util, LexicalScopes,
+        DW.Common, DW.Util, DW.LexicalScopes,
         -- Logging
-        Logging,
+        DW.Logging,
         -- Error handling
-        Error
+        DW.Error
 
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.18.3.0,

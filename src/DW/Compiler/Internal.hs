@@ -1,0 +1,209 @@
+{-# LANGUAGE TupleSections #-}
+
+module DW.Compiler.Internal where
+
+import DW.AST (SyntaxTree (..))
+import DW.Common hiding (scribe)
+import DW.Compiler.Internal.Compiler
+import Control.Monad (join)
+import qualified Data.HashMap.Strict as HashMap
+import DW.IR
+import DW.LexicalScopes
+import DW.Typechecker (unifies)
+import DW.TypedAST
+import DW.Util
+
+compileBody :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => Body -> Span -> Eff es Name
+compileBody (Body ty stmts) span = do
+  -- each body opens a new lexical scope
+  pushScope
+
+  results <- forM stmts compileStmt
+  let result = join $ safeLast results
+  name <- case result of
+    Nothing | ty `unifies` mkVoid -> do
+      emit mkVoid RVoid span
+    Nothing -> throwSpan span InternalCompilerError
+    Just name -> return name
+
+  -- close the lexical scope
+  popScope `orThrowSpanM` (span, InternalCompilerError)
+
+  return name
+
+-- | Compile the expression into the current program. Returns name of the local SSA form that contains
+-- | the final value of the expression.
+compileExpr :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Expr -> Eff es Name
+compileExpr (TST UndefinedLit span) = emit mkAny RUndefined span
+compileExpr (TST VoidLit span) = emit mkVoid RVoid span
+compileExpr (TST (BoolLit b) span) = emit mkBool (RBool b) span
+compileExpr (TST (IntLit n) span) = emit mkInt (RInt n) span
+compileExpr (TST (Variable _ name) span) = do
+  AbstractVariable {varId} <- lookupVariable name `orThrowSpanM` (span, InternalCompilerError)
+  scribe $ format "Looking up variable {} ({})" (name, Shown varId)
+  activeBlock <- gets activeBlock
+  determineNameInBlock varId activeBlock span
+compileExpr (TST (BinaryOperator ty op l r) span) = do
+  lName <- compileExpr l
+  rName <- compileExpr r
+  emit ty (RBinOp op lName rName) span
+compileExpr (TST (UnaryOperator ty op v) span) = do
+  name <- compileExpr v
+  emit ty (RUnaryOp op name) span
+compileExpr (TST (FunctionCall ty fn args) span) = do
+  fnName <- compileExpr fn
+  argNames <- mapM compileExpr args
+  emit ty (RCall fnName argNames) span
+compileExpr (TST (ExprBody body) span) = compileBody body span
+compileExpr (TST (IfThen ty condition body elseBody) span) = withRegion "Compiling if-then..." do
+  -- Allocate a sealed block for the condition
+  conditionBlock <- allocateBlock
+  scribe $ format "Allocating block {} for the condition" (Only (Shown conditionBlock))
+  setControl (Jump conditionBlock) span
+  markSealed conditionBlock span
+  switchToBlock conditionBlock
+
+  -- Compile the condition into that block
+  resultName <- withRegion "Compiling the condition..." $ compileExpr condition
+
+  -- Allocate a block for the body and the elseBody
+  bodyBlock <- allocateBlock
+  scribe $ format "Allocating block {} for the body" (Only (Shown bodyBlock))
+  elseBodyBlock <- allocateBlock
+  scribe $ format "Allocating block {} for the else-body" (Only (Shown elseBodyBlock))
+
+  -- Now whatever the current block is should jump conditionally to those blocks
+  setControl (JumpIf resultName bodyBlock elseBodyBlock) span
+
+  -- Now we can mark both of them as sealed (they only have one predecessor each)
+  markSealed bodyBlock span
+  markSealed elseBodyBlock span
+
+  -- Allocate an unsealed block to follow the if (and grab its result with a phi instruction)
+  postBlock <- allocateBlock
+  scribe $ format "Allocating block {} for the if-result" (Only (Shown postBlock))
+
+  -- Now we can actually compile into those blocks
+  switchToBlock bodyBlock
+  bodyResultName <- withRegion "Compiling the body..." $ compileExpr body
+  finalBodyBlock <- gets activeBlock
+  setControl (Jump postBlock) span
+
+  switchToBlock elseBodyBlock
+  elseBodyResultName <- withRegion "Compiling the else-body..." $ compileExpr elseBody
+  finalElseBodyBlock <- gets activeBlock
+  setControl (Jump postBlock) span
+
+  -- Generate the phi instruction for the post block
+  phiName <- addCompletePhi postBlock ty [(finalBodyBlock, bodyResultName), (finalElseBodyBlock, elseBodyResultName)] span
+  scribe $ format "Result is collected from phi instruction into {}" (Only (Shown phiName))
+
+  -- Now that the postBlock has all its predecessors determined, we can seal it
+  markSealed postBlock span
+
+  -- And switch to it before returning so that the rest of the program compiles into it
+  -- (We can do this because we sealed the block, which fulfills our responsibility
+  -- to it as its creator).
+  switchToBlock postBlock
+
+  return phiName
+compileExpr (TST (Builtin ty bName) span) = do
+  bName' <- translateBuiltin bName
+  emit ty (RBuiltin bName') span
+  where
+    translateBuiltin "print" = return "builtin_print"
+    translateBuiltin _ = throwSpan span InternalCompilerError
+compileExpr (TST (Boxed ty value) span) = do
+  inner <- compileExpr (TST value span)
+  emit mkAny (RBox ty inner) span
+
+compileStmt :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Stmt -> Eff es (Maybe Name)
+compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do
+  -- special case for undefined
+  -- this should get torn out eventually
+  valName <- case value of
+    (TST UndefinedLit span) -> emit ty RUndefined span
+    _ -> do compileExpr value
+  varId <- mkVarId
+  blockId <- gets activeBlock
+  scribe $ format "Binding new variable {} ({}) in block {}" (name, Shown varId, Shown blockId)
+  bindNewVariable name $ AbstractVariable {varId, ty, span}
+  modify (\c -> c {variablesPerBlock = HashMap.insert (varId, blockId) valName c.variablesPerBlock})
+  return Nothing
+compileStmt (TST (Assign (TST (LVariable _ name) span) value) _) = do
+  valName <- compileExpr value
+  AbstractVariable {varId} <- lookupVariable name `orThrowSpanM` (span, InternalCompilerError)
+  compiler <- get
+  scribe $ format "Encountered variable assignment to {} ({}) in block {}" (name, Shown varId, Shown compiler.activeBlock)
+  let variablesPerBlock' = HashMap.insert (varId, compiler.activeBlock) valName compiler.variablesPerBlock
+  put compiler {variablesPerBlock = variablesPerBlock'}
+  return Nothing
+compileStmt (TST (ExprStmt expr semicolon) _) = do
+  name <- compileExpr expr
+  if semicolon then return Nothing else return (Just name)
+compileStmt (TST (Return _) _) = undefined
+compileStmt (TST (Loop (TST body bodySpan)) span) = withRegion "Compiling loop statement..." do
+  -- allocate a new basic block to hold the body of the loop
+  loopBlock <- allocateBlock
+  scribe $ format "Allocated block {} for body of the loop" (Only (Shown loopBlock))
+  -- also pre-allocate a block for the block that will follow the loop
+  -- (this is where we'll jump to when we hit a break statement)
+  postLoopBlockId <- allocateBlock
+  scribe $ format "Allocated block {} to follow the loop" (Only (Shown postLoopBlockId))
+  modify (\c -> c {currentBreakBlocks = postLoopBlockId : c.currentBreakBlocks})
+  -- the current block should conclude by jumping to the new loop block
+  setControl (Jump loopBlock) span
+  -- switch our context so that we're emitting instructions into the loop block
+  switchToBlock loopBlock
+  -- and now we can actually compile the body of the loop itself
+  _ <- withRegion "Compiling body of loop..." $ compileBody body bodySpan
+  modify (\c -> c {currentBreakBlocks = tail c.currentBreakBlocks})
+  -- the loop concludes by unconditionally jumping to its beginning
+  setControl (Jump loopBlock) span
+  -- now that the body of the loop has been compiled, we know the start of the loop
+  -- has no other predecessors
+  markSealed loopBlock span
+  -- same with the post-loop block (all breaks have been compiled)
+
+  markSealed postLoopBlockId span
+  switchToBlock postLoopBlockId
+  return Nothing
+compileStmt (TST Break span) = withRegion "Compiling break statement..." do
+  currentBreakBlock <- gets (safeHead . currentBreakBlocks)
+  case currentBreakBlock of
+    Nothing -> throwSpan span InternalCompilerError
+    Just currentBreakBlock -> do
+      setControl (Jump currentBreakBlock) span
+      -- now we switch to a block that is unreachable
+      -- this serves two purposes:
+      --  1. if the programmer has unreachable statements after the break statement,
+      --     this serves as a place to dump them.
+      --  2. when we bubble back up to the loop compiler, it's going to assume that the current
+      --     block isn't complete, and set its control flow instruction to return to the top of
+      --     the loop. so if we don't switch to a new (unreachable) block, then it'll overwrite the
+      --     control flow instruction we just wrote
+      -- ideally once we introduce an optimizer pass, it will be able to trivially tell from the CFG
+      -- that this block is never executed, and eliminate it before any code generation is actually done
+      nextBlock <- allocateBlock
+      markSealed nextBlock span
+      scribe $ format "Allocated block {} to dump post-break instructions" (Only (Shown nextBlock))
+      switchToBlock nextBlock
+  return Nothing
+
+compileProgram :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Stmt -> Eff es ()
+compileProgram stmt@(TST _ _) = withRegion "Compiling program..." do
+  _ <- compileStmt stmt
+  return ()
+
+compileAndCheck :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Stmt -> Eff es ()
+compileAndCheck stmt = do
+  compileProgram stmt
+  (Program blocks) <- gets program
+  forM_ blocks $ \(id, _) -> do
+    seal <- isSealed id
+    unless seal $ throwSpan (spanOf stmt) InternalCompilerError
+
+runCompiler :: (HasCallStack, Error Err :> es, Log :> es) => TST Stmt -> Eff es Program
+runCompiler stmt = do
+  compiler <- execState mkCompiler $ compileAndCheck stmt
+  return compiler.program

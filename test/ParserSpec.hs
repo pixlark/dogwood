@@ -2,22 +2,22 @@
 
 module ParserSpec (spec) where
 
-import AST (AST (..))
-import qualified AST as A
-import Common
+import DW.AST (AST (..))
+import qualified DW.AST as A
+import DW.Common
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text as T
-import Error
-import Lexer.Internal
+import DW.Error
+import DW.Lexer.Internal
 import NeatInterpolation
-import Parser.Internal
+import DW.Parser.Internal
 import Test.Hspec
-import Util (stripCallStack)
+import DW.Util (stripCallStack)
 
 consumeSymbol = do
-  current <- gets Parser.Internal.current
+  current <- gets DW.Parser.Internal.current
   case current.kind of
-    Symbol sym -> do Parser.Internal.advance; return $ Just sym
+    Symbol sym -> do DW.Parser.Internal.advance; return $ Just sym
     _ -> return Nothing
 
 parseCommas trailing = parseSeparatedSequence SeparatorConfig {trailing, separator = Glyph ",", consume = consumeSymbol}

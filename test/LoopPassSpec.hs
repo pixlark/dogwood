@@ -2,15 +2,15 @@
 
 module LoopPassSpec (spec) where
 
-import Common
-import Error
-import Logging (noOpLogger, runLog)
-import LoopPass (runLoopPass)
-import qualified LowerPass
-import qualified Parser
+import DW.Common
+import DW.Error
+import DW.Logging (noOpLogger, runLog)
+import qualified DW.LoopPass as LoopPass
+import qualified DW.LowerPass as LowerPass
+import qualified DW.Parser as Parser
 import Test.Hspec
-import qualified Typechecker
-import Util (stripCallStack)
+import qualified DW.Typechecker as Typechecker
+import DW.Util (stripCallStack)
 import Prelude hiding (show)
 
 testLoopPass source = fmap stripCallStack $ runEff $ runError $ runLog noOpLogger do

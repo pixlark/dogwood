@@ -3,9 +3,9 @@
 
 module Main where
 
-import Common
-import Config (ConfigData (..), LogLevel (..))
-import qualified Frontend
+import DW.Common
+import DW.Config (ConfigData (..), LogLevel (..))
+import qualified DW.Frontend as Frontend
 import Options.Applicative
 import System.Exit (exitWith)
 
