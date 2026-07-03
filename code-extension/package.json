@@ -1,0 +1,62 @@
+{
+  "name": "dogwood",
+  "displayName": "Dogwood",
+  "description": "Language support for Dogwood",
+  "version": "0.0.1",
+  "publisher": "dogwood",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:dogwood"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "dogwood",
+        "aliases": [
+          "Dogwood",
+          "dogwood"
+        ],
+        "extensions": [
+          ".pr"
+        ]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "dogwood",
+        "scopeName": "source.dogwood",
+        "path": "./syntaxes/dogwood.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Dogwood",
+      "properties": {
+        "dogwood.serverPath": {
+          "type": "string",
+          "default": "dogwood",
+          "description": "Path to the dogwood executable"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.0.0"
+  }
+}

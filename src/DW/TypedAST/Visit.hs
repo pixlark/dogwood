@@ -1,6 +1,6 @@
 {-# LANGUAGE RankNTypes #-}
 
-module DW.Visit
+module DW.TypedAST.Visit
   ( Visitor (..),
     defaultVisitor,
     runStmtVisitor,

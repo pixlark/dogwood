@@ -2,8 +2,8 @@
 
 module DW.AST where
 
-import DW.Common hiding (Writer, execWriter, tell)
 import Control.Monad.Writer
+import DW.Common hiding (Writer, execWriter, tell)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text as T
 
@@ -73,6 +73,9 @@ data Stmt
   | Break
   | Loop (AST Body)
   deriving (Eq)
+
+data AnyAST = AnyStmt Stmt | AnyExpr Expr | AnyLValue LValue | AnyBody Body | AnyTypeExpr TypeExpr | AnyText T.Text
+  deriving (Show)
 
 makeValueExpr :: ValueTypeExpr -> TypeExpr
 makeValueExpr valueExpr = TypeExpr {reference = False, valueExpr}

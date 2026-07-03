@@ -10,6 +10,7 @@ module DW.Util
     getSingleElement,
     stripCallStack,
     insertAssoc,
+    (<$$>),
   )
 where
 
@@ -37,13 +38,13 @@ safeLast (_ : xs) = safeLast xs
 
 -- | Allows you to "shift" a State effect so that
 zoomState ::
-  (State s :> es) =>
-  -- | setter
-  (s -> t) ->
-  -- | getter
-  (t -> s -> s) ->
-  Eff (State t : es) a ->
-  Eff es a
+  (State s :> es)
+  => (s -> t)
+  -- ^ setter
+  -> (t -> s -> s)
+  -- ^ getter
+  -> Eff (State t : es) a
+  -> Eff es a
 zoomState getter setter m = do
   st <- get
   (a, st') <- runState (getter st) m
@@ -89,3 +90,6 @@ insertAssoc key value list = case idx of
   Just idx -> take idx list ++ [(key, value)] ++ drop (idx + 1) list
   where
     idx = findIndex ((== key) . fst) list
+
+(<$$>) :: (Functor f, Functor f') => (a -> b) -> f' (f a) -> f' (f b)
+(<$$>) = fmap . fmap

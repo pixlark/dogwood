@@ -3,9 +3,9 @@ module DW.Parser.Internal where
 import DW.AST (AST (..))
 import qualified DW.AST as A
 import DW.Common
+import DW.Lexer.Internal (Lexer, Token (..), TokenKind (..), makeLexer, nextToken)
 import Data.List.NonEmpty (NonEmpty (..), (<|))
 import qualified Data.List.NonEmpty as NE
-import DW.Lexer.Internal (Lexer, Token (..), TokenKind (..), makeLexer, nextToken)
 
 data Parser = Parser {current :: Token, lexer :: Lexer, lastTokenEnd :: Int}
   deriving (Show)
@@ -190,7 +190,7 @@ parseAtom = produceSpannedAST $ do
       (AST expr _) <- parseExpr
       expectGlyph ")"
       returnWrap expr
-    _ -> throwSpan (current.span) ExpectedExpr
+    _ -> throwSpan current.span ExpectedExpr
 
 parsePostfix :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
 parsePostfix = produceSpannedAST $ do

@@ -1,10 +1,10 @@
 module DW.Lexer.Internal where
 
 import DW.Common
+import DW.Util
 import Data.Char
 import qualified Data.List as List
 import qualified Data.Text as T
-import DW.Util
 
 data TokenKind = Eof | Symbol Text | Keyword Text | Glyph Text | IntLiteral Int
   deriving (Eq, Show)
@@ -119,6 +119,7 @@ tryMakeDoubleGlyph :: (State Lexer :> es) => Char -> Char -> Eff es (Maybe Token
 tryMakeDoubleGlyph c1 c2 =
   if s `elem` validGlyphs
     then do
+      advance
       token <- makeToken 2 (Glyph s)
       return $ Just token
     else return Nothing
@@ -170,6 +171,6 @@ nextToken = do
       doubleGlyph <- tryMakeDoubleGlyph c c'
       case doubleGlyph of
         Nothing -> tryMakeSingleGlyph c
-        j@(Just _) -> do advance; return j
+        j@(Just _) -> return j
     except (Right value) = return value
     except (Left e) = throwError e

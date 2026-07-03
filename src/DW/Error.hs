@@ -1,15 +1,29 @@
 {-# LANGUAGE QuasiQuotes #-}
 
-module DW.Error (ErrorKind (..), Span (..), Err (..), Result, displayError, isErrorKind, throwSpan, orThrowSpan, orThrowSpanM, getLineForSpan) where
+module DW.Error
+  ( ErrorKind (..),
+    Span (..),
+    Err (..),
+    Result,
+    displayError,
+    displayErrorColorless,
+    isErrorKind,
+    throwSpan,
+    orThrowSpan,
+    orThrowSpanM,
+    getLineForSpan,
+  ) where
 
 import Control.Monad
-import Control.Monad.Writer
+import DW.Util
 import Data.Text (Text)
 import qualified Data.Text as T
-import Effectful (Eff, (:>))
+import Debug.Trace
+import Effectful (Eff, runPureEff, (:>))
 import Effectful.Error.Static (Error, HasCallStack, throwError)
+import Effectful.Reader.Static (Reader, ask, runReader)
+import Effectful.Writer.Static.Local (Writer, execWriter, tell)
 import Text.Printf
-import DW.Util
 import Prelude hiding (getLine)
 
 data ErrorKind
@@ -58,7 +72,7 @@ getLineForSpan source (Span start len) = (line, span')
     lineEnd = findIndex source (start + len) '\n' `orElse` T.length source
     lineLength = lineEnd - lineStart
     line = T.take lineLength $ T.drop lineStart source
-    span' = Span (start - lineStart) len
+    span' = traceShowId $ Span (start - lineStart) len
 
 getLine :: Text -> Int -> Text
 getLine source 1 = T.take lineLength source
@@ -79,11 +93,12 @@ getLineNumber text start = getLineNumber' text start 1
         | text `T.index` start == '\n' -> getLineNumber' text (start - 1) (acc + 1)
         | otherwise -> getLineNumber' text (start - 1) acc
 
-tellRed :: (MonadWriter Text m) => Text -> m ()
+tellRed :: (Writer Text :> es, Reader Bool :> es) => Text -> Eff es ()
 tellRed text = do
-  tell "\x1b[1;31m"
+  useColor <- ask
+  when useColor $ tell "\x1b[1;31m"
   tell text
-  tell "\x1b[0m"
+  when useColor $ tell "\x1b[0m"
 
 leftPad :: Int -> Int -> Text
 leftPad to n = padded
@@ -94,7 +109,13 @@ leftPad to n = padded
     padded = T.pack (map (const ' ') [1 .. padLength]) `T.append` unpadded
 
 displayError :: Text -> Err -> Text
-displayError source (Err error span@(Span spanStart _)) = execWriter $ do
+displayError = displayError' True
+
+displayErrorColorless :: Text -> Err -> Text
+displayErrorColorless = displayError' False
+
+displayError' :: Bool -> Text -> Err -> Text
+displayError' useColor source (Err error span@(Span spanStart _)) = runPureEff $ execWriter $ runReader useColor $ do
   do tell "\n--------------- "; tellRed "ERROR"; tell " ---------------\n\n"
 
   let (excerpt, Span excerptStart excerptLen) = getLineForSpan source span
@@ -123,8 +144,7 @@ displayError source (Err error span@(Span spanStart _)) = execWriter $ do
       tell excerpt
       tell "\n   "
       tellRed "e "
-      let digits = length $ show lineNumber
-      forM_ (replicate (excerptStart + digits - 2) " ") tellRed
+      forM_ (replicate excerptStart " ") tellRed
       tell "  "
       forM_ (replicate excerptLen "^") tellRed
       tell "\n"

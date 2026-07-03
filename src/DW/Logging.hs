@@ -2,15 +2,15 @@
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module DW.Logging (Log, scribe, runLog, standardLogger, standardLoggerWithIgnoredFunctions, noOpLogger, withRegion) where
+module DW.Logging (Log, Logger, scribe, runLog, standardLogger, standardLoggerWithIgnoredFunctions, noOpLogger, withRegion) where
 
+import DW.Util (orElse, safeHead)
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as Text
 import Effectful (Dispatch (..), DispatchOf, Eff, Effect, IOE, (:>))
 import Effectful.Dispatch.Static (SideEffects (..), StaticRep, evalStaticRep, getStaticRep, putStaticRep, unsafeEff_)
 import GHC.Stack (HasCallStack, callStack, getCallStack)
 import Text.Printf
-import DW.Util (orElse, safeHead)
 
 data Log :: Effect
 

@@ -1,8 +1,8 @@
 module DW.TypedAST where
 
+import Control.Monad.Trans.Writer (execWriter, tell)
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (Writer, execWriter, tell)
-import Control.Monad.Trans.Writer (execWriter, tell)
 import qualified Data.Text as T
 
 data TST a = TST a Span
@@ -109,6 +109,9 @@ data Stmt
   | Break
   | Loop (TST Body)
   deriving (Eq)
+
+data AnyAST = AnyStmt Stmt | AnyExpr Expr | AnyLValue LValue | AnyBody Body | AnyTypeExpr TypeExpr | AnyText T.Text
+  deriving (Show)
 
 instance (Show a) => Show (TST a) where
   show (TST value _) = show value

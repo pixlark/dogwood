@@ -4,7 +4,7 @@ module DW.LoopPass (runLoopPass) where
 
 import DW.Common
 import DW.TypedAST
-import DW.Visit
+import DW.TypedAST.Visit
 
 newtype LoopPass = LoopPass {inBreakableContext :: Bool}
 

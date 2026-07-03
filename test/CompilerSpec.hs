@@ -4,19 +4,19 @@ module CompilerSpec (spec) where
 
 import DW.Common
 import qualified DW.Compiler as Compiler
-import Data.Bifunctor (Bifunctor (first))
-import Data.Text (unpack)
 import DW.Error (displayError)
 import DW.IR
 import DW.Logging (noOpLogger, runLog)
 import qualified DW.LoopPass as LoopPass
 import qualified DW.LowerPass as LowerPass
-import NeatInterpolation
 import qualified DW.Parser as Parser
-import Test.Hspec
 import qualified DW.Typechecker as Typechecker
 import DW.TypedAST (ValueTypeExpr (..), makeValueExpr)
 import DW.Util (stripCallStack)
+import Data.Bifunctor (Bifunctor (first))
+import Data.Text (unpack)
+import NeatInterpolation
+import Test.Hspec
 
 testCompile :: Text -> IO (Either String Program)
 testCompile source = do

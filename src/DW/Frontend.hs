@@ -1,21 +1,23 @@
-module DW.Frontend (run) where
+module DW.Frontend (run, lsp) where
 
 import qualified DW.Clang as Clang
 import DW.Common (HasCallStack, liftIO, runEff, runError, runReader, withRegion)
 import qualified DW.Compiler as Compiler
 import DW.Config (ConfigData (..), LogLevel (..))
+import qualified DW.EmitC as EmitC
+import DW.Error (displayError)
+import qualified DW.LSP as LSP
+import DW.Logging (Logger, noOpLogger, runLog, scribe, standardLoggerWithIgnoredFunctions)
+import qualified DW.LoopPass as LoopPass
+import qualified DW.LowerPass as LowerPass
+import qualified DW.Parser as Parser
+import qualified DW.Typechecker as Typechecker
+import Data.Bifunctor (Bifunctor (first, second))
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
 import qualified Data.Text.Lazy as LazyText
 import Effectful.Error.Static (prettyCallStack)
-import qualified DW.EmitC as EmitC
-import DW.Error (displayError)
-import DW.Logging (noOpLogger, runLog, scribe, standardLoggerWithIgnoredFunctions)
-import qualified DW.LoopPass as LoopPass
-import qualified DW.LowerPass as LowerPass
-import qualified DW.Parser as Parser
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
-import qualified DW.Typechecker as Typechecker
 
 run :: (HasCallStack) => ConfigData -> IO ExitCode
 run cfg = do
@@ -77,3 +79,33 @@ run cfg = do
   where
     -- functions that we want to ignore when marking the current function in the logging framework
     ignoredFunctions = ["markSealed", "potentiallyBox"]
+
+lsp :: (HasCallStack) => ConfigData -> IO ExitCode
+lsp cfg = do
+  let logger = noOpLogger
+
+  LSP.run $ runner logger
+  where
+    loadSource logger = runEff $ runLog logger $ runError do
+      liftIO $ Text.IO.readFile (Text.unpack cfg.sourceFile)
+    parseAndValidateAST logger source = runEff $ runLog logger $ runError $ do
+      -- Passes 1 and 2: Lexing and parsing
+      ast <- Parser.runParser source Parser.parseStmt
+
+      -- Pass 3: Lowering
+      let loweredAST = LowerPass.runLowerPass ast
+
+      -- Pass 4: Typechecking
+      typedAST <- Typechecker.runTypechecker loweredAST
+
+      -- Pass 5: Loop validation
+      LoopPass.runLoopPass typedAST
+
+      return (source, ast, typedAST)
+    runner :: Logger -> LSP.Runner
+    runner logger = do
+      source <- loadSource logger
+      case source of
+        Left (_, e) -> return $ Left (Text.empty, e)
+        Right source -> do
+          first (first (const source)) <$> parseAndValidateAST logger source

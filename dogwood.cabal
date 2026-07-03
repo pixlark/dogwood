@@ -121,14 +121,20 @@ library dogwood-core
             DW.EmitC.Internal.EmitEffect,
         DW.Clang,
         -- Representations
-        DW.AST, DW.LoweredAST, DW.TypedAST, DW.IR,
-        DW.Visit,
+        DW.AST,
+            DW.AST.Visit,
+        DW.LoweredAST,
+        DW.TypedAST,
+            DW.TypedAST.Visit,
+        DW.IR,
         -- Utility
         DW.Common, DW.Util, DW.LexicalScopes,
         -- Logging
         DW.Logging,
         -- Error handling
-        DW.Error
+        DW.Error,
+        -- Language server
+        DW.LSP,
 
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.18.3.0,
@@ -142,7 +148,11 @@ library dogwood-core
                       text-format,
                       neat-interpolation,
                       process,
-                      directory
+                      directory,
+                      lsp,
+                      aeson,
+                      containers,
+                      sorted-list,
 
     -- Directories containing source files.
     hs-source-dirs:   src
