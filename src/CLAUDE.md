@@ -1,4 +1,4 @@
-### `prototype-core`
+### `dogwood-core`
 
 This package holds all of the core functionality of the compiler.
 

@@ -1,4 +1,4 @@
-### `prototype-tests`
+### `dogwood-tests`
 
 This package uses the `Hspec` library to test each phase of the compiler.
 

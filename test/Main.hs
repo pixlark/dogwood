@@ -3,6 +3,7 @@
 module Main where
 
 import qualified CompilerSpec
+import qualified EmitCSpec
 import qualified IntegrationSpec
 import qualified LexerSpec
 import qualified LoopPassSpec
@@ -19,4 +20,5 @@ main = hspec $ do
   TypecheckerSpec.spec
   LoopPassSpec.spec
   CompilerSpec.spec
+  EmitCSpec.spec
   IntegrationSpec.spec

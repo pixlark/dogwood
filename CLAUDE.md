@@ -14,7 +14,7 @@ Some guidelines on behaviour:
 
 ### Project overview
 
-This project is a compiler for a new programming language. The compiler is written in Haskell. It is split into three packages: the main executable `prototype`, which has its source code in the `app` directory, the core library `prototype-core`, which has its source code in the `src` directory, and the test suite `prototype-tests`, which has its source code in the `test` directory.
+This project is a compiler for a new programming language, codenamed *dogwood*. The compiler is written in Haskell. It is split into three packages: the main executable `dogwood`, which has its source code in the `app` directory, the core library `dogwood-core`, which has its source code in the `src` directory, and the test suite `dogwood-tests`, which has its source code in the `test` directory.
 
 There is a separate CLAUDE.md for each of these packages located in their respective directories.
 

@@ -1,21 +1,25 @@
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TypeApplications #-}
 
 module EmitC where
 
 import Common
 import Data.List (intersperse)
 import qualified Data.Text as Text
+import qualified Data.Text.Lazy as LazyText
+import Data.Text.Lazy.Builder (Builder, fromText, toLazyText)
+import EmitC.Internal.EmitEffect
 import IR
 import NeatInterpolation
 import TypedAST
 import Util (getSingleElement, orElse)
 
-emitValueType :: forall es. (Writer Text :> es) => Eff es () -> ValueTypeExpr -> Eff es ()
-emitValueType name Any = do tell "Box"; name
-emitValueType name Undefined = do tell "uint8_t"; name -- for now
-emitValueType name Void = do tell "uint8_t"; name -- for now
-emitValueType name Bool = do tell "bool"; name
-emitValueType name Int = do tell "int64_t"; name
+emitValueType :: forall es. (Emit :> es) => Eff es () -> ValueTypeExpr -> Eff es ()
+emitValueType name Any = do emit "Box"; name
+emitValueType name Undefined = do emit "uint8_t"; name -- for now
+emitValueType name Void = do emit "uint8_t"; name -- for now
+emitValueType name Bool = do emit "bool"; name
+emitValueType name Int = do emit "int64_t"; name
 emitValueType _ (NamespacedIdentifier _) = undefined
 -- this is tremendously nasty, and that's just because C is evil and decided on the worst
 -- possible syntax for function pointers. blame Dennis (RIP)
@@ -29,22 +33,22 @@ emitValueType name fn@(Function _ _) = do
     emitArguments args = do
       forM_ (intersperse Nothing (Just <$> args)) $ \case
         Just (TST arg _) -> emitType (return ()) arg
-        Nothing -> tell ", "
+        Nothing -> emit ", "
     functionPointerType :: ValueTypeExpr -> Eff es (Eff es (), Eff es ())
     functionPointerType (Function args (TST (TypeExpr {valueExpr = innerFn@(Function _ _)}) _)) = do
       -- our return type is another function pointer
       (innerLeft, innerRight) <- functionPointerType innerFn
-      let left = do innerLeft; tell "(*"
-          right = do tell ")("; emitArguments args; tell ")"; innerRight
+      let left = do innerLeft; emit "(*"
+          right = do emit ")("; emitArguments args; emit ")"; innerRight
       return (left, right)
     functionPointerType (Function args (TST ret _)) = do
       -- our return type is a normal type
-      let left = do emitType (return ()) ret; tell "(*"
-          right = do tell ")("; emitArguments args; tell ")"
+      let left = do emitType (return ()) ret; emit "(*"
+          right = do emit ")("; emitArguments args; emit ")"
       return (left, right)
     functionPointerType _ = error "unreachable"
 
-emitType :: (Writer Text :> es) => Eff es () -> TypeExpr -> Eff es ()
+emitType :: (Emit :> es) => Eff es () -> TypeExpr -> Eff es ()
 emitType name (TypeExpr {reference, valueExpr}) = do
   -- confusingly in C, the pointer syntax is attached to the *name*, not the type.
   -- this is why when you declare multiple pointer variables with a comma, you have
@@ -57,22 +61,22 @@ emitType name (TypeExpr {reference, valueExpr}) = do
   -- > void(**foo)(int);
   let name' =
         if reference
-          then do tell "*"; name
+          then do emit "*"; name
           else name
   emitValueType name' valueExpr
 
-emitZeroValue :: (Writer Text :> es) => TypeExpr -> Eff es ()
-emitZeroValue (TypeExpr {reference = True}) = tell "NULL"
+emitZeroValue :: (Emit :> es) => TypeExpr -> Eff es ()
+emitZeroValue (TypeExpr {reference = True}) = emit "NULL"
 emitZeroValue (TypeExpr {valueExpr}) = emitZeroValue' valueExpr
   where
-    emitZeroValue' :: (Writer Text :> es) => ValueTypeExpr -> Eff es ()
-    emitZeroValue' Any = tell "{0}"
-    emitZeroValue' Undefined = tell "0"
-    emitZeroValue' Void = tell "0"
-    emitZeroValue' Bool = tell "false"
-    emitZeroValue' Int = tell "0"
+    emitZeroValue' :: (Emit :> es) => ValueTypeExpr -> Eff es ()
+    emitZeroValue' Any = emit "{0}"
+    emitZeroValue' Undefined = emit "0"
+    emitZeroValue' Void = emit "0"
+    emitZeroValue' Bool = emit "false"
+    emitZeroValue' Int = emit "0"
     emitZeroValue' (NamespacedIdentifier _) = undefined
-    emitZeroValue' (Function _ _) = tell "NULL"
+    emitZeroValue' (Function _ _) = emit "NULL"
 
 emitOperator :: Operator -> Text
 emitOperator Or = "||"
@@ -90,46 +94,81 @@ emitOperator Divide = "/"
 emitOperator Not = "!"
 emitOperator Modulo = "%"
 
-emitRHS :: (Writer Text :> es) => RHS -> Eff es ()
-emitRHS RUndefined = undefined
-emitRHS RVoid = tell "0"
-emitRHS (RInt n) = tell $ Text.show n
-emitRHS (RBool b) = tell if b then "true" else "false"
-emitRHS (RBinOp op l r) = do
-  tell $ Text.show l
-  tell " "
-  tell $ emitOperator op
-  tell " "
-  tell $ Text.show r
-emitRHS (RUnaryOp op name) = do
-  tell $ emitOperator op
-  tell $ Text.show name
-emitRHS (RCall fn args) = do
-  tell $ Text.show fn
-  tell "("
-  forM_ (intersperse Nothing $ Just <$> args) $ \case
-    Just arg -> tell $ Text.show arg
-    Nothing -> tell ", "
-  tell ")"
-emitRHS (RBuiltin name) = do
-  tell name
-emitRHS (RBox ty name) = do
-  tell "box_value(&"
-  tell $ Text.show name
-  tell ", "
-  case ty.valueExpr of
-    Any -> undefined
-    Undefined -> tell "make_type_void()"
-    Void -> tell "make_type_void()"
-    Bool -> tell "make_type_bool()"
-    Int -> tell "make_type_int()"
-    (NamespacedIdentifier _) -> undefined
-    (Function _ _) -> tell "make_type_fn(make_type_void(), 0, NULL)"
-  tell ")"
+emitRuntimeTypeInfo :: (Emit :> es) => ValueTypeExpr -> Eff es ()
+emitRuntimeTypeInfo Any = emit "make_type_any()"
+emitRuntimeTypeInfo Undefined = emit "make_type_undefined()"
+emitRuntimeTypeInfo Void = emit "make_type_void()"
+emitRuntimeTypeInfo Bool = emit "make_type_bool()"
+emitRuntimeTypeInfo Int = emit "make_type_int()"
+emitRuntimeTypeInfo (NamespacedIdentifier _) = undefined
+emitRuntimeTypeInfo (Function args ty@(TST TypeExpr {valueExpr = ret} _)) = do
+  preamble do
+    emit "  Type _function_type;\n"
+    emit "  {\n"
+    emit "    Type _return_type = "
+    emitRuntimeTypeInfo ret
+    emit ";\n"
 
-emitC :: (Writer Text :> es) => Program -> Eff es ()
+    forM_ (args `zip` [0 :: Int ..]) $ uncurry \(TST TypeExpr {valueExpr = arg} _) i -> do
+      emit "    Type _arg"
+      emit $ Text.show i
+      emit " = "
+      emitRuntimeTypeInfo arg
+      emit ";\n"
+
+    emit "    Type _args["
+    emit $ Text.show $ length args
+    emit "] = {"
+    forM_ (intersperse Nothing $ Just <$> [0 .. length args - 1]) $ \case
+      Just i -> do
+        emit "_arg"
+        emit $ Text.show i
+      Nothing -> emit ", "
+    emit "};\n"
+
+    emit "    _function_type = make_type_fn(_return_type, "
+    emit $ Text.show $ length args
+    emit ", _args);\n"
+
+    emit "  }\n"
+  emit "_function_type"
+
+emitRHS :: (Emit :> es) => RHS -> Eff es ()
+emitRHS RUndefined = do
+  abort
+  emit "  fprintf(stderr, \"ERROR: evaluated 'undefined'\\n\");\n"
+  emit "  exit(1)"
+emitRHS RVoid = emit "0"
+emitRHS (RInt n) = emit $ Text.show n
+emitRHS (RBool b) = emit if b then "true" else "false"
+emitRHS (RBinOp op l r) = do
+  emit $ Text.show l
+  emit " "
+  emit $ emitOperator op
+  emit " "
+  emit $ Text.show r
+emitRHS (RUnaryOp op name) = do
+  emit $ emitOperator op
+  emit $ Text.show name
+emitRHS (RCall fn args) = do
+  emit $ Text.show fn
+  emit "("
+  forM_ (intersperse Nothing $ Just <$> args) $ \case
+    Just arg -> emit $ Text.show arg
+    Nothing -> emit ", "
+  emit ")"
+emitRHS (RBuiltin name) = do
+  emit name
+emitRHS (RBox TypeExpr {valueExpr = ty} name) = do
+  emit "box_value(&"
+  emit $ Text.show name
+  emit ", "
+  emitRuntimeTypeInfo ty
+  emit ")"
+
+emitC :: (Emit :> es) => Program -> Eff es ()
 emitC (Program blocks) = do
-  tell
+  emit
     [text|
       #include <stdlib.h>
       #include <stddef.h>
@@ -140,37 +179,40 @@ emitC (Program blocks) = do
 
       int main() {
     |]
-  tell "\n"
+  emit "\n"
 
   -- declare all local variables at the top
   forM_ blocks $ \(_, Block {phis, instructions}) -> do
     forM_ instructions $ \(SSA {ty, name}) -> do
-      tell "  "
-      emitType (do tell " "; tell $ Text.show name) ty
-      tell " = "
+      emit "  "
+      emitType (do emit " "; emit $ Text.show name) ty
+      emit " = "
       emitZeroValue ty
-      tell ";\n"
+      emit ";\n"
     forM_ phis $ \(Phi {ty, name}) -> do
-      tell "  "
-      emitType (do tell " "; tell $ Text.show name) ty
-      tell " = "
+      emit "  "
+      emitType (do emit " "; emit $ Text.show name) ty
+      emit " = "
       emitZeroValue ty
-      tell ";\t/* phi */\n"
-  tell "\n"
+      emit ";\t/* phi */\n"
+  emit "\n"
 
   -- then generate the blocks
   forM_ blocks $ \(blockId, Block {instructions, control}) -> do
     -- the block begins with a label
-    tell $ Text.show blockId
-    tell ":\n"
+    emit $ Text.show blockId
+    emit ":\n"
 
     -- then we generate the instructions
     forM_ instructions $ \(SSA {name, rhs}) -> do
-      tell "  "
-      tell $ Text.show name
-      tell " = "
+      -- the RHS might need to generate some preamble
+      -- so we flush the stream to mark that the preamble will get placed here, right before the instruction
+      flush
+      emit "  "
+      emit $ Text.show name
+      emit " = "
       emitRHS rhs
-      tell ";\n"
+      emit ";\n"
 
     -- then we fill out any phis that we are reponsible for
     let nextBlocks = case control of
@@ -182,38 +224,38 @@ emitC (Program blocks) = do
       forM_ nextBlock.phis $ \Phi {name = toRemote, operands} -> do
         let operands' = filter (\(b, _) -> b == blockId) operands
         forM_ operands' $ \(_, fromLocal) -> do
-          tell "  "
-          tell $ Text.show toRemote
-          tell " = "
-          tell $ Text.show fromLocal
-          tell ";\t/* phi */\n"
+          emit "  "
+          emit $ Text.show toRemote
+          emit " = "
+          emit $ Text.show fromLocal
+          emit ";\t/* phi */\n"
 
     -- lastly, we generate the control instruction
-    tell "  "
+    emit "  "
     case control of
-      Halt -> tell "goto __ret;\n"
+      Halt -> emit "goto __ret;\n"
       Jump toBlock -> do
-        tell "goto "
-        tell $ Text.show toBlock
-        tell ";\n"
+        emit "goto "
+        emit $ Text.show toBlock
+        emit ";\n"
       JumpIf name target1 target2 -> do
-        tell "if ("
-        tell $ Text.show name
-        tell ") { goto "
-        tell $ Text.show target1
-        tell "; } else { goto "
-        tell $ Text.show target2
-        tell "; }\n"
-    tell "\n"
+        emit "if ("
+        emit $ Text.show name
+        emit ") { goto "
+        emit $ Text.show target1
+        emit "; } else { goto "
+        emit $ Text.show target2
+        emit "; }\n"
+    emit "\n"
 
   -- generate the return block
-  tell "__ret:\n  return 0;\n"
+  emit "__ret:\n  return 0;\n"
 
-  tell
+  emit
     [text|
       }
     |]
-  tell "\n"
+  emit "\n"
 
 runEmitC :: (HasCallStack) => Program -> Eff es Text
-runEmitC = execWriter . emitC
+runEmitC = runEmit . emitC

@@ -11,7 +11,7 @@ cabal-version:      3.0
 --   http://haskell.org/cabal/users-guide/
 --
 -- The name of the package.
-name:               c-interop-prototype2
+name:               dogwood
 
 -- The package version.
 -- See the Haskell package versioning policy (PVP) for standards
@@ -73,7 +73,7 @@ common extensions
         InstanceSigs
         ScopedTypeVariables
 
-executable prototype
+executable dogwood
     -- Import common warning flags.
     import:           warnings, extensions
 
@@ -85,7 +85,7 @@ executable prototype
                       text ^>=2.1,
                       mtl,
                       transformers,
-                      prototype-core,
+                      dogwood-core,
                       neat-interpolation,
                       effectful-core,
                       optparse-applicative
@@ -96,7 +96,7 @@ executable prototype
     -- Base language which the package is written in.
     default-language: Haskell2010
 
-library prototype-core
+library dogwood-core
     -- Import common warning flags.
     import:           warnings, extensions
 
@@ -104,10 +104,13 @@ library prototype-core
         -- Frontend
         Frontend, Config,
         -- Compiler passes
-        Lexer, Lexer.Internal,
-        Parser, Parser.Internal,
+        Lexer,
+            Lexer.Internal,
+        Parser,
+            Parser.Internal,
         LowerPass,
-        Typechecker, Typechecker.Internal,
+        Typechecker,
+            Typechecker.Internal,
         LoopPass,
         Compiler,
             Compiler.Internal,
@@ -115,6 +118,7 @@ library prototype-core
             Compiler.Internal.Compiler,
             Compiler.Internal.Program,
         EmitC,
+            EmitC.Internal.EmitEffect,
         Clang,
         -- Representations
         AST, LoweredAST, TypedAST, IR,
@@ -148,7 +152,7 @@ library prototype-core
 
     ghc-options:      -fplugin=Effectful.Plugin
 
-test-suite prototype-tests
+test-suite dogwood-tests
     import:           warnings, extensions
     -- type:             detailed-0.9
     type:             exitcode-stdio-1.0
@@ -162,7 +166,9 @@ test-suite prototype-tests
         TypecheckerSpec,
         LoopPassSpec,
         CompilerSpec,
-        IntegrationSpec
+        EmitCSpec,
+        IntegrationSpec,
+        TestUtil,
     build-depends:    base ^>=4.18.3.0,
                       text ^>=2.1,
                       mtl,
@@ -171,7 +177,7 @@ test-suite prototype-tests
                       neat-interpolation,
                       effectful-core,
                       effectful-plugin,
-                      prototype-core,
+                      dogwood-core,
                       directory,
                       filepath,
                       process

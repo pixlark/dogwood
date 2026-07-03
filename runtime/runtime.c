@@ -278,6 +278,24 @@ size_t debug_get_allocation_count()
     return ptr_ptr_map_size(&allocation_map);
 }
 
+Type make_type_any()
+{
+    Type type;
+    type.tag = TYPE_ANY;
+    type.inner_count = 0;
+    type.inner = NULL;
+    return type;
+}
+
+Type make_type_undefined()
+{
+    Type type;
+    type.tag = TYPE_UNDEFINED;
+    type.inner_count = 0;
+    type.inner = NULL;
+    return type;
+}
+
 Type make_type_void()
 {
     Type type;
@@ -322,6 +340,12 @@ Box box_value(void *value, Type type)
     Box box;
     box.type = type;
     switch (type.tag) {
+    case TYPE_ANY:
+        fprintf(stderr, "Internal runtime error: Tried to box a value of type 'any'\n");
+        abort();
+    case TYPE_UNDEFINED:
+        fprintf(stderr, "Internal runtime error: Tried to box a value of type 'undefined'\n");
+        abort();
     case TYPE_VOID:
         box.value = malloc(sizeof(uint8_t));
         *((uint8_t *)box.value) = *((uint8_t *)value);
@@ -343,9 +367,47 @@ Box box_value(void *value, Type type)
     return box;
 }
 
+void print_type(Type type)
+{
+    switch (type.tag) {
+    case TYPE_ANY:
+        printf("any");
+        break;
+    case TYPE_UNDEFINED:
+        printf("undefined");
+        break;
+    case TYPE_VOID:
+        printf("void");
+        break;
+    case TYPE_BOOL:
+        printf("bool");
+        break;
+    case TYPE_INT:
+        printf("int");
+        break;
+    case TYPE_FN:
+        printf("fn(");
+        for (int i = 0; i < type.inner_count - 1; i++) {
+            Type arg = type.inner[i];
+            print_type(arg);
+            if (i < type.inner_count - 2) {
+                printf(", ");
+            }
+        }
+        printf(") -> ");
+        print_type(type.inner[type.inner_count - 1]);
+    }
+}
+
 uint8_t builtin_print(Box box)
 {
     switch (box.type.tag) {
+    case TYPE_ANY:
+        fprintf(stderr, "Internal runtime error: Tried to unbox a value of type 'any'\n");
+        abort();
+    case TYPE_UNDEFINED:
+        fprintf(stderr, "Internal runtime error: Tried to unbox a value of type 'undefined'\n");
+        abort();
     case TYPE_VOID:
         printf("void\n");
         break;
@@ -356,7 +418,8 @@ uint8_t builtin_print(Box box)
         printf("%ld\n", *((int64_t *)box.value));
         break;
     case TYPE_FN:
-        printf("fn@%p\n", *((void **)box.value));
+        print_type(box.type);
+        printf(" @ %p\n", *((void **)box.value));
         break;
     }
     return 0;

@@ -1,0 +1,5 @@
+{
+    let print: fn(any) -> void = builtin print;
+
+    print(undefined);
+}
