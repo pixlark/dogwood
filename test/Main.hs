@@ -4,6 +4,7 @@ module Main where
 
 import qualified CompilerSpec
 import qualified EmitCSpec
+import qualified ErrorsSpec
 import qualified IntegrationSpec
 import qualified LexerSpec
 import qualified LoopPassSpec
@@ -14,6 +15,7 @@ import qualified TypecheckerSpec
 
 main :: IO ()
 main = hspec $ do
+  ErrorsSpec.spec
   LexerSpec.spec
   ParserSpec.spec
   LowerPassSpec.spec

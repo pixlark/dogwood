@@ -133,6 +133,8 @@ library dogwood-core
         DW.Logging,
         -- Error handling
         DW.Error,
+            DW.Error.Internal,
+            DW.Error.Internal.ErrorsEffect,
         -- Language server
         DW.LSP,
 
@@ -170,6 +172,7 @@ test-suite dogwood-tests
     -- test-module:      Spec
     main-is:          Main.hs
     other-modules:
+        ErrorsSpec,
         LexerSpec,
         ParserSpec,
         LowerPassSpec,
