@@ -3,7 +3,7 @@
 module DW.Frontend (run, lsp) where
 
 import qualified DW.Clang as Clang
-import DW.Common (HasCallStack, forM_, liftIO, runEff, runError, runErrorNoCallStack, runReader, when, withRegion)
+import DW.Common (HasCallStack, forM_, liftIO, runEff, runError, runErrorNoCallStack, runReader, traceShowId, when, withRegion)
 import qualified DW.Compiler as Compiler
 import DW.Config (ConfigData (..), LogLevel (..))
 import qualified DW.EmitC as EmitC

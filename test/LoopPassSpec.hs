@@ -15,13 +15,13 @@ import Prelude hiding (show)
 
 testLoopPass source = fmap stripCallStacks $ runEff $ runErrors $ runLog noOpLogger do
   -- Passes 1 and 2: Lexing and parsing
-  ast <- runErrorAsErrors $ Parser.runParser source Parser.parseStmt
+  ast <- Parser.runParser source Parser.parseStmt
   -- Pass 3: Lowering
   let loweredAST = LowerPass.runLowerPass ast
   -- Pass 4: Typechecking
-  typedAST <- runErrorAsErrors $ Typechecker.runTypechecker loweredAST
+  typedAST <- Typechecker.runTypechecker loweredAST
   -- Pass 5: Loop validation
-  runErrorAsErrors $ LoopPass.runLoopPass typedAST
+  LoopPass.runLoopPass typedAST
 
 spec = do
   describe "the LoopPass module" do
