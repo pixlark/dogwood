@@ -7,6 +7,7 @@ import Data.IORef
 import Effectful
 import Effectful.Dispatch.Static (unsafeEff_)
 import Effectful.Labeled (labeled, runLabeled)
+import GHC.Stack
 import Test.Hspec
 
 {- HLINT ignore "Use let" -}
@@ -15,7 +16,7 @@ spec =
     it "can abort computations" do
       let
         e :: Either [String] Int
-        e = runPureEff $ runErrors do
+        e = runPureEff $ runErrorsNoCallStack do
           _ <- return (1 :: Int)
           _ <- return (2 :: Int)
           throwErr "yo what's up"
@@ -24,7 +25,7 @@ spec =
     it "can log errors and keep going" do
       let
         e :: Either [String] Int
-        e = runPureEff $ runErrors do
+        e = runPureEff $ runErrorsNoCallStack do
           _ <- return (1 :: Int)
           markErr "woah that's bad"
           _ <- return (2 :: Int)
@@ -34,14 +35,14 @@ spec =
     it "fails if any errors are logged" do
       let
         e :: Either [String] Int
-        e = runPureEff $ runErrors do
+        e = runPureEff $ runErrorsNoCallStack do
           x <- return 1
           y <- return 2
           return $ x + y
       e `shouldBe` Right 3
       let
         e :: Either [String] Int
-        e = runPureEff $ runErrors do
+        e = runPureEff $ runErrorsNoCallStack do
           x <- return 1
           markErr "here's an error"
           y <- return 2
@@ -51,7 +52,7 @@ spec =
     it "preserves error order" do
       let
         e :: Either [String] ()
-        e = runPureEff $ runErrors do
+        e = runPureEff $ runErrorsNoCallStack do
           markErr "first"
           markErr "second"
           markErr "third"
@@ -60,7 +61,7 @@ spec =
     it "handles many accumulated errors" do
       let
         e :: Either [Int] ()
-        e = runPureEff $ runErrors do
+        e = runPureEff $ runErrorsNoCallStack do
           mapM_ markErr [1 .. 100]
       e `shouldBe` Left [1 .. 100]
 
@@ -68,7 +69,7 @@ spec =
       ref <- newIORef False
       let
         e :: Either [String] ()
-        e = runPureEff $ runErrors do
+        e = runPureEff $ runErrorsNoCallStack do
           _ <- throwErr "abort"
           unsafeEff_ $ writeIORef ref True
       e `shouldBe` Left ["abort"]
@@ -78,7 +79,7 @@ spec =
       ref <- newIORef False
       let
         e :: Either [String] ()
-        e = runPureEff $ runErrors do
+        e = runPureEff $ runErrorsNoCallStack do
           markErr "continue"
           unsafeEff_ $ writeIORef ref True
       e `shouldBe` Left ["continue"]
@@ -87,7 +88,7 @@ spec =
     it "collects errors before throwErr" do
       let
         e :: Either [String] Int
-        e = runPureEff $ runErrors do
+        e = runPureEff $ runErrorsNoCallStack do
           markErr "first"
           markErr "second"
           _ <- throwErr "abort"
@@ -98,9 +99,9 @@ spec =
     it "handles nested runErrors independently" do
       let
         e :: Either [String] (Either [String] Int)
-        e = runPureEff $ runLabeled @"outer" runErrors do
+        e = runPureEff $ runLabeled @"outer" runErrorsNoCallStack do
           labeled @"outer" $ markErr "outer"
-          inner <- runLabeled @"inner" runErrors do
+          inner <- runLabeled @"inner" runErrorsNoCallStack do
             labeled @"inner" $ markErr "inner"
             return (42 :: Int)
           return inner
@@ -109,11 +110,11 @@ spec =
     it "nested runErrors don't interfere with each other" do
       let
         e :: Either [String] (Either [Int] Int, Either [Int] Int)
-        e = runPureEff $ runErrors do
-          r1 <- runErrors @Int do
+        e = runPureEff $ runErrorsNoCallStack do
+          r1 <- runErrorsNoCallStack @Int do
             markErr 1
             return 10
-          r2 <- runErrors @Int do
+          r2 <- runErrorsNoCallStack @Int do
             return 20
           return (r1, r2)
       e `shouldBe` Right (Left [1], Right 20)
@@ -121,8 +122,8 @@ spec =
     it "inner throwErr doesn't affect outer" do
       let
         e :: Either [String] (Either [String] Int)
-        e = runPureEff $ runLabeled @"outer" runErrors do
-          inner <- runLabeled @"inner" runErrors do
+        e = runPureEff $ runLabeled @"outer" runErrorsNoCallStack do
+          inner <- runLabeled @"inner" runErrorsNoCallStack do
             labeled @"inner" $ throwErr "inner abort"
           return inner
       e `shouldBe` Right (Left ["inner abort"])
@@ -130,22 +131,22 @@ spec =
     it "outer throwErr aborts before inner runs" do
       let
         e :: Either [String] (Either [String] Int)
-        e = runPureEff $ runErrors do
+        e = runPureEff $ runErrorsNoCallStack do
           _ <- throwErr "outer abort"
-          runErrors do
+          runErrorsNoCallStack do
             return 42
       e `shouldBe` Left ["outer abort"]
 
     it "handles empty computation" do
       let
         e :: Either [String] ()
-        e = runPureEff $ runErrors $ return ()
+        e = runPureEff $ runErrorsNoCallStack $ return ()
       e `shouldBe` Right ()
 
     it "computation result is discarded when errors exist" do
       let
         e :: Either [String] Int
-        e = runPureEff $ runErrors do
+        e = runPureEff $ runErrorsNoCallStack do
           markErr "error"
           return 42
       e `shouldBe` Left ["error"]
@@ -154,7 +155,7 @@ spec =
       ref <- newIORef (0 :: Int)
       let
         e :: Either [String] ()
-        e = runPureEff $ runErrors do
+        e = runPureEff $ runErrorsNoCallStack do
           unsafeEff_ $ modifyIORef ref (+ 1)
           _ <- throwErr "first"
           unsafeEff_ $ modifyIORef ref (+ 1)

@@ -1,18 +1,21 @@
+{-# LANGUAGE TupleSections #-}
+
 module DW.Frontend (run, lsp) where
 
 import qualified DW.Clang as Clang
-import DW.Common (HasCallStack, liftIO, runEff, runError, runReader, withRegion)
+import DW.Common (HasCallStack, forM_, liftIO, runEff, runError, runErrorNoCallStack, runReader, withRegion)
 import qualified DW.Compiler as Compiler
 import DW.Config (ConfigData (..), LogLevel (..))
 import qualified DW.EmitC as EmitC
 import DW.Error (displayError)
+import DW.Error.Internal.ErrorsEffect (runErrorAsErrors, runErrors, runErrorsNoCallStack)
 import qualified DW.LSP as LSP
 import DW.Logging (Logger, noOpLogger, runLog, scribe, standardLoggerWithIgnoredFunctions)
 import qualified DW.LoopPass as LoopPass
 import qualified DW.LowerPass as LowerPass
 import qualified DW.Parser as Parser
 import qualified DW.Typechecker as Typechecker
-import Data.Bifunctor (Bifunctor (first, second))
+import Data.Bifunctor (Bifunctor (..))
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
 import qualified Data.Text.Lazy as LazyText
@@ -35,10 +38,10 @@ run cfg = do
         Default -> do liftIO $ putStrLn msg; f
         Loud -> withRegion (LazyText.pack msg) f
 
-  executableName <- runEff $ runLog logger $ runError $ runReader cfg $ do
+  executableName <- runEff $ runLog logger $ runErrors $ runReader cfg $ do
     -- Passes 1 and 2: Lexing and parsing
     ast <- region "Lexing and parsing..." do
-      Parser.runParser source Parser.parseStmt
+      runErrorAsErrors $ Parser.runParser source Parser.parseStmt
 
     -- Pass 3: Lowering
     loweredAST <- region "Lowering AST..." do
@@ -46,15 +49,15 @@ run cfg = do
 
     -- Pass 4: Typechecking
     typedAST <- region "Typechecking AST..." do
-      Typechecker.runTypechecker loweredAST
+      runErrorAsErrors $ Typechecker.runTypechecker loweredAST
 
     -- Pass 5: Loop validation
     region "Validating loops..." do
-      LoopPass.runLoopPass typedAST
+      runErrorAsErrors $ LoopPass.runLoopPass typedAST
 
     -- Pass 6: Compile to IR
     program <- region "Compiling to IR..." do
-      Compiler.runCompiler typedAST
+      runErrorAsErrors $ Compiler.runCompiler typedAST
 
     -- Pass 7: Generate C
     generatedC <- region "Generating C..." do
@@ -62,14 +65,15 @@ run cfg = do
 
     -- Pass 8: Compile C with clang
     executableName <- region "Compiling with clang..." do
-      Clang.compileExecutable generatedC
+      runErrorAsErrors $ Clang.compileExecutable generatedC
 
     return executableName
 
   exitCode <- case executableName of
-    Left (callstack, e) -> do
-      write $ prettyCallStack callstack
-      write $ Text.unpack $ displayError source e
+    Left errs -> do
+      forM_ errs $ \(callstack, e) -> do
+        write $ prettyCallStack callstack
+        write $ Text.unpack $ displayError source e
       return (ExitFailure 1)
     Right executableName -> do
       write $ "Compiled successfully into " ++ executableName
@@ -86,20 +90,20 @@ lsp cfg = do
 
   LSP.run $ runner logger
   where
-    loadSource logger = runEff $ runLog logger $ runError do
+    loadSource logger = runEff $ runLog logger $ runErrorNoCallStack do
       liftIO $ Text.IO.readFile (Text.unpack cfg.sourceFile)
-    parseAndValidateAST logger source = runEff $ runLog logger $ runError $ do
+    parseAndValidateAST logger source = runEff $ runLog logger $ runErrorsNoCallStack $ do
       -- Passes 1 and 2: Lexing and parsing
-      ast <- Parser.runParser source Parser.parseStmt
+      ast <- runErrorAsErrors $ Parser.runParser source Parser.parseStmt
 
       -- Pass 3: Lowering
       let loweredAST = LowerPass.runLowerPass ast
 
       -- Pass 4: Typechecking
-      typedAST <- Typechecker.runTypechecker loweredAST
+      typedAST <- runErrorAsErrors $ Typechecker.runTypechecker loweredAST
 
       -- Pass 5: Loop validation
-      LoopPass.runLoopPass typedAST
+      runErrorAsErrors $ LoopPass.runLoopPass typedAST
 
       return (source, ast, typedAST)
     runner :: Logger -> LSP.Runner
@@ -108,4 +112,5 @@ lsp cfg = do
       case source of
         Left (_, e) -> return $ Left (Text.empty, e)
         Right source -> do
-          first (first (const source)) <$> parseAndValidateAST logger source
+          result <- parseAndValidateAST logger source
+          return $ (source,) `first` result

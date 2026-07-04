@@ -10,9 +10,11 @@ module DW.Error.Internal.ErrorsEffect where
 
 -- import Effectful.Dispatch.Dynamic
 
+import Data.Bifunctor (Bifunctor (..))
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
 import Effectful
 import Effectful.Dispatch.Static
+import qualified Effectful.Error.Static as E
 import Effectful.Exception
 import Effectful.Internal.Utils
 import GHC.Stack
@@ -21,13 +23,13 @@ data Errors e :: Effect
 type instance DispatchOf (Errors e) = Static NoSideEffects
 
 data ErrorsState e = ErrorsState
-  { errorsRef :: IORef [e],
+  { errorsRef :: IORef [(CallStack, e)],
     errorId :: ErrorId
   }
 
 newtype instance StaticRep (Errors e) = Errors (ErrorsState e)
 
-runErrors :: Eff (Errors e : es) a -> Eff es (Either [e] a)
+runErrors :: Eff (Errors e : es) a -> Eff es (Either [(CallStack, e)] a)
 runErrors action = do
   ref <- unsafeEff_ $ newIORef []
   eid <- unsafeEff_ newErrorId
@@ -41,16 +43,34 @@ runErrors action = do
       Left _ -> error "unreachable"
     es -> Left (reverse es)
 
-throwErr :: (HasCallStack, Show e, Errors e :> es) => e -> Eff es a
+runErrorsNoCallStack :: Eff (Errors e : es) a -> Eff es (Either [e] a)
+runErrorsNoCallStack action = do
+  result <- runErrors action
+  return $ map snd `first` result
+
+throwErr :: (Show e, HasCallStack, Errors e :> es) => e -> Eff es a
 throwErr e = do
   Errors (ErrorsState ref eid) <- getStaticRep
-  _ <- unsafeEff_ $ modifyIORef ref (e :)
-  withFrozenCallStack throwIO $ ErrorWrapper eid emptyCallStack (show e) (toAny e)
+  _ <- unsafeEff_ $ modifyIORef ref ((callStack, e) :)
+  withFrozenCallStack throwIO $ ErrorWrapper eid callStack (show e) (toAny e)
+
+throwErrWithCallStack :: (Show e, HasCallStack, Errors e :> es) => CallStack -> e -> Eff es a
+throwErrWithCallStack cs e = do
+  Errors (ErrorsState ref eid) <- getStaticRep
+  _ <- unsafeEff_ $ modifyIORef ref ((cs, e) :)
+  withFrozenCallStack throwIO $ ErrorWrapper eid callStack (show e) (toAny e)
 
 markErr :: (HasCallStack, Errors e :> es) => e -> Eff es ()
 markErr e = do
   Errors (ErrorsState ref _) <- getStaticRep
-  unsafeEff_ $ modifyIORef ref (e :)
+  unsafeEff_ $ modifyIORef ref ((callStack, e) :)
+
+runErrorAsErrors :: (Show e, Errors e :> es) => Eff (E.Error e : es) a -> Eff es a
+runErrorAsErrors action = do
+  result <- E.runError action
+  case result of
+    Left (cs, e) -> throwErrWithCallStack cs e
+    Right x -> return x
 
 --
 -- The following is taken directly from effectful's implementation of Effectul.Error.Static

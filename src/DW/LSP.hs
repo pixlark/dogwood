@@ -28,7 +28,7 @@ import Language.LSP.Protocol.Types
 import Language.LSP.Server
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 
-type Runner = IO (Either (Text, Err) (Text, AST A.Stmt, TST T.Stmt))
+type Runner = IO (Either (Text, [Err]) (Text, AST A.Stmt, TST T.Stmt))
 
 newtype UserConfig = UserConfig {serverPath :: Maybe Text}
   deriving (Generic, J.ToJSON, J.FromJSON, Show)
@@ -136,28 +136,28 @@ sendDiagnostics file = do
   (runner, _) <- traceShow file getConfig
   maybeRunResult <- liftIO runner
   case maybeRunResult of
-    Left (source, err@(Err kind (Span spanStart spanLen))) -> do
-      let range =
-            -- Range at which the message applies
-            traceShow (spanStart, spanLen) Range
-              <$> absolutePositionToLspPosition source spanStart
-              <*> absolutePositionToLspPosition source (spanStart + spanLen)
-      case traceShowId range of
-        Nothing -> return ()
-        Just range -> do
-          let
-            severity = Just DiagnosticSeverity_Error
-            code = Nothing
-            codeDescription = Nothing
-            source_ = Nothing
-            message = displayErrorColorless source err -- Text.show kind
-            tags = Nothing
-            relatedInformation = Nothing
-            data_ = Nothing
-            diagnostics =
-              [ Diagnostic range severity code codeDescription source_ message tags relatedInformation data_
-              ]
-          publish diagnostics
+    Left (source, errs) -> do
+      diagnostics <- forM errs $ \err@(Err _ (Span spanStart spanLen)) -> do
+        let range =
+              -- Range at which the message applies
+              traceShow (spanStart, spanLen) Range
+                <$> absolutePositionToLspPosition source spanStart
+                <*> absolutePositionToLspPosition source (spanStart + spanLen)
+        case traceShowId range of
+          Nothing -> return []
+          Just range -> do
+            let
+              severity = Just DiagnosticSeverity_Error
+              code = Nothing
+              codeDescription = Nothing
+              source_ = Nothing
+              message = displayErrorColorless source err -- Text.show kind
+              tags = Nothing
+              relatedInformation = Nothing
+              data_ = Nothing
+              diagnostic = Diagnostic range severity code codeDescription source_ message tags relatedInformation data_
+            return [diagnostic]
+      publish (concat diagnostics)
     Right _ -> trace "publishing zero diagnostics!" publish []
   where
     publish diagnostics =
