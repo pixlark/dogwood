@@ -1,6 +1,7 @@
 module DW.Error.Internal where
 
 import Control.Monad
+import DW.Error.Internal.ErrorsEffect
 import DW.Util
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -172,9 +173,17 @@ instance Show ErrorKind where
 
 type Result a = Either Err a
 
+type Result' a = Either [Err] a
+
 isErrorKind :: ErrorKind -> (Result a -> Bool)
 isErrorKind kind = \case
   Left (Err kind' _) -> kind == kind'
+  Right _ -> False
+
+isErrorKind' :: ErrorKind -> (Result' a -> Bool)
+isErrorKind' kind = \case
+  Left [Err kind' _] -> kind == kind'
+  Left _ -> False
   Right _ -> False
 
 throwSpan :: (HasCallStack, Error Err :> es) => Span -> ErrorKind -> Eff es a
@@ -187,6 +196,17 @@ orThrowSpanM :: (HasCallStack, Error Err :> es) => Eff es (Maybe a) -> (Span, Er
 orThrowSpanM m e = do
   m' <- m
   orThrowSpan m' e
+
+throwSpan' :: (HasCallStack, Errors Err :> es) => Span -> ErrorKind -> Eff es a
+throwSpan' span kind = throwErr $ Err kind span
+
+orThrowSpan' :: (HasCallStack, Errors Err :> es) => Maybe a -> (Span, ErrorKind) -> Eff es a
+orThrowSpan' m (span, kind) = maybe (throwSpan' span kind) return m
+
+orThrowSpanM' :: (HasCallStack, Errors Err :> es) => Eff es (Maybe a) -> (Span, ErrorKind) -> Eff es a
+orThrowSpanM' m e = do
+  m' <- m
+  orThrowSpan' m' e
 
 --------------
 

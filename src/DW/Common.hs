@@ -57,23 +57,57 @@ module DW.Common
     tell,
     Err (..),
     ErrorKind (..),
+    Errors,
     Result,
+    Result',
     Span (..),
     getLineForSpan,
     orThrowSpan,
     orThrowSpanM,
     throwSpan,
+    throwSpan',
+    orThrowSpan',
+    orThrowSpanM',
+    throwErr,
+    throwErrs,
+    tryErr,
     Log,
     scribe,
     withRegion,
     printf,
     (!?),
     LazyText,
+    runErrorAsErrors,
+    runErrors,
+    runErrorsNoCallStack,
   )
 where
 
 import Control.Applicative (Alternative ((<|>)))
 import Control.Monad (forM, forM_, msum, unless, void, when)
+import DW.Error
+  ( Err (..),
+    ErrorKind (..),
+    Errors,
+    Result,
+    Result',
+    Span (..),
+    getLineForSpan,
+    orThrowSpan,
+    orThrowSpan',
+    orThrowSpanM,
+    orThrowSpanM',
+    runErrorAsErrors,
+    runErrors,
+    runErrorsNoCallStack,
+    throwErr,
+    throwErrs,
+    throwSpan,
+    throwSpan',
+    tryErr,
+  )
+import DW.Logging (Log, scribe, withRegion)
+import DW.Util ((!?))
 import Data.Either (isLeft, isRight)
 import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
@@ -85,9 +119,6 @@ import Effectful.Error.Static (CallStack, Error, HasCallStack, runError, runErro
 import Effectful.Reader.Static (Reader, ask, asks, local, runReader, withReader)
 import Effectful.State.Static.Local (State, evalState, execState, get, gets, modify, put, runState, state)
 import Effectful.Writer.Static.Local (Writer, execWriter, runWriter, tell)
-import DW.Error (Err (..), ErrorKind (..), Result, Span (..), getLineForSpan, orThrowSpan, orThrowSpanM, throwSpan)
-import DW.Logging (Log, scribe, withRegion)
 import Text.Printf (printf)
-import DW.Util ((!?))
 
 type LazyText = Data.Text.Lazy.Text

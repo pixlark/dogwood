@@ -12,7 +12,7 @@ import qualified DW.LowerPass as LowerPass
 import qualified DW.Parser as Parser
 import qualified DW.Typechecker as Typechecker
 import DW.TypedAST (ValueTypeExpr (..), makeValueExpr)
-import DW.Util (stripCallStack)
+import DW.Util (stripCallStacks)
 import Data.Bifunctor (Bifunctor (first))
 import Data.Text (unpack)
 import NeatInterpolation
@@ -20,18 +20,18 @@ import Test.Hspec
 
 testCompile :: Text -> IO (Either String Program)
 testCompile source = do
-  result <- runEff $ runLog noOpLogger $ runError $ do
+  result <- runEff $ runLog noOpLogger $ runErrors $ do
     -- Passes 1 and 2: Lexing and parsing
-    ast <- Parser.runParser source Parser.parseStmt
+    ast <- runErrorAsErrors $ Parser.runParser source Parser.parseStmt
     -- Pass 3: Lowering
     let loweredAST = LowerPass.runLowerPass ast
     -- Pass 4: Typechecking
-    typedAST <- Typechecker.runTypechecker loweredAST
+    typedAST <- runErrorAsErrors $ Typechecker.runTypechecker loweredAST
     -- Pass 5: Loop validation
-    LoopPass.runLoopPass typedAST
+    runErrorAsErrors $ LoopPass.runLoopPass typedAST
     -- Pass 6: Compile to IR
-    Compiler.runCompiler typedAST
-  return $ (unpack . displayError source) `first` stripCallStack result
+    runErrorAsErrors $ Compiler.runCompiler typedAST
+  return $ first (concatMap $ unpack . displayError source) (stripCallStacks result)
 
 getPhis :: Program -> [Phi]
 getPhis (Program blocks) = concatMap (\(_, block) -> block.phis) blocks

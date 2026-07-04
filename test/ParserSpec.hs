@@ -5,14 +5,14 @@ module ParserSpec (spec) where
 import DW.AST (AST (..))
 import qualified DW.AST as A
 import DW.Common
-import qualified Data.List.NonEmpty as NE
-import qualified Data.Text as T
 import DW.Error
 import DW.Lexer.Internal
-import NeatInterpolation
 import DW.Parser.Internal
+import DW.Util (stripCallStacks)
+import qualified Data.List.NonEmpty as NE
+import qualified Data.Text as T
+import NeatInterpolation
 import Test.Hspec
-import DW.Util (stripCallStack)
 
 consumeSymbol = do
   current <- gets DW.Parser.Internal.current
@@ -25,19 +25,19 @@ parseCommas trailing = parseSeparatedSequence SeparatorConfig {trailing, separat
 buildAST :: Int -> Int -> a -> AST a
 buildAST start length inner = AST inner (Span start length)
 
-expectAST :: Int -> Int -> a -> Result (AST a)
+expectAST :: Int -> Int -> a -> Result' (AST a)
 expectAST start length inner = Right $ buildAST start length inner
 
-testParse :: (HasCallStack) => Text -> Eff '[State Parser, Error Err] a -> Result a
-testParse source f = stripCallStack $ runPureEff $ runError $ runParser source f
+testParse :: (HasCallStack) => Text -> Eff '[State Parser, Errors Err] a -> Result' a
+testParse source f = stripCallStacks $ runPureEff $ runErrors $ runParser source f
 
 spec =
   describe "the Parser module" $ do
     it "can parse separated sequences" $ do
       testParse "a, b, c" (parseCommas False) `shouldBe` Right ["a", "b", "c"]
-      testParse "a, b, c," (parseCommas False) `shouldSatisfy` isErrorKind ExpectedAnotherElementOfSequence
+      testParse "a, b, c," (parseCommas False) `shouldSatisfy` isErrorKind' ExpectedAnotherElementOfSequence
       testParse "a, b, c," (parseCommas True) `shouldBe` Right ["a", "b", "c"]
-      testParse "a,, b, c" (parseCommas False) `shouldSatisfy` isErrorKind ExpectedAnotherElementOfSequence
+      testParse "a,, b, c" (parseCommas False) `shouldSatisfy` isErrorKind' ExpectedAnotherElementOfSequence
       testParse "a" (parseCommas True) `shouldBe` Right ["a"]
       testParse "" (parseCommas True) `shouldBe` Right []
     it "can parse type expressions" $ do
@@ -47,7 +47,7 @@ spec =
       testParse "asdf" parseTypeExpr `shouldBe` expectAST 0 4 (A.makeValueExpr $ A.NamespacedIdentifier ["asdf"])
       testParse " asdf::foo " parseTypeExpr `shouldBe` expectAST 1 9 (A.makeValueExpr $ A.NamespacedIdentifier ["asdf", "foo"])
       testParse "&bool" parseTypeExpr `shouldBe` expectAST 0 5 (A.makeReferenceExpr A.Bool)
-      testParse "&&bool" parseTypeExpr `shouldSatisfy` isErrorKind ExpectedTypeExpr
+      testParse "&&bool" parseTypeExpr `shouldSatisfy` isErrorKind' ExpectedTypeExpr
       (show <$> testParse "fn() -> void" parseTypeExpr) `shouldBe` Right "fn() -> void"
       (show <$> testParse "fn(int) -> int" parseTypeExpr) `shouldBe` Right "fn(int) -> int"
       (show <$> testParse "fn(int, bool) -> void" parseTypeExpr) `shouldBe` Right "fn(int, bool) -> void"
@@ -82,27 +82,27 @@ spec =
       it "can parse function calls" $ do
         (show <$> testParse "foo(1, 2)" parseExpr) `shouldBe` Right "foo(1, 2)"
         (show <$> testParse "foo(1, 2,)" parseExpr) `shouldBe` Right "foo(1, 2)"
-        (show <$> testParse "foo(1, 2,,)" parseExpr) `shouldSatisfy` isErrorKind ExpectedExpr
+        (show <$> testParse "foo(1, 2,,)" parseExpr) `shouldSatisfy` isErrorKind' ExpectedExpr
         (show <$> testParse "(1 + 2)(5)" parseExpr) `shouldBe` Right "((1 + 2))(5)"
         (show <$> testParse "{let x: int = 5; x(15, 16);}" parseStmt) `shouldBe` Right "{\nlet x: int = 5;\nx(15, 16);\n}"
       it "can parse statement bodies" $ do
         (show <$> testParse "{ let x: int = 5; 15 }" parseExpr) `shouldBe` Right "{\nlet x: int = 5;\n15\n}"
         (show <$> testParse "{ let x: int = 5; 15; }" parseExpr) `shouldBe` Right "{\nlet x: int = 5;\n15;\n}"
         (show <$> testParse "{ break; 5; void }" parseExpr) `shouldBe` Right "{\nbreak;\n5;\nvoid\n}"
-        (show <$> testParse "{ break 5 }" parseExpr) `shouldSatisfy` isErrorKind (ExpectedGlyph ";")
+        (show <$> testParse "{ break 5 }" parseExpr) `shouldSatisfy` isErrorKind' (ExpectedGlyph ";")
       -- TODO: right now this fails because we accept statement expressions without a semicolon
       --       is that okay? maybe we don't care
-      -- (show <$> testParse "{ 6 5 }" parseExpr) `shouldSatisfy` isErrorKind (ExpectedGlyph ";")
+      -- (show <$> testParse "{ 6 5 }" parseExpr) `shouldSatisfy` isErrorKind' (ExpectedGlyph ";")
       it "can omit semicolon after certain expressions" $ do
         (show <$> testParse "{ if true {} false }" parseExpr) `shouldBe` Right "{\nif true {\n}\nfalse\n}"
     describe "can parse statements" $ do
       it "can parse basic statements" $ do
         (show <$> testParse "return;" parseStmt) `shouldBe` Right "return;"
-        testParse "return" parseStmt `shouldSatisfy` isErrorKind ExpectedExpr
+        testParse "return" parseStmt `shouldSatisfy` isErrorKind' ExpectedExpr
         (show <$> testParse "return void;" parseStmt) `shouldBe` Right "return void;"
-        testParse "return void" parseStmt `shouldSatisfy` isErrorKind (ExpectedGlyph ";")
+        testParse "return void" parseStmt `shouldSatisfy` isErrorKind' (ExpectedGlyph ";")
         (show <$> testParse "break;" parseStmt) `shouldBe` Right "break;"
-        testParse "break" parseStmt `shouldSatisfy` isErrorKind (ExpectedGlyph ";")
+        testParse "break" parseStmt `shouldSatisfy` isErrorKind' (ExpectedGlyph ";")
       it "can parse variable declarations" $ do
         testParse "let x: void = void;" parseStmt `shouldBe` expectAST 0 18 (A.Let {name = buildAST 4 1 "x", type_ = buildAST 7 4 $ A.makeValueExpr A.Void, value = buildAST 14 4 A.VoidLit})
         (show <$> testParse "let x: foo::bar = true || false;" parseStmt) `shouldBe` Right "let x: foo::bar = (true || false);"

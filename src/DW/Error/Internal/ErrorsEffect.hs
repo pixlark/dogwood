@@ -10,6 +10,7 @@ module DW.Error.Internal.ErrorsEffect where
 
 -- import Effectful.Dispatch.Dynamic
 
+import Control.Monad (forM_)
 import Data.Bifunctor (Bifunctor (..))
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
 import Effectful
@@ -29,7 +30,7 @@ data ErrorsState e = ErrorsState
 
 newtype instance StaticRep (Errors e) = Errors (ErrorsState e)
 
-runErrors :: Eff (Errors e : es) a -> Eff es (Either [(CallStack, e)] a)
+runErrors :: (HasCallStack) => Eff (Errors e : es) a -> Eff es (Either [(CallStack, e)] a)
 runErrors action = do
   ref <- unsafeEff_ $ newIORef []
   eid <- unsafeEff_ newErrorId
@@ -43,7 +44,7 @@ runErrors action = do
       Left _ -> error "unreachable"
     es -> Left (reverse es)
 
-runErrorsNoCallStack :: Eff (Errors e : es) a -> Eff es (Either [e] a)
+runErrorsNoCallStack :: (HasCallStack) => Eff (Errors e : es) a -> Eff es (Either [e] a)
 runErrorsNoCallStack action = do
   result <- runErrors action
   return $ map snd `first` result
@@ -53,6 +54,12 @@ throwErr e = do
   Errors (ErrorsState ref eid) <- getStaticRep
   _ <- unsafeEff_ $ modifyIORef ref ((callStack, e) :)
   withFrozenCallStack throwIO $ ErrorWrapper eid callStack (show e) (toAny e)
+
+throwErrs :: (Show e, HasCallStack, Errors e :> es) => [e] -> Eff es a
+throwErrs errs = do
+  forM_ (take (length errs - 1) errs) $ \e ->
+    markErr e
+  throwErr (last errs)
 
 throwErrWithCallStack :: (Show e, HasCallStack, Errors e :> es) => CallStack -> e -> Eff es a
 throwErrWithCallStack cs e = do
@@ -65,12 +72,17 @@ markErr e = do
   Errors (ErrorsState ref _) <- getStaticRep
   unsafeEff_ $ modifyIORef ref ((callStack, e) :)
 
-runErrorAsErrors :: (Show e, Errors e :> es) => Eff (E.Error e : es) a -> Eff es a
+runErrorAsErrors :: (HasCallStack, Show e, Errors e :> es) => Eff (E.Error e : es) a -> Eff es a
 runErrorAsErrors action = do
   result <- E.runError action
   case result of
     Left (cs, e) -> throwErrWithCallStack cs e
     Right x -> return x
+
+tryErr :: (HasCallStack, Errors e :> es) => Eff es a -> Eff es (Either (CallStack, e) a)
+tryErr action = do
+  Errors (ErrorsState _ eid) <- getStaticRep
+  tryJust (matchError eid) action
 
 --
 -- The following is taken directly from effectful's implementation of Effectul.Error.Static

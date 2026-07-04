@@ -41,7 +41,7 @@ run cfg = do
   executableName <- runEff $ runLog logger $ runErrors $ runReader cfg $ do
     -- Passes 1 and 2: Lexing and parsing
     ast <- region "Lexing and parsing..." do
-      runErrorAsErrors $ Parser.runParser source Parser.parseStmt
+      Parser.runParser source Parser.parseStmt
 
     -- Pass 3: Lowering
     loweredAST <- region "Lowering AST..." do

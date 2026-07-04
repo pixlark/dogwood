@@ -132,7 +132,7 @@ makeToken length kind = do
   return $ Token kind $ Span (cursor - length) length
 
 {- HLINT ignore "Redundant <$>" -}
-nextToken :: (State Lexer :> es, Error Err :> es) => Eff es Token
+nextToken :: (State Lexer :> es, Errors Err :> es) => Eff es Token
 nextToken = do
   skipWhitespace
   c <- current
@@ -162,7 +162,7 @@ nextToken = do
                 case c' of
                   Nothing -> eitherFromMaybe unrecognizedCharacter <$> tryMakeSingleGlyph c >>= except
                   Just c' -> eitherFromMaybe unrecognizedCharacter <$> tryMakeDoubleOrSingleGlyph c c' >>= except
-            | otherwise -> throwError unrecognizedCharacter
+            | otherwise -> throwErr unrecognizedCharacter
   where
     skipWhitespace = do
       c <- current
@@ -173,4 +173,4 @@ nextToken = do
         Nothing -> tryMakeSingleGlyph c
         j@(Just _) -> return j
     except (Right value) = return value
-    except (Left e) = throwError e
+    except (Left e) = throwErr e

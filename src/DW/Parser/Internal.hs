@@ -3,6 +3,7 @@ module DW.Parser.Internal where
 import DW.AST (AST (..))
 import qualified DW.AST as A
 import DW.Common
+import DW.Error
 import DW.Lexer.Internal (Lexer, Token (..), TokenKind (..), makeLexer, nextToken)
 import Data.List.NonEmpty (NonEmpty (..), (<|))
 import qualified Data.List.NonEmpty as NE
@@ -10,7 +11,7 @@ import qualified Data.List.NonEmpty as NE
 data Parser = Parser {current :: Token, lexer :: Lexer, lastTokenEnd :: Int}
   deriving (Show)
 
-advance :: (State Parser :> es, Error Err :> es) => Eff es ()
+advance :: (State Parser :> es, Errors Err :> es) => Eff es ()
 advance = do
   parser <- get
   let (Token _ (Span lastTokenStart lastTokenLength)) = parser.current
@@ -19,49 +20,49 @@ advance = do
   modify (\p -> p {current = token, lexer = lexer', lastTokenEnd})
   return ()
 
-makeParser :: Lexer -> Result Parser
+makeParser :: Lexer -> Result' Parser
 makeParser lexer = parser' <$ result
   where
     parser = Parser {current = Token {kind = Eof, span = Span 0 0}, lexer, lastTokenEnd = 0}
     -- "prime the pump"
-    (result, parser') = runPureEff $ runState parser $ runErrorNoCallStack advance
+    (result, parser') = runPureEff $ runState parser $ runErrorsNoCallStack advance
 
-makeParserCallStack :: Lexer -> Either (CallStack, Err) Parser
+makeParserCallStack :: Lexer -> Either [(CallStack, Err)] Parser
 makeParserCallStack lexer = parser' <$ result
   where
     parser = Parser {current = Token {kind = Eof, span = Span 0 0}, lexer, lastTokenEnd = 0}
     -- "prime the pump"
-    (result, parser') = runPureEff $ runState parser $ runError advance
+    (result, parser') = runPureEff $ runState parser $ runErrors advance
 
-expectKeyword :: (State Parser :> es, Error Err :> es) => Text -> Eff es ()
+expectKeyword :: (State Parser :> es, Errors Err :> es) => Text -> Eff es ()
 expectKeyword keyword = do
   current <- gets current
   if current.kind == Keyword keyword
     then advance
-    else throwSpan (current.span) $ ExpectedKeyword keyword
+    else throwSpan' (current.span) $ ExpectedKeyword keyword
 
-expectGlyph :: (State Parser :> es, Error Err :> es) => Text -> Eff es ()
+expectGlyph :: (State Parser :> es, Errors Err :> es) => Text -> Eff es ()
 expectGlyph glyph = do
   current <- gets current
   if current.kind == Glyph glyph
     then advance
-    else throwSpan (current.span) $ ExpectedGlyph glyph
+    else throwSpan' (current.span) $ ExpectedGlyph glyph
 
-readSymbol :: (State Parser :> es, Error Err :> es) => Eff es (AST Text)
+readSymbol :: (State Parser :> es, Errors Err :> es) => Eff es (AST Text)
 readSymbol = produceSpannedAST $ do
   current <- gets current
   case current.kind of
     Symbol sym -> do advance; returnWrap sym
-    _ -> throwSpan (current.span) $ ExpectedSymbol
+    _ -> throwSpan' (current.span) $ ExpectedSymbol
 
-matchKeyword :: (State Parser :> es, Error Err :> es) => Text -> Eff es Bool
+matchKeyword :: (State Parser :> es, Errors Err :> es) => Text -> Eff es Bool
 matchKeyword keyword = do
   current <- gets current
   if current.kind == Keyword keyword
     then do advance; return True
     else return False
 
-matchGlyph :: (State Parser :> es, Error Err :> es) => Text -> Eff es Bool
+matchGlyph :: (State Parser :> es, Errors Err :> es) => Text -> Eff es Bool
 matchGlyph glyph = do
   current <- gets current
   if current.kind == Glyph glyph
@@ -84,18 +85,18 @@ data SeparatorConfig es a = SeparatorConfig
     consume :: Eff es (Maybe a)
   }
 
-parseSeparatedSequence :: (State Parser :> es, Error Err :> es) => SeparatorConfig es a -> Eff es [a]
+parseSeparatedSequence :: (State Parser :> es, Errors Err :> es) => SeparatorConfig es a -> Eff es [a]
 parseSeparatedSequence SeparatorConfig {trailing, separator, consume} = parseSeparatedSequence' [] False
   where
     -- todo: can't seem to make this type signature work with ScopedTypeVariables
-    -- parseSeparatedSequence' :: (State Parser :> es, Error Err :> es) => [a] -> Bool -> Eff es [a]
+    -- parseSeparatedSequence' :: (State Parser :> es, Errors Err :> es) => [a] -> Bool -> Eff es [a]
     parseSeparatedSequence' sequence expecting = do
       consumed <- consume
       current <- gets current
       case consumed of
         Nothing ->
           if expecting
-            then throwSpan (current.span) ExpectedAnotherElementOfSequence
+            then throwSpan' (current.span) ExpectedAnotherElementOfSequence
             else
               if trailing && current.kind == separator
                 then do advance; return sequence
@@ -108,7 +109,7 @@ parseSeparatedSequence SeparatorConfig {trailing, separator, consume} = parseSep
                   parseSeparatedSequence' sequence' (not trailing)
                 else return sequence'
 
-parseNamespacedIdentifier :: (State Parser :> es, Error Err :> es) => Eff es A.ValueTypeExpr
+parseNamespacedIdentifier :: (State Parser :> es, Errors Err :> es) => Eff es A.ValueTypeExpr
 parseNamespacedIdentifier = do
   pieces <- parseSeparatedSequence SeparatorConfig {trailing = False, separator = Glyph "::", consume = consumeSymbol}
   return $ A.NamespacedIdentifier pieces
@@ -142,7 +143,7 @@ produceSpannedAST f = do
     AlreadySpanned x -> return x
     NotSpanned x -> return $ AST x span
 
-parseTypeExpr :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.TypeExpr)
+parseTypeExpr :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.TypeExpr)
 parseTypeExpr = produceSpannedAST $ do
   reference <- matchGlyph "&"
   cur <- gets current
@@ -171,10 +172,10 @@ parseTypeExpr = produceSpannedAST $ do
       retType <- parseTypeExpr
       return $ A.Function paramTypes retType
     Symbol _ -> parseNamespacedIdentifier
-    _ -> throwSpan (cur.span) ExpectedTypeExpr
+    _ -> throwSpan' (cur.span) ExpectedTypeExpr
   return $ NotSpanned A.TypeExpr {reference, valueExpr}
 
-parseAtom :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
+parseAtom :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
 parseAtom = produceSpannedAST $ do
   current <- gets current
   case current.kind of
@@ -190,9 +191,9 @@ parseAtom = produceSpannedAST $ do
       (AST expr _) <- parseExpr
       expectGlyph ")"
       returnWrap expr
-    _ -> throwSpan current.span ExpectedExpr
+    _ -> throwSpan' current.span ExpectedExpr
 
-parsePostfix :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
+parsePostfix :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
 parsePostfix = produceSpannedAST $ do
   left <- parseAtom
   openParen <- matchGlyph "("
@@ -216,7 +217,7 @@ parsePostfix = produceSpannedAST $ do
       expectGlyph ")"
       returnWrap $ A.FunctionCall left arguments
 
-parseUnary :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
+parseUnary :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
 parseUnary = produceSpannedAST $ do
   current <- gets current
   let operator =
@@ -234,7 +235,7 @@ parseUnary = produceSpannedAST $ do
 
 {- HLINT ignore "Use <$>" -}
 parseBinary ::
-  (State Parser :> es, Error Err :> es)
+  (State Parser :> es, Errors Err :> es)
   => Eff es (AST A.Expr)
   -> [(TokenKind, AST A.Expr -> AST A.Expr -> A.Expr)]
   -> Eff es (AST A.Expr)
@@ -254,7 +255,7 @@ parseBinary nextParser operators = produceSpannedAST $ do
   where
     recurse = parseBinary nextParser operators
 
-parseBinaryMultiplicative :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
+parseBinaryMultiplicative :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
 parseBinaryMultiplicative =
   parseBinary
     parseUnary
@@ -263,7 +264,7 @@ parseBinaryMultiplicative =
       (Glyph "%", A.BinaryOperator A.Modulo)
     ]
 
-parseBinaryAdditive :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
+parseBinaryAdditive :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
 parseBinaryAdditive =
   parseBinary
     parseBinaryMultiplicative
@@ -271,7 +272,7 @@ parseBinaryAdditive =
       (Glyph "-", A.BinaryOperator A.Minus)
     ]
 
-parseBinaryComparison :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
+parseBinaryComparison :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
 parseBinaryComparison =
   parseBinary
     parseBinaryAdditive
@@ -281,7 +282,7 @@ parseBinaryComparison =
       (Glyph ">=", A.BinaryOperator A.GreaterThanOrEqual)
     ]
 
-parseBinaryEquality :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
+parseBinaryEquality :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
 parseBinaryEquality =
   parseBinary
     parseBinaryComparison
@@ -289,26 +290,26 @@ parseBinaryEquality =
       (Glyph "!=", A.BinaryOperator A.NotEqual)
     ]
 
-parseBinaryAnd :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
+parseBinaryAnd :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
 parseBinaryAnd =
   parseBinary
     parseBinaryEquality
     [ (Glyph "&&", A.BinaryOperator A.And)
     ]
 
-parseBinaryOr :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
+parseBinaryOr :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
 parseBinaryOr =
   parseBinary
     parseBinaryAnd
     [ (Glyph "||", A.BinaryOperator A.Or)
     ]
 
-parseIfExpr :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
+parseIfExpr :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
 parseIfExpr = produceSpannedAST $ do
   (bodies, elseBody) <- parseIfPart
   returnWrap $ A.IfChain bodies elseBody
   where
-    parseIfPart :: (State Parser :> es, Error Err :> es) => Eff es (NonEmpty (AST A.Expr, AST A.Expr), Maybe (AST A.Expr))
+    parseIfPart :: (State Parser :> es, Errors Err :> es) => Eff es (NonEmpty (AST A.Expr, AST A.Expr), Maybe (AST A.Expr))
     parseIfPart = do
       expectKeyword "if"
       condition <- parseExpr
@@ -327,7 +328,7 @@ parseIfExpr = produceSpannedAST $ do
               return (NE.singleton (condition, body), Just elseBody)
         else return (NE.singleton (condition, body), Nothing)
 
-parseExpr :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Expr)
+parseExpr :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
 parseExpr = do
   cur <- gets current
   case cur.kind of
@@ -340,7 +341,7 @@ parseExpr = do
       return $ A.ExprBody <$> body
     _ -> parseBinaryOr
 
-parseLet :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Stmt)
+parseLet :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Stmt)
 parseLet = produceSpannedAST $ do
   expectKeyword "let"
   name <- readSymbol
@@ -350,21 +351,21 @@ parseLet = produceSpannedAST $ do
   value <- parseExpr
   returnWrap $ A.Let {name, type_, value}
 
-attempt :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (Maybe a) -> Eff es (Maybe a)
+attempt :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (Maybe a) -> Eff es (Maybe a)
 attempt f = do
   parser <- get
   (result, parser') <- run
   case result of
-    Left (_, e) -> do put parser'; throwError e
+    Left (_, e) -> do put parser'; throwErr e
     Right Nothing -> do put parser; return Nothing
     Right j -> do put parser'; return j
   where
     run = do
-      result <- tryError f
+      result <- tryErr f
       parser' <- get
       return (result, parser')
 
-tryParseLValue :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (Maybe (AST A.LValue))
+tryParseLValue :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (Maybe (AST A.LValue))
 tryParseLValue =
   fmap invert $ produceSpannedAST $ do
     cur <- gets current
@@ -381,7 +382,7 @@ tryParseLValue =
     invert (AST (Just x) span) = Just (AST x span)
     invert (AST Nothing _) = Nothing
 
-parseBody :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Body)
+parseBody :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Body)
 parseBody = produceSpannedAST $ do
   expectGlyph "{"
   stmts <- parseStmts []
@@ -395,7 +396,7 @@ parseBody = produceSpannedAST $ do
           stmt <- parseStmt
           parseStmts $ stmts ++ [stmt]
 
-parseStmt :: (HasCallStack, State Parser :> es, Error Err :> es) => Eff es (AST A.Stmt)
+parseStmt :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Stmt)
 parseStmt = produceSpannedAST $ do
   cur <- gets current
   case cur.kind of
@@ -440,7 +441,7 @@ parseStmt = produceSpannedAST $ do
           returnWrap $ A.ExprStmt {value = expr, semicolon}
 
 runParser ::
-  (HasCallStack, Error Err :> es)
+  (HasCallStack, Errors Err :> es)
   => Text
   -> Eff (State Parser : es) a
   -> Eff es a
@@ -448,6 +449,6 @@ runParser source f = do
   let lexer = makeLexer source
   let parser = makeParser lexer
   parser <- case parser of
-    Left e -> throwError e
+    Left e -> throwErrs e
     Right p -> return p
   evalState parser f

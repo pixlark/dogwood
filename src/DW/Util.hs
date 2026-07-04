@@ -9,6 +9,7 @@ module DW.Util
     modifyElementBy,
     getSingleElement,
     stripCallStack,
+    stripCallStacks,
     insertAssoc,
     (<$$>),
   )
@@ -83,6 +84,10 @@ modifyElement list elem = modifyElementBy list (== elem)
 stripCallStack :: Either (CallStack, a) b -> Either a b
 stripCallStack (Left (_, x)) = Left x
 stripCallStack (Right x) = Right x
+
+stripCallStacks :: Either [(CallStack, a)] b -> Either [a] b
+stripCallStacks (Left xs) = Left $ snd <$> xs
+stripCallStacks (Right x) = Right x
 
 insertAssoc :: (Eq a) => a -> b -> [(a, b)] -> [(a, b)]
 insertAssoc key value list = case idx of
