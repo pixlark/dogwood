@@ -4,6 +4,7 @@ import DW.AST (AST (..))
 import qualified DW.AST as A
 import DW.Common
 import DW.Error
+import DW.Error.Internal.ErrorsEffect (throwErrsWithCallStacks)
 import DW.Lexer.Internal (Lexer, Token (..), TokenKind (..), makeLexer, nextToken)
 import Data.List.NonEmpty (NonEmpty (..), (<|))
 import qualified Data.List.NonEmpty as NE
@@ -172,7 +173,7 @@ parseTypeExpr = produceSpannedAST $ do
       retType <- parseTypeExpr
       return $ A.Function paramTypes retType
     Symbol _ -> parseNamespacedIdentifier
-    _ -> throwSpan' (cur.span) ExpectedTypeExpr
+    _ -> throwSpan' cur.span ExpectedTypeExpr
   return $ NotSpanned A.TypeExpr {reference, valueExpr}
 
 parseAtom :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
@@ -356,7 +357,7 @@ attempt f = do
   parser <- get
   (result, parser') <- run
   case result of
-    Left (_, e) -> do put parser'; throwErr e
+    Left errs -> do put parser'; throwErrsWithCallStacks errs
     Right Nothing -> do put parser; return Nothing
     Right j -> do put parser'; return j
   where

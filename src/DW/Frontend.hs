@@ -3,12 +3,12 @@
 module DW.Frontend (run, lsp) where
 
 import qualified DW.Clang as Clang
-import DW.Common (HasCallStack, forM_, liftIO, runEff, runError, runErrorNoCallStack, runReader, withRegion)
+import DW.Common (HasCallStack, forM_, liftIO, runEff, runError, runErrorNoCallStack, runReader, when, withRegion)
 import qualified DW.Compiler as Compiler
 import DW.Config (ConfigData (..), LogLevel (..))
 import qualified DW.EmitC as EmitC
 import DW.Error (displayError)
-import DW.Error.Internal.ErrorsEffect (runErrorAsErrors, runErrors, runErrorsNoCallStack)
+import DW.Error.Internal.ErrorsEffect (abortIfAnyErrors, runErrorAsErrors, runErrors, runErrorsNoCallStack)
 import qualified DW.LSP as LSP
 import DW.Logging (Logger, noOpLogger, runLog, scribe, standardLoggerWithIgnoredFunctions)
 import qualified DW.LoopPass as LoopPass
@@ -43,21 +43,33 @@ run cfg = do
     ast <- region "Lexing and parsing..." do
       Parser.runParser source Parser.parseStmt
 
+    -- If there any any parse errors, we give up on trying to continue.
+    -- This shouldn't be a big deal because they're just syntax errors, easily fixed.
+    abortIfAnyErrors
+
     -- Pass 3: Lowering
     loweredAST <- region "Lowering AST..." do
       return $ LowerPass.runLowerPass ast
 
     -- Pass 4: Typechecking
     typedAST <- region "Typechecking AST..." do
-      runErrorAsErrors $ Typechecker.runTypechecker loweredAST
+      Typechecker.runTypechecker loweredAST
 
     -- Pass 5: Loop validation
     region "Validating loops..." do
-      runErrorAsErrors $ LoopPass.runLoopPass typedAST
+      LoopPass.runLoopPass typedAST
+
+    -- At this point if we've accumulated any errors, we have to give up and report them,
+    -- because the later phases rely on invariants being true of the syntax trees that they're
+    -- passed (so we can't just pass them bad data and hope for the best, or the user will get
+    -- a bunch of internal compiler errors).
+    abortIfAnyErrors
 
     -- Pass 6: Compile to IR
     program <- region "Compiling to IR..." do
       runErrorAsErrors $ Compiler.runCompiler typedAST
+
+    abortIfAnyErrors
 
     -- Pass 7: Generate C
     generatedC <- region "Generating C..." do
@@ -67,12 +79,14 @@ run cfg = do
     executableName <- region "Compiling with clang..." do
       runErrorAsErrors $ Clang.compileExecutable generatedC
 
+    abortIfAnyErrors
+
     return executableName
 
   exitCode <- case executableName of
     Left errs -> do
       forM_ errs $ \(callstack, e) -> do
-        write $ prettyCallStack callstack
+        when (cfg.logLevel == Loud) $ write (prettyCallStack callstack)
         write $ Text.unpack $ displayError source e
       return (ExitFailure 1)
     Right executableName -> do

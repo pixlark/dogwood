@@ -60,7 +60,7 @@ getLineForSpan source (Span start len) = (line, span')
     lineEnd = findIndex source (start + len) '\n' `orElse` T.length source
     lineLength = lineEnd - lineStart
     line = T.take lineLength $ T.drop lineStart source
-    span' = traceShowId $ Span (start - lineStart) len
+    span' = Span (start - lineStart) len
 
 getLine :: Text -> Int -> Text
 getLine source 1 = T.take lineLength source
@@ -207,6 +207,20 @@ orThrowSpanM' :: (HasCallStack, Errors Err :> es) => Eff es (Maybe a) -> (Span, 
 orThrowSpanM' m e = do
   m' <- m
   orThrowSpan' m' e
+
+markSpan :: (HasCallStack, Errors Err :> es) => Span -> ErrorKind -> Eff es ()
+markSpan span kind = markErr $ Err kind span
+
+orElseMarkSpan :: (HasCallStack, Errors Err :> es) => Maybe a -> (Span, ErrorKind, a) -> Eff es a
+orElseMarkSpan m (span, kind, deflt) = do
+  when (null m) $ markSpan span kind
+  return $ m `orElse` deflt
+
+orElseMarkSpanM :: (HasCallStack, Errors Err :> es) => Eff es (Maybe a) -> (Span, ErrorKind, a) -> Eff es a
+orElseMarkSpanM m (span, kind, deflt) = do
+  m' <- m
+  when (null m') $ markSpan span kind
+  return $ m' `orElse` deflt
 
 --------------
 
