@@ -13,9 +13,13 @@ module DW.Util
     insertAssoc,
     (<$$>),
     leftMap,
+    whenM,
+    ifM,
+    ifM_,
   )
 where
 
+import Control.Monad (void, when)
 import Data.Bifunctor (first)
 import Data.List (findIndex)
 import Data.Maybe
@@ -103,3 +107,18 @@ insertAssoc key value list = case idx of
 
 leftMap :: (e -> e') -> Either e a -> Either e' a
 leftMap = first
+
+whenM :: (Monad m) => m Bool -> m () -> m ()
+whenM c a = do
+  r <- c
+  when r a
+
+ifM :: (Monad m) => m Bool -> m a -> m a -> m a
+ifM c s e = do
+  r <- c
+  if r
+    then s
+    else e
+
+ifM_ :: (Monad m) => m Bool -> m () -> m () -> m ()
+ifM_ c s = void . ifM c s

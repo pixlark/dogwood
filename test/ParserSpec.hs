@@ -96,6 +96,12 @@ spec =
       -- (show <$> testParse "{ 6 5 }" parseExpr) `shouldSatisfy` isErrorKind (ExpectedGlyph ";")
       it "can omit semicolon after certain expressions" $ do
         (show <$> testParse "{ if true {} false }" parseExpr) `shouldBe` Right "{\nif true {\n}\nfalse\n}"
+      it "can parse lambdas" do
+        (show <$> testParse "let f = fn(x: int, y: bool) -> bool: true;" parseStmt) `shouldBe` Right "let f = fn(x: int, y: bool) -> bool: true;"
+        (show <$> testParse "let f = fn() -> bool: true;" parseStmt) `shouldBe` Right "let f = fn() -> bool: true;"
+        (show <$> testParse "let f = fn(x: int) {};" parseStmt) `shouldBe` Right "let f = fn(x: int) {\n};"
+        (show <$> testParse "let f = fn() {};" parseStmt) `shouldBe` Right "let f = fn() {\n};"
+        (show <$> testParse "let f = fn() -> int: 5;" parseStmt) `shouldBe` Right "let f = fn() -> int: 5;"
     describe "can parse statements" $ do
       it "can parse basic statements" $ do
         (show <$> testParse "return;" parseStmt) `shouldBe` Right "return;"

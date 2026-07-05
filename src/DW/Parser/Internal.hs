@@ -5,6 +5,7 @@ import DW.AST qualified as A
 import DW.Common
 import DW.Error.Internal.ErrorsEffect (throwErrsWithCallStacks)
 import DW.Lexer.Internal (Lexer, Token (..), TokenKind (..), makeLexer, nextToken)
+import DW.Util (ifM, whenM)
 
 import Data.List.NonEmpty (NonEmpty (..), (<|))
 import Data.List.NonEmpty qualified as NE
@@ -40,21 +41,29 @@ expectKeyword keyword = do
   current <- gets current
   if current.kind == Keyword keyword
     then advance
-    else throwSpan (current.span) $ ExpectedKeyword keyword
+    else throwSpan current.span $ ExpectedKeyword keyword
 
 expectGlyph :: (State Parser :> es, Errors Err :> es) => Text -> Eff es ()
 expectGlyph glyph = do
   current <- gets current
   if current.kind == Glyph glyph
     then advance
-    else throwSpan (current.span) $ ExpectedGlyph glyph
+    else throwSpan current.span $ ExpectedGlyph glyph
 
 readSymbol :: (State Parser :> es, Errors Err :> es) => Eff es (AST Text)
 readSymbol = produceSpannedAST $ do
   current <- gets current
   case current.kind of
     Symbol sym -> do advance; returnWrap sym
-    _ -> throwSpan (current.span) $ ExpectedSymbol
+    _ -> throwSpan current.span ExpectedSymbol
+
+tryReadSymbol :: (State Parser :> es, Errors Err :> es) => Eff es (Maybe (AST Text))
+tryReadSymbol =
+  sequence <$> produceSpannedAST do
+    current <- gets current
+    case current.kind of
+      Symbol sym -> do advance; returnWrap (Just sym)
+      _ -> returnWrap Nothing
 
 matchKeyword :: (State Parser :> es, Errors Err :> es) => Text -> Eff es Bool
 matchKeyword keyword = do
@@ -187,6 +196,7 @@ parseAtom = produceSpannedAST $ do
     IntLiteral n -> do advance; returnWrap (A.IntLit n)
     Symbol sym -> do advance; returnWrap (A.Variable sym)
     Keyword "if" -> parseIfExpr >>= returnDirect
+    Keyword "fn" -> parseLambda >>= returnDirect
     Glyph "(" -> do
       advance
       (AST expr _) <- parseExpr
@@ -328,6 +338,36 @@ parseIfExpr = produceSpannedAST $ do
               elseBody <- parseExpr
               return (NE.singleton (condition, body), Just elseBody)
         else return (NE.singleton (condition, body), Nothing)
+
+parseLambda :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
+parseLambda = produceSpannedAST $ do
+  expectKeyword "fn"
+  expectGlyph "("
+  params <- parseParams
+  expectGlyph ")"
+  returnType <- ifM (matchGlyph "->") (Just <$> parseTypeExpr) (return Nothing)
+  cur <- gets current
+  when (cur.kind /= Glyph "{") do expectGlyph ":"
+  body <- parseExpr
+  returnWrap A.Lambda {params, returnType, body}
+  where
+    parseParams :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es [(AST A.TypeExpr, AST Text)]
+    parseParams =
+      parseSeparatedSequence
+        ( SeparatorConfig
+            { trailing = True,
+              separator = Glyph ",",
+              consume = do
+                cur <- gets current
+                if cur.kind == Glyph ")"
+                  then return Nothing
+                  else do
+                    name <- readSymbol
+                    expectGlyph ":"
+                    ty <- parseTypeExpr
+                    return $ Just (ty, name)
+            }
+        )
 
 parseExpr :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
 parseExpr = do

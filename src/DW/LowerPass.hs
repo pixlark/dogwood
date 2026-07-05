@@ -68,6 +68,7 @@ lowerExpr ast = lowerAST ast $ \case
   AST.ExprBody body -> L.ExprBody (lowerBody body)
   AST.IfChain _ _ -> error "unreachable"
   AST.Builtin name -> L.Builtin name
+  AST.Lambda {} -> undefined
 
 lowerLValue :: AST.AST AST.LValue -> L.LST L.LValue
 lowerLValue ast = lowerAST ast $ \(AST.LVariable name) -> L.LVariable name

@@ -5,6 +5,7 @@ module DW.AST where
 import DW.Common hiding (Writer, execWriter, tell)
 
 import Control.Monad.Writer
+import Data.List (intercalate, intersperse)
 import Data.List.NonEmpty qualified as NE
 import Data.Text qualified as T
 
@@ -22,6 +23,13 @@ instance SyntaxTree AST where
 
 instance Functor AST where
   fmap f (AST x span) = AST (f x) span
+
+instance Foldable AST where
+  foldMap :: (Monoid m) => (a -> m) -> AST a -> m
+  foldMap f (AST x _) = f x
+
+instance Traversable AST where
+  traverse f (AST x span) = flip AST span <$> f x
 
 data ValueTypeExpr = Any | Void | Bool | Int | NamespacedIdentifier [Text] | Function [AST TypeExpr] (AST TypeExpr)
   deriving (Eq)
@@ -58,6 +66,7 @@ data Expr
   | ExprBody Body
   | IfChain (NE.NonEmpty (AST Expr, AST Expr)) (Maybe (AST Expr))
   | Builtin Text
+  | Lambda {params :: [(AST TypeExpr, AST Text)], returnType :: Maybe (AST TypeExpr), body :: AST Expr}
   deriving (Eq)
 
 newtype LValue = LVariable T.Text
@@ -155,6 +164,24 @@ instance Show Expr where
         tell " "
         tell $ show body
   show (Builtin name) = printf "builtin %s" name
+  show (Lambda {params, returnType, body}) = execWriter $ do
+    tell "fn("
+    forM_ (intersperse Nothing $ Just <$> params) $ \m -> do
+      case m of
+        Nothing -> tell ", "
+        Just (ty, name) -> do
+          tell $ T.unpack $ node name
+          tell ": "
+          tell $ show ty
+    case returnType of
+      Nothing -> tell ")"
+      Just returnType -> do
+        tell ") -> "
+        tell $ show returnType
+    case node body of
+      ExprBody _ -> tell " "
+      _ -> tell ": "
+    tell $ show body
 
 instance Show LValue where
   show (LVariable name) = T.unpack name
