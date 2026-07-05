@@ -4,8 +4,8 @@
 
 module DW.LexicalScopes (LexicalScopes, HasLexicalScopes (..), lookupVariable, lookupByValue, variableExists, bindNewVariable, pushScope, popScope, mkScopes) where
 
-import DW.Common
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
+import DW.Common
 import Data.List.NonEmpty (NonEmpty ((:|)), (<|))
 import qualified Data.List.NonEmpty as NE
 
@@ -24,13 +24,13 @@ lookupVariable name = do
   scopes <- gets getScopes
   return $ lookupVariablePure name scopes
 
-lookupByValueInScope :: (Error Err :> es) => Span -> (a -> Bool) -> [(Text, a)] -> Eff es (Maybe a)
+lookupByValueInScope :: (Errors Err :> es) => Span -> (a -> Bool) -> [(Text, a)] -> Eff es (Maybe a)
 lookupByValueInScope span predicate scope = case filter (predicate . snd) scope of
   [] -> return Nothing
   [(_, x)] -> return (Just x)
   _ -> throwSpan span InternalCompilerError
 
-lookupByValue :: (Error Err :> es) => Span -> (a -> Bool) -> LexicalScopes a -> Eff es (Maybe a)
+lookupByValue :: (Errors Err :> es) => Span -> (a -> Bool) -> LexicalScopes a -> Eff es (Maybe a)
 lookupByValue span predicate (scope :| []) = lookupByValueInScope span predicate scope
 lookupByValue span predicate (scope :| rest) =
   runMaybeT $

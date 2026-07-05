@@ -30,4 +30,4 @@ spec = do
       result `shouldSatisfy` isRight
 
       result <- testLoopPass "break;"
-      result `shouldSatisfy` isErrorKind' BreakOutsideLoop
+      result `shouldSatisfy` isErrorKind BreakOutsideLoop

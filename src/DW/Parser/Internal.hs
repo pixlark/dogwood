@@ -21,7 +21,7 @@ advance = do
   modify (\p -> p {current = token, lexer = lexer', lastTokenEnd})
   return ()
 
-makeParser :: Lexer -> Result' Parser
+makeParser :: Lexer -> Result Parser
 makeParser lexer = parser' <$ result
   where
     parser = Parser {current = Token {kind = Eof, span = Span 0 0}, lexer, lastTokenEnd = 0}
@@ -40,21 +40,21 @@ expectKeyword keyword = do
   current <- gets current
   if current.kind == Keyword keyword
     then advance
-    else throwSpan' (current.span) $ ExpectedKeyword keyword
+    else throwSpan (current.span) $ ExpectedKeyword keyword
 
 expectGlyph :: (State Parser :> es, Errors Err :> es) => Text -> Eff es ()
 expectGlyph glyph = do
   current <- gets current
   if current.kind == Glyph glyph
     then advance
-    else throwSpan' (current.span) $ ExpectedGlyph glyph
+    else throwSpan (current.span) $ ExpectedGlyph glyph
 
 readSymbol :: (State Parser :> es, Errors Err :> es) => Eff es (AST Text)
 readSymbol = produceSpannedAST $ do
   current <- gets current
   case current.kind of
     Symbol sym -> do advance; returnWrap sym
-    _ -> throwSpan' (current.span) $ ExpectedSymbol
+    _ -> throwSpan (current.span) $ ExpectedSymbol
 
 matchKeyword :: (State Parser :> es, Errors Err :> es) => Text -> Eff es Bool
 matchKeyword keyword = do
@@ -97,7 +97,7 @@ parseSeparatedSequence SeparatorConfig {trailing, separator, consume} = parseSep
       case consumed of
         Nothing ->
           if expecting
-            then throwSpan' (current.span) ExpectedAnotherElementOfSequence
+            then throwSpan (current.span) ExpectedAnotherElementOfSequence
             else
               if trailing && current.kind == separator
                 then do advance; return sequence
@@ -173,7 +173,7 @@ parseTypeExpr = produceSpannedAST $ do
       retType <- parseTypeExpr
       return $ A.Function paramTypes retType
     Symbol _ -> parseNamespacedIdentifier
-    _ -> throwSpan' cur.span ExpectedTypeExpr
+    _ -> throwSpan cur.span ExpectedTypeExpr
   return $ NotSpanned A.TypeExpr {reference, valueExpr}
 
 parseAtom :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
@@ -192,7 +192,7 @@ parseAtom = produceSpannedAST $ do
       (AST expr _) <- parseExpr
       expectGlyph ")"
       returnWrap expr
-    _ -> throwSpan' current.span ExpectedExpr
+    _ -> throwSpan current.span ExpectedExpr
 
 parsePostfix :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
 parsePostfix = produceSpannedAST $ do

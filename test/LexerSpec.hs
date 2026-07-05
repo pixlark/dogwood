@@ -7,7 +7,7 @@ import DW.Common
 import DW.Lexer
 import Test.Hspec
 
-runLex :: Text -> Result' [Token]
+runLex :: Text -> Result [Token]
 runLex source = run lexer
   where
     lexer = makeLexer source

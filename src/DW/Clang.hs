@@ -2,14 +2,14 @@ module DW.Clang where
 
 import DW.Common
 import DW.Config (Config, ConfigData (..))
+import DW.Util (orElse)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
 import System.Directory
 import System.Exit (ExitCode (..))
 import System.Process
-import DW.Util (orElse)
 
-compileExecutable :: (Error Err :> es, Config :> es, IOE :> es) => Text -> Eff es FilePath
+compileExecutable :: (Errors Err :> es, Config :> es, IOE :> es) => Text -> Eff es FilePath
 compileExecutable source = do
   liftIO $ Text.IO.writeFile "generated.c" source
   runtimeDir <- liftIO $ makeAbsolute "runtime"

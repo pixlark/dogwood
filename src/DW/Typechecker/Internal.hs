@@ -120,7 +120,7 @@ typecheckBody (LST (L.Body stmts) span) = withRegion "Entering scope..." do
       retType = safeLast retTypes `orElse` T.makeValueExpr T.Void
 
   -- close the lexical scope
-  popScope `orThrowSpanM'` (span, InternalCompilerError)
+  popScope `orICEM` span
   return $ TST (T.Body retType tStmts') span
 
 getBuiltins :: Span -> [(Text, T.TypeExpr)]

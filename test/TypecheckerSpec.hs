@@ -17,11 +17,11 @@ import Prelude hiding (show)
 
 testTypecheck source = fmap stripCallStacks $ runEff $ runErrors $ runLog noOpLogger do
   -- Passes 1 and 2: Lexing and parsing
-  ast <- runErrorAsErrors $ Parser.runParser source Parser.parseStmt
+  ast <- Parser.runParser source Parser.parseStmt
   -- Pass 3: Lowering
   let loweredAST = LowerPass.runLowerPass ast
   -- Pass 4: Typechecking
-  runErrorAsErrors $ Typechecker.runTypechecker loweredAST
+  Typechecker.runTypechecker loweredAST
 
 (<$$>) = fmap . fmap
 
@@ -32,7 +32,7 @@ spec = do
       (show <$$> testTypecheck "let x: void = void;") `shouldReturn` Right "let x: void = void;"
       (show <$$> testTypecheck "let x: int = 1 + 2;") `shouldReturn` Right "let x: int = (1 + 2 : int);"
       (show <$$> testTypecheck "let x: bool = !false;") `shouldReturn` Right "let x: bool = (!false : bool);"
-      (show <$$> testTypecheck "let x: int = 5 != 2;") `shouldSatisfyM` isErrorKind' (TypeMismatch "int" "bool")
+      (show <$$> testTypecheck "let x: int = 5 != 2;") `shouldSatisfyM` isErrorKind (TypeMismatch "int" "bool")
     it "typechecks undefined expressions" do
       (show <$$> testTypecheck "let x: int = undefined;") `shouldReturn` Right "let x: int = undefined;"
       (show <$$> testTypecheck "let x: bool = undefined;") `shouldReturn` Right "let x: bool = undefined;"
@@ -44,7 +44,7 @@ spec = do
       (show <$$> testTypecheck "{ true; 5 }") `shouldReturn` Right "{\ntrue;\n5\n} : int"
       (show <$$> testTypecheck "{ true 5 }") `shouldReturn` Right "{\ntrue\n5\n} : int"
     it "typechecks bound variables" do
-      (show <$$> testTypecheck "let x: int = foo;") `shouldSatisfyM` isErrorKind' (UnboundVariable "foo")
+      (show <$$> testTypecheck "let x: int = foo;") `shouldSatisfyM` isErrorKind (UnboundVariable "foo")
       (show <$$> testTypecheck "{let foo: int = 5; let bar: int = foo;}") `shouldReturn` Right "{\nlet foo: int = 5;\nlet bar: int = (foo : int);\n} : void"
     it "can infer the type of a variable declaration" do
       (show <$$> testTypecheck "let x = 5;") `shouldReturn` Right "let x: int = 5;"
@@ -53,22 +53,22 @@ spec = do
       (show <$$> testTypecheck "let x = undefined;") `shouldReturn` Right "let x: any = undefined;"
       (show <$$> testTypecheck "let x: int = undefined;") `shouldReturn` Right "let x: int = undefined;"
     it "typechecks function calls" do
-      (show <$$> testTypecheck "{let x: int = 5; x(15, 16);}") `shouldSatisfyM` isErrorKind' (CallingNonFunction "int")
+      (show <$$> testTypecheck "{let x: int = 5; x(15, 16);}") `shouldSatisfyM` isErrorKind (CallingNonFunction "int")
       (show <$$> testTypecheck "{let f: fn(int, int) -> bool = undefined; f(5, 6)}") `shouldReturn` Right "{\nlet f: fn(int, int) -> bool = undefined;\n(f(5, 6) : bool)\n} : bool"
-      (show <$$> testTypecheck "{let f: fn(int, int) -> bool = undefined; f(true, 6)}") `shouldSatisfyM` isErrorKind' (TypeMismatch "int" "bool")
-      (show <$$> testTypecheck "{let f: fn(int, int) -> void = undefined; f(1)}") `shouldSatisfyM` isErrorKind' (WrongArgumentCount 2 1)
+      (show <$$> testTypecheck "{let f: fn(int, int) -> bool = undefined; f(true, 6)}") `shouldSatisfyM` isErrorKind (TypeMismatch "int" "bool")
+      (show <$$> testTypecheck "{let f: fn(int, int) -> void = undefined; f(1)}") `shouldSatisfyM` isErrorKind (WrongArgumentCount 2 1)
     it "typechecks if expressions" do
       (show <$$> testTypecheck "if true void else if false void") `shouldReturn` Right "(if true void else (if false void else void) : void) : void"
-      (show <$$> testTypecheck "if 15 void else if false void") `shouldSatisfyM` isErrorKind' (TypeMismatch "bool" "int")
+      (show <$$> testTypecheck "if 15 void else if false void") `shouldSatisfyM` isErrorKind (TypeMismatch "bool" "int")
       (show <$$> testTypecheck "if true 15 else 16") `shouldReturn` Right "(if true 15 else 16) : int"
-      (show <$$> testTypecheck "if true 15 else true") `shouldSatisfyM` isErrorKind' (TypeMismatch "int" "bool")
+      (show <$$> testTypecheck "if true 15 else true") `shouldSatisfyM` isErrorKind (TypeMismatch "int" "bool")
       (show <$$> testTypecheck "if true { 15; }") `shouldReturn` Right "(if true {\n15;\n} : void else void) : void"
       -- TODO: is this one reasonable behavior? maybe we should be okay with this, even though they didn't
       --       "discard" the value with a semicolon?
       --       what does rust do?
-      (show <$$> testTypecheck "if true { 15 }") `shouldSatisfyM` isErrorKind' (TypeMismatch "int" "void")
+      (show <$$> testTypecheck "if true { 15 }") `shouldSatisfyM` isErrorKind (TypeMismatch "int" "void")
     it "typechecks loops" do
-      (show <$$> testTypecheck "loop { 15 }") `shouldSatisfyM` isErrorKind' (TypeMismatch "void" "int")
+      (show <$$> testTypecheck "loop { 15 }") `shouldSatisfyM` isErrorKind (TypeMismatch "void" "int")
       (show <$$> testTypecheck "loop { 15; }") `shouldReturn` Right "loop {\n15;\n} : void"
     it "typechecks lexical scopes" do
       (show <$$> testTypecheck "{ let x: int = 5; { let x: bool = false; x || false } x + 5 }") `shouldReturn` Right "{\nlet x: int = 5;\n{\nlet x: bool = false;\n((x : bool) || false : bool)\n} : bool\n((x : int) + 5 : int)\n} : int"

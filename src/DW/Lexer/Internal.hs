@@ -15,8 +15,6 @@ data Token = Token {kind :: TokenKind, span :: Span}
 data Lexer = Lexer {cursor :: Int, source :: Text}
   deriving (Show)
 
-type LexerE a = Eff '[State Lexer, Error Err] a
-
 advance :: (State Lexer :> es) => Eff es ()
 advance = modify advance'
   where

@@ -4,7 +4,7 @@ module DW.Frontend (run, lsp) where
 
 import qualified DW.Clang as Clang
 import DW.Common (HasCallStack, forM_, liftIO, runEff, runError, runErrorNoCallStack, runReader, traceShowId, when, withRegion)
-import qualified DW.Compiler as Compiler
+import qualified DW.Compiler.Internal as Compiler
 import DW.Config (ConfigData (..), LogLevel (..))
 import qualified DW.EmitC as EmitC
 import DW.Error (displayError)
@@ -67,7 +67,7 @@ run cfg = do
 
     -- Pass 6: Compile to IR
     program <- region "Compiling to IR..." do
-      runErrorAsErrors $ Compiler.runCompiler typedAST
+      Compiler.runCompiler typedAST
 
     abortIfAnyErrors
 
@@ -77,7 +77,7 @@ run cfg = do
 
     -- Pass 8: Compile C with clang
     executableName <- region "Compiling with clang..." do
-      runErrorAsErrors $ Clang.compileExecutable generatedC
+      Clang.compileExecutable generatedC
 
     abortIfAnyErrors
 
@@ -116,10 +116,10 @@ lsp cfg = do
       let loweredAST = LowerPass.runLowerPass ast
 
       -- Pass 4: Typechecking
-      typedAST <- runErrorAsErrors $ Typechecker.runTypechecker loweredAST
+      typedAST <- Typechecker.runTypechecker loweredAST
 
       -- Pass 5: Loop validation
-      runErrorAsErrors $ LoopPass.runLoopPass typedAST
+      LoopPass.runLoopPass typedAST
 
       return (source, ast, typedAST)
     runner :: Logger -> LSP.Runner

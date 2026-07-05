@@ -9,14 +9,14 @@ class HasProgram s where
   setProgram :: Program -> s -> s
 
 getBlock ::
-  (HasCallStack, State s :> es, HasProgram s, Error Err :> es)
+  (HasCallStack, State s :> es, HasProgram s, Errors Err :> es)
   => BlockId -> Span -> Eff es Block
 getBlock id span = do
   (Program blocks) <- gets getProgram
-  lookup id blocks `orThrowSpan` (span, InternalCompilerError)
+  lookup id blocks `orICE` span
 
 modifyBlock ::
-  (HasCallStack, State s :> es, HasProgram s, Error Err :> es)
+  (HasCallStack, State s :> es, HasProgram s, Errors Err :> es)
   => BlockId -> Span -> (Block -> Eff es Block) -> Eff es ()
 modifyBlock id span f = do
   (Program blocks) <- gets getProgram

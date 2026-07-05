@@ -2,18 +2,18 @@
 
 module DW.Compiler.Internal where
 
+import Control.Monad (join)
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (scribe)
 import DW.Compiler.Internal.Compiler
-import Control.Monad (join)
-import qualified Data.HashMap.Strict as HashMap
 import DW.IR
 import DW.LexicalScopes
 import DW.Typechecker (unifies)
 import DW.TypedAST
 import DW.Util
+import qualified Data.HashMap.Strict as HashMap
 
-compileBody :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => Body -> Span -> Eff es Name
+compileBody :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => Body -> Span -> Eff es Name
 compileBody (Body ty stmts) span = do
   -- each body opens a new lexical scope
   pushScope
@@ -27,19 +27,19 @@ compileBody (Body ty stmts) span = do
     Just name -> return name
 
   -- close the lexical scope
-  popScope `orThrowSpanM` (span, InternalCompilerError)
+  popScope `orICEM` span
 
   return name
 
 -- | Compile the expression into the current program. Returns name of the local SSA form that contains
 -- | the final value of the expression.
-compileExpr :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Expr -> Eff es Name
+compileExpr :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TST Expr -> Eff es Name
 compileExpr (TST UndefinedLit span) = emit mkAny RUndefined span
 compileExpr (TST VoidLit span) = emit mkVoid RVoid span
 compileExpr (TST (BoolLit b) span) = emit mkBool (RBool b) span
 compileExpr (TST (IntLit n) span) = emit mkInt (RInt n) span
 compileExpr (TST (Variable _ name) span) = do
-  AbstractVariable {varId} <- lookupVariable name `orThrowSpanM` (span, InternalCompilerError)
+  AbstractVariable {varId} <- lookupVariable name `orICEM` span
   scribe $ format "Looking up variable {} ({})" (name, Shown varId)
   activeBlock <- gets activeBlock
   determineNameInBlock varId activeBlock span
@@ -117,7 +117,7 @@ compileExpr (TST (Boxed ty value) span) = do
   inner <- compileExpr (TST value span)
   emit mkAny (RBox ty inner) span
 
-compileStmt :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Stmt -> Eff es (Maybe Name)
+compileStmt :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TST Stmt -> Eff es (Maybe Name)
 compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do
   -- special case for undefined
   -- this should get torn out eventually
@@ -132,7 +132,7 @@ compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do
   return Nothing
 compileStmt (TST (Assign (TST (LVariable _ name) span) value) _) = do
   valName <- compileExpr value
-  AbstractVariable {varId} <- lookupVariable name `orThrowSpanM` (span, InternalCompilerError)
+  AbstractVariable {varId} <- lookupVariable name `orICEM` span
   compiler <- get
   scribe $ format "Encountered variable assignment to {} ({}) in block {}" (name, Shown varId, Shown compiler.activeBlock)
   let variablesPerBlock' = HashMap.insert (varId, compiler.activeBlock) valName compiler.variablesPerBlock
@@ -190,12 +190,12 @@ compileStmt (TST Break span) = withRegion "Compiling break statement..." do
       switchToBlock nextBlock
   return Nothing
 
-compileProgram :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Stmt -> Eff es ()
+compileProgram :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TST Stmt -> Eff es ()
 compileProgram stmt@(TST _ _) = withRegion "Compiling program..." do
   _ <- compileStmt stmt
   return ()
 
-compileAndCheck :: (HasCallStack, State Compiler :> es, Error Err :> es, Log :> es) => TST Stmt -> Eff es ()
+compileAndCheck :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TST Stmt -> Eff es ()
 compileAndCheck stmt = do
   compileProgram stmt
   (Program blocks) <- gets program
@@ -203,7 +203,7 @@ compileAndCheck stmt = do
     seal <- isSealed id
     unless seal $ throwSpan (spanOf stmt) InternalCompilerError
 
-runCompiler :: (HasCallStack, Error Err :> es, Log :> es) => TST Stmt -> Eff es Program
+runCompiler :: (HasCallStack, Errors Err :> es, Log :> es) => TST Stmt -> Eff es Program
 runCompiler stmt = do
   compiler <- execState mkCompiler $ compileAndCheck stmt
   return compiler.program

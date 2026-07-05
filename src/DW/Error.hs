@@ -7,18 +7,15 @@ module DW.Error
     Span (..),
     Err (..),
     Result,
-    Result',
     displayError,
     displayErrorColorless,
     isErrorKind,
-    isErrorKind',
-    throwSpan',
-    markSpan,
-    orThrowSpan',
-    orThrowSpanM',
     throwSpan,
+    markSpan,
     orThrowSpan,
     orThrowSpanM,
+    orICE,
+    orICEM,
     orElseMarkSpan,
     orElseMarkSpanM,
     getLineForSpan,
@@ -34,4 +31,6 @@ module DW.Error
   ) where
 
 import DW.Error.Internal
+import DW.Error.Internal.Display
+import DW.Error.Internal.Err
 import DW.Error.Internal.ErrorsEffect

@@ -28,9 +28,9 @@ testCompile source = do
     -- Pass 4: Typechecking
     typedAST <- runErrorAsErrors $ Typechecker.runTypechecker loweredAST
     -- Pass 5: Loop validation
-    runErrorAsErrors $ LoopPass.runLoopPass typedAST
+    LoopPass.runLoopPass typedAST
     -- Pass 6: Compile to IR
-    runErrorAsErrors $ Compiler.runCompiler typedAST
+    Compiler.runCompiler typedAST
   return $ first (concatMap $ unpack . displayError source) (stripCallStacks result)
 
 getPhis :: Program -> [Phi]
