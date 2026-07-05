@@ -83,8 +83,6 @@ module DW.Common
   )
 where
 
-import Control.Applicative (Alternative ((<|>)))
-import Control.Monad (forM, forM_, msum, unless, void, when)
 import DW.Error
   ( Err (..),
     ErrorKind (..),
@@ -108,6 +106,9 @@ import DW.Error
   )
 import DW.Logging (Log, scribe, withRegion)
 import DW.Util ((!?))
+
+import Control.Applicative (Alternative ((<|>)))
+import Control.Monad (forM, forM_, msum, unless, void, when)
 import Data.Either (isLeft, isRight)
 import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)

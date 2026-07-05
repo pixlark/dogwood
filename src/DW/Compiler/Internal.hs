@@ -2,7 +2,6 @@
 
 module DW.Compiler.Internal where
 
-import Control.Monad (join)
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (scribe)
 import DW.Compiler.Internal.Compiler
@@ -11,6 +10,8 @@ import DW.LexicalScopes
 import DW.Typechecker (unifies)
 import DW.TypedAST
 import DW.Util
+
+import Control.Monad (join)
 import Data.HashMap.Strict qualified as HashMap
 
 compileBody :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => Body -> Span -> Eff es Name

@@ -14,7 +14,16 @@ comma-style: trailing
 import-export-style: trailing
 
 # Rules for grouping import declarations
-import-grouping: by-scope
+import-grouping:
+  - name: "Internal modules qualified"
+    rules:
+      - glob: DW.**
+  - name: "Internal modules"
+    rules:
+      - glob: DW.**
+  - name: "Other modules"
+    rules:
+      - glob: "**"
 
 # Whether to full-indent or half-indent 'where' bindings past the preceding body
 indent-wheres: true

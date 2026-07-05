@@ -9,6 +9,7 @@ import DW.LowerPass qualified as LowerPass
 import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
 import DW.Util (stripCallStacks)
+
 import Data.Text (show)
 import NeatInterpolation
 import Test.Hspec

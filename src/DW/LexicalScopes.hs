@@ -4,8 +4,9 @@
 
 module DW.LexicalScopes (LexicalScopes, HasLexicalScopes (..), lookupVariable, lookupByValue, variableExists, bindNewVariable, pushScope, popScope, mkScopes) where
 
-import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import DW.Common
+
+import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import Data.List.NonEmpty (NonEmpty ((:|)), (<|))
 import Data.List.NonEmpty qualified as NE
 

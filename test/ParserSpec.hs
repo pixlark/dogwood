@@ -9,6 +9,7 @@ import DW.Error
 import DW.Lexer.Internal
 import DW.Parser.Internal
 import DW.Util (stripCallStacks)
+
 import Data.List.NonEmpty qualified as NE
 import Data.Text qualified as T
 import NeatInterpolation

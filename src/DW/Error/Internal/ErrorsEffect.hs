@@ -30,8 +30,9 @@
 -- stack always runs underneath `IO` anyways, we don't have to worry about sequencing or double-evaluation.
 module DW.Error.Internal.ErrorsEffect where
 
-import Control.Monad (forM_)
 import DW.Util (leftMap)
+
+import Control.Monad (forM_)
 import Data.List.NonEmpty (NonEmpty (..), (<|))
 import Data.List.NonEmpty qualified as NE
 import Effectful

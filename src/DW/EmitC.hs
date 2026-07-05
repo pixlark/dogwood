@@ -8,6 +8,7 @@ import DW.EmitC.Internal.EmitEffect
 import DW.IR
 import DW.TypedAST
 import DW.Util (getSingleElement, orElse)
+
 import Data.List (intersperse)
 import Data.Text qualified as Text
 import Data.Text.Lazy qualified as LazyText

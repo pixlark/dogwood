@@ -1,9 +1,10 @@
 module DW.Error.Internal where
 
-import Control.Monad
 import DW.Error.Internal.Err
 import DW.Error.Internal.ErrorsEffect
 import DW.Util
+
+import Control.Monad
 import Effectful (Eff, (:>))
 import Effectful.Error.Static (HasCallStack)
 

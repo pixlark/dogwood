@@ -5,6 +5,7 @@
 module DW.Logging (Log, Logger, scribe, runLog, standardLogger, standardLoggerWithIgnoredFunctions, noOpLogger, withRegion) where
 
 import DW.Util (orElse, safeHead)
+
 import Data.Text.Lazy (Text)
 import Data.Text.Lazy qualified as Text
 import Effectful (Dispatch (..), DispatchOf, Eff, Effect, IOE, (:>))

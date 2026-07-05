@@ -6,6 +6,7 @@
 module DW.EmitC.Internal.EmitEffect (Emit, emit, preamble, flush, abort, runEmit) where
 
 import DW.Common
+
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Text qualified as Text

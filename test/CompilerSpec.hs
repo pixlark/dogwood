@@ -13,6 +13,7 @@ import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
 import DW.TypedAST (ValueTypeExpr (..), makeValueExpr)
 import DW.Util (stripCallStacks)
+
 import Data.Bifunctor (Bifunctor (first))
 import Data.Text (unpack)
 import NeatInterpolation

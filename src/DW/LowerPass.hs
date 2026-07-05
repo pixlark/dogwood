@@ -3,6 +3,7 @@ module DW.LowerPass (runLowerPass) where
 import DW.AST qualified as AST
 import DW.LoweredAST qualified as L
 import DW.Util
+
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 

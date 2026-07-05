@@ -2,9 +2,10 @@
 
 module DW.LoweredAST where
 
-import Control.Monad.Writer
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (Writer, execWriter, tell)
+
+import Control.Monad.Writer
 import Data.Text qualified as T
 
 data LST a = LST a Span

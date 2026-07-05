@@ -3,6 +3,7 @@
 module ErrorsSpec (spec) where
 
 import DW.Error.Internal.ErrorsEffect
+
 import Data.IORef
 import Effectful
 import Effectful.Dispatch.Static (unsafeEff_)

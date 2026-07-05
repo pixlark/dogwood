@@ -15,6 +15,7 @@ import DW.LoopPass qualified as LoopPass
 import DW.LowerPass qualified as LowerPass
 import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
+
 import Data.Bifunctor (Bifunctor (..))
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO

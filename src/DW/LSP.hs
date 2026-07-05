@@ -5,7 +5,6 @@
 
 module DW.LSP where
 
-import Control.Monad (join)
 import DW.AST (AST (..))
 import DW.AST qualified as A
 import DW.AST.Visit qualified as AV
@@ -15,6 +14,8 @@ import DW.TypedAST (TST (..))
 import DW.TypedAST qualified as T
 import DW.TypedAST.Visit qualified as TV
 import DW.Util (safeHead, (<$$>))
+
+import Control.Monad (join)
 import Data.Aeson qualified as J
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map

@@ -1,8 +1,9 @@
 module DW.TypedAST where
 
-import Control.Monad.Trans.Writer (execWriter, tell)
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (Writer, execWriter, tell)
+
+import Control.Monad.Trans.Writer (execWriter, tell)
 import Data.Text qualified as T
 
 data TST a = TST a Span

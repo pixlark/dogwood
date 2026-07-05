@@ -10,6 +10,7 @@ import DW.LexicalScopes
 import DW.Logging qualified as Logging
 import DW.TypedAST
 import DW.Util
+
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet (HashSet)

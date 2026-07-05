@@ -2,6 +2,7 @@ module EmitCSpec (spec) where
 
 import DW.Common
 import DW.EmitC.Internal.EmitEffect
+
 import Test.Hspec
 
 testEmitEffect :: Text -> Eff '[Emit] () -> IO ()

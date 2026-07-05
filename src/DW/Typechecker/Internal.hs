@@ -12,6 +12,7 @@ import DW.LoweredAST qualified as L
 import DW.TypedAST (TST (..), typeOf)
 import DW.TypedAST qualified as T
 import DW.Util
+
 import Data.Text qualified as Text
 
 newtype Typechecker = Typechecker {scopes :: LexicalScopes T.TypeExpr}

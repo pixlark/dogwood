@@ -7,6 +7,7 @@ module DW.Compiler.Internal.Users where
 import DW.Common
 import DW.IR (BlockId, Name)
 import DW.Util
+
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 

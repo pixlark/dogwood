@@ -2,8 +2,9 @@
 
 module DW.AST where
 
-import Control.Monad.Writer
 import DW.Common hiding (Writer, execWriter, tell)
+
+import Control.Monad.Writer
 import Data.List.NonEmpty qualified as NE
 import Data.Text qualified as T
 

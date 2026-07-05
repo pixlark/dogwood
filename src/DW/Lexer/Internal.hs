@@ -2,6 +2,7 @@ module DW.Lexer.Internal where
 
 import DW.Common
 import DW.Util
+
 import Data.Char
 import Data.List qualified as List
 import Data.Text qualified as T

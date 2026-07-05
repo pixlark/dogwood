@@ -3,9 +3,9 @@ module DW.Parser.Internal where
 import DW.AST (AST (..))
 import DW.AST qualified as A
 import DW.Common
-import DW.Error
 import DW.Error.Internal.ErrorsEffect (throwErrsWithCallStacks)
 import DW.Lexer.Internal (Lexer, Token (..), TokenKind (..), makeLexer, nextToken)
+
 import Data.List.NonEmpty (NonEmpty (..), (<|))
 import Data.List.NonEmpty qualified as NE
 
