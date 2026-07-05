@@ -346,8 +346,11 @@ parseLet :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST 
 parseLet = produceSpannedAST $ do
   expectKeyword "let"
   name <- readSymbol
-  expectGlyph ":"
-  type_ <- parseTypeExpr
+  colon <- matchGlyph ":"
+  type_ <-
+    if colon
+      then Just <$> parseTypeExpr
+      else return Nothing
   expectGlyph "="
   value <- parseExpr
   returnWrap $ A.Let {name, type_, value}

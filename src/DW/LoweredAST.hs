@@ -2,9 +2,9 @@
 
 module DW.LoweredAST where
 
+import Control.Monad.Writer
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (Writer, execWriter, tell)
-import Control.Monad.Writer
 import qualified Data.Text as T
 
 data LST a = LST a Span
@@ -63,7 +63,7 @@ newtype Body = Body [LST Stmt]
   deriving (Eq)
 
 data Stmt
-  = Let {name :: LST T.Text, type_ :: LST TypeExpr, value :: LST Expr}
+  = Let {name :: LST T.Text, type_ :: Maybe (LST TypeExpr), value :: LST Expr}
   | Assign {lvalue :: LST LValue, value :: LST Expr}
   | ExprStmt {value :: LST Expr, semicolon :: Bool}
   | Return (Maybe (LST Expr))

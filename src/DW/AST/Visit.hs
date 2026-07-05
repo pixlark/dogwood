@@ -92,7 +92,7 @@ runExprVisitor v expr@(AST (Builtin _) span) =
 runStmtVisitor :: (Monad m) => Visitor m -> AST Stmt -> m ()
 runStmtVisitor v stmt@(AST (Let _ type_ value) _) =
   onStmt v stmt $ do
-    runTypeExprVisitor v type_
+    forM_ type_ $ runTypeExprVisitor v
     runExprVisitor v value
 runStmtVisitor v stmt@(AST (Assign lvalue value) _) =
   onStmt v stmt $ do

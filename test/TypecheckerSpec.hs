@@ -46,6 +46,12 @@ spec = do
     it "typechecks bound variables" do
       (show <$$> testTypecheck "let x: int = foo;") `shouldSatisfyM` isErrorKind' (UnboundVariable "foo")
       (show <$$> testTypecheck "{let foo: int = 5; let bar: int = foo;}") `shouldReturn` Right "{\nlet foo: int = 5;\nlet bar: int = (foo : int);\n} : void"
+    it "can infer the type of a variable declaration" do
+      (show <$$> testTypecheck "let x = 5;") `shouldReturn` Right "let x: int = 5;"
+      (show <$$> testTypecheck "let print = builtin print;") `shouldReturn` Right "let print: fn(any) -> void = builtin print : fn(any) -> void;"
+      (show <$$> testTypecheck "{let x = 5; let y = x;}") `shouldReturn` Right "{\nlet x: int = 5;\nlet y: int = (x : int);\n} : void"
+      (show <$$> testTypecheck "let x = undefined;") `shouldReturn` Right "let x: any = undefined;"
+      (show <$$> testTypecheck "let x: int = undefined;") `shouldReturn` Right "let x: int = undefined;"
     it "typechecks function calls" do
       (show <$$> testTypecheck "{let x: int = 5; x(15, 16);}") `shouldSatisfyM` isErrorKind' (CallingNonFunction "int")
       (show <$$> testTypecheck "{let f: fn(int, int) -> bool = undefined; f(5, 6)}") `shouldReturn` Right "{\nlet f: fn(int, int) -> bool = undefined;\n(f(5, 6) : bool)\n} : bool"

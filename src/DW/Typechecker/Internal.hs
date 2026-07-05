@@ -241,17 +241,27 @@ typecheckStmt (LST (L.Let {name, type_, value}) span) = do
 
   scribe $ format "{} : {}" (Shown tValue, Shown (typeOf $ node tValue))
 
-  let typeAnnotation = convertLST $ convertTypeExpr <$> type_
-  let expectType = typeOf (node tValue)
-  when (node typeAnnotation `doesNotUnify` expectType) do
-    markSpan (spanOf value) (typeMismatch (node typeAnnotation) expectType)
+  -- If they provided a type annotation, then make sure it's correct
+  maybeBoxedTValue <- forM type_ $ \type_ -> do
+    let typeAnnotation = convertLST $ convertTypeExpr <$> type_
+    let expectType = typeOf (node tValue)
+    when (node typeAnnotation `doesNotUnify` expectType) do
+      markSpan (spanOf value) (typeMismatch (node typeAnnotation) expectType)
 
-  tValue' <- potentiallyBox (node typeAnnotation) `traverse` tValue
+    -- Also, if the type annotation is `any`, then we need to auto-box the value
+    potentiallyBox (node typeAnnotation) `traverse` tValue
+
+  let tValue' = maybeBoxedTValue `orElse` tValue
+
+  -- If they provided a type annotation, then we take that as canonical.
+  -- Otherwise, we use the inferred type.
+  -- Generally they'll be the same, but subtyping introduces some subtlety here
+  let boundTy = (convertLST <$> convertTypeExpr <$$> type_) `orElse` (typeOf <$> tValue')
 
   scribe $ format "Binding variable {} (type: {})" (node name, Shown type_)
-  bindNewVariable (node name) (node typeAnnotation)
+  bindNewVariable (node name) (node boundTy)
 
-  return $ TST (T.Let {name = convertLST name, type_ = typeAnnotation, value = tValue'}) span
+  return $ TST (T.Let {name = convertLST name, type_ = boundTy, value = tValue'}) span
 typecheckStmt (LST (L.Assign {lvalue, value}) span) = do
   tLValue <- typecheckLValue lvalue
   tValue <- typecheckExpr value

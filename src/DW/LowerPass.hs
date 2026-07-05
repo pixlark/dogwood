@@ -1,10 +1,10 @@
 module DW.LowerPass (runLowerPass) where
 
 import qualified DW.AST as AST
-import Data.List.NonEmpty (NonEmpty (..))
-import qualified Data.List.NonEmpty as NE
 import qualified DW.LoweredAST as L
 import DW.Util
+import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NE
 
 lowerAST :: AST.AST a -> (a -> b) -> L.LST b
 lowerAST (AST.AST x span) f = L.LST (f x) span
@@ -77,7 +77,7 @@ lowerBody (AST.Body stmts) = L.Body (map lowerStmt stmts)
 lowerStmt :: AST.AST AST.Stmt -> L.LST L.Stmt
 lowerStmt ast = lowerAST ast $ \case
   AST.Let name ty val ->
-    L.Let (lowerAST name id) (lowerTypeExpr ty) (lowerExpr val)
+    L.Let (lowerAST name id) (lowerTypeExpr <$> ty) (lowerExpr val)
   AST.Assign lval val ->
     L.Assign (lowerLValue lval) (lowerExpr val)
   AST.ExprStmt val semi ->

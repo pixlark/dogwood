@@ -104,7 +104,7 @@ spec =
         (show <$> testParse "break;" parseStmt) `shouldBe` Right "break;"
         testParse "break" parseStmt `shouldSatisfy` isErrorKind' (ExpectedGlyph ";")
       it "can parse variable declarations" $ do
-        testParse "let x: void = void;" parseStmt `shouldBe` expectAST 0 18 (A.Let {name = buildAST 4 1 "x", type_ = buildAST 7 4 $ A.makeValueExpr A.Void, value = buildAST 14 4 A.VoidLit})
+        testParse "let x: void = void;" parseStmt `shouldBe` expectAST 0 18 (A.Let {name = buildAST 4 1 "x", type_ = Just $ buildAST 7 4 $ A.makeValueExpr A.Void, value = buildAST 14 4 A.VoidLit})
         (show <$> testParse "let x: foo::bar = true || false;" parseStmt) `shouldBe` Right "let x: foo::bar = (true || false);"
       it "can parse variable assignments" $ do
         testParse "f = 5;" parseStmt `shouldBe` expectAST 0 6 (A.Assign {lvalue = buildAST 0 1 $ A.LVariable "f", value = buildAST 4 1 $ A.IntLit 5})

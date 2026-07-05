@@ -66,7 +66,7 @@ newtype Body = Body [AST Stmt]
   deriving (Eq)
 
 data Stmt
-  = Let {name :: AST T.Text, type_ :: AST TypeExpr, value :: AST Expr}
+  = Let {name :: AST T.Text, type_ :: Maybe (AST TypeExpr), value :: AST Expr}
   | Assign {lvalue :: AST LValue, value :: AST Expr}
   | ExprStmt {value :: AST Expr, semicolon :: Bool}
   | Return (Maybe (AST Expr))
@@ -167,7 +167,9 @@ instance Show Body where
     tell "}"
 
 instance Show Stmt where
-  show (Let {name = (AST name _), type_, value}) = printf "let %s: %s = %s;" (T.unpack name) (show type_) (show value)
+  show (Let {name = (AST name _), type_, value}) = case type_ of
+    Just type_ -> printf "let %s: %s = %s;" (T.unpack name) (show type_) (show value)
+    Nothing -> printf "let %s = %s;" (T.unpack name) (show value)
   show (Assign {lvalue, value}) = printf "%s = %s;" (show lvalue) (show value)
   show (ExprStmt {value, semicolon = True}) = printf "%s;" (show value)
   show (ExprStmt {value, semicolon = False}) = printf "%s" (show value)
