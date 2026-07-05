@@ -1,0 +1,9 @@
+{
+    let print = builtin print;
+
+    let x = 5;
+    print(x);
+
+    let x = false;
+    print(x);
+}

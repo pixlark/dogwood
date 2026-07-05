@@ -213,7 +213,7 @@ typecheckExpr (LST (L.IfThen condition body elseBody) span) = do
   let tyBody = typeOf (node tBody)
       tyElseBody = typeOf (node tElseBody)
   when (tyBody `doesNotUnify` tyElseBody) do
-    markSpan (spanOf tCondition) (typeMismatch tyBody tyElseBody)
+    markSpan (spanOf tElseBody) (typeMismatch tyBody tyElseBody)
 
   return $ TST (T.IfThen tyBody tCondition tBody tElseBody) span
 typecheckExpr (LST (L.Builtin name) span) = do

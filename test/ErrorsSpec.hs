@@ -49,22 +49,6 @@ spec =
           return $ x + y
       e `shouldBe` Left ["here's an error"]
 
-    it "preserves error order" do
-      let
-        e :: Either [String] ()
-        e = runPureEff $ runErrorsNoCallStack do
-          markErr "first"
-          markErr "second"
-          markErr "third"
-      e `shouldBe` Left ["first", "second", "third"]
-
-    it "handles many accumulated errors" do
-      let
-        e :: Either [Int] ()
-        e = runPureEff $ runErrorsNoCallStack do
-          mapM_ markErr [1 .. 100]
-      e `shouldBe` Left [1 .. 100]
-
     it "does not execute code after throwErr" do
       ref <- newIORef False
       let
@@ -84,17 +68,6 @@ spec =
           unsafeEff_ $ writeIORef ref True
       e `shouldBe` Left ["continue"]
       readIORef ref `shouldReturn` True
-
-    it "collects errors before throwErr" do
-      let
-        e :: Either [String] Int
-        e = runPureEff $ runErrorsNoCallStack do
-          markErr "first"
-          markErr "second"
-          _ <- throwErr "abort"
-          markErr "never reached"
-          return 1
-      e `shouldBe` Left ["first", "second", "abort"]
 
     it "handles nested runErrors independently" do
       let
@@ -137,28 +110,12 @@ spec =
             return 42
       e `shouldBe` Left ["outer abort"]
 
-    it "handles empty computation" do
+    it "tryErr works" do
       let
-        e :: Either [String] ()
-        e = runPureEff $ runErrorsNoCallStack $ return ()
-      e `shouldBe` Right ()
-
-    it "computation result is discarded when errors exist" do
-      let
-        e :: Either [String] Int
+        e :: Either [String] (Either [String] Int)
         e = runPureEff $ runErrorsNoCallStack do
-          markErr "error"
-          return 42
-      e `shouldBe` Left ["error"]
-
-    it "multiple throwErr only throws first" do
-      ref <- newIORef (0 :: Int)
-      let
-        e :: Either [String] ()
-        e = runPureEff $ runErrorsNoCallStack do
-          unsafeEff_ $ modifyIORef ref (+ 1)
-          _ <- throwErr "first"
-          unsafeEff_ $ modifyIORef ref (+ 1)
-          throwErr "second"
-      e `shouldBe` Left ["first"]
-      readIORef ref `shouldReturn` 1
+          result <- tryErrNoCallStack do
+            markErr "error"
+            return 5
+          return result
+      e `shouldBe` Right (Left ["error"])

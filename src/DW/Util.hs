@@ -12,9 +12,11 @@ module DW.Util
     stripCallStacks,
     insertAssoc,
     (<$$>),
+    leftMap,
   )
 where
 
+import Data.Bifunctor (first)
 import Data.List (findIndex)
 import Data.Maybe
 import Effectful
@@ -98,3 +100,6 @@ insertAssoc key value list = case idx of
 
 (<$$>) :: (Functor f, Functor f') => (a -> b) -> f' (f a) -> f' (f b)
 (<$$>) = fmap . fmap
+
+leftMap :: (e -> e') -> Either e a -> Either e' a
+leftMap = first

@@ -166,7 +166,13 @@ nextToken = do
   where
     skipWhitespace = do
       c <- current
+      when (c == Just '#') skipRestOfLine
+      c <- current
       when (c == Just ' ' || c == Just '\n') (do advance; skipWhitespace)
+    skipRestOfLine = do
+      c <- current
+      advance
+      when (c /= Just '\n') skipRestOfLine
     tryMakeDoubleOrSingleGlyph c c' = do
       doubleGlyph <- tryMakeDoubleGlyph c c'
       case doubleGlyph of

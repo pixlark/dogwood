@@ -15,8 +15,8 @@
     "comments": {
       "patterns": [
         {
-          "name": "comment.line.double-slash.dogwood",
-          "match": "//.*$"
+          "name": "comment.line.hash.dogwood",
+          "match": "#.*$"
         }
       ]
     },

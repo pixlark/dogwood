@@ -2,15 +2,15 @@ module IntegrationSpec where
 
 import DW.Common
 import DW.Config (ConfigData (..), LogLevel (..))
+import qualified DW.Frontend as Frontend
+import DW.Util (orElse)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
-import qualified DW.Frontend as Frontend
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, takeFileName)
 import System.Process (readProcessWithExitCode)
 import Test.Hspec
-import DW.Util (orElse)
 
 integrationTest sourceFile = do
   let sourcePath = "test/integration_tests/" ++ sourceFile
@@ -53,3 +53,5 @@ spec = do
       stdout `shouldSatisfy` Text.isPrefixOf "fn(any) -> void"
     it "crashes when evaluating undefined" do
       void $ integrationTest "evaluateundefined.pr"
+    it "handles variable shadowing" do
+      void $ integrationTest "variableshadowing.pr"
