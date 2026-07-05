@@ -24,7 +24,7 @@
 --
 -- The implementation is modeled after the implementation of `Effectful.Error.Static`.
 --
--- Internally, it uses `unsafeEff_` to manage `IORef`s and to throw and catch `IO` exceptions.
+-- Internally, it uses `unsafeEff_` to generate unique IDs and to throw and catch `IO` exceptions.
 --
 -- This is safe because the use of `IO` here doesn't perform visible side effects, and since the entire effects
 -- stack always runs underneath `IO` anyways, we don't have to worry about sequencing or double-evaluation.
@@ -32,10 +32,8 @@ module DW.Error.Internal.ErrorsEffect where
 
 import Control.Monad (forM_)
 import DW.Util (leftMap)
-import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
 import Data.List.NonEmpty (NonEmpty (..), (<|))
 import qualified Data.List.NonEmpty as NE
-import Debug.Trace
 import Effectful
 import Effectful.Dispatch.Static
 import qualified Effectful.Error.Static as E
@@ -46,23 +44,21 @@ import GHC.Stack
 data Errors e :: Effect
 type instance DispatchOf (Errors e) = Static NoSideEffects
 
-data ErrorsState e = ErrorsState
-  { errorsRef :: IORef (NonEmpty [(CallStack, e)]),
+data instance StaticRep (Errors e)
+  = Errors
+  { errors :: NonEmpty [(CallStack, e)],
     errorId :: ErrorId,
-    abortErrorId :: ErrorId
+    abortId :: ErrorId
   }
-
-newtype instance StaticRep (Errors e) = Errors (ErrorsState e)
 
 runErrors :: (HasCallStack) => Eff (Errors e : es) a -> Eff es (Either [(CallStack, e)] a)
 runErrors action = do
-  ref <- unsafeEff_ $ newIORef (NE.singleton [])
+  let errs = NE.singleton []
   eid <- unsafeEff_ newErrorId
   aid <- unsafeEff_ newErrorId
-  result <-
-    evalStaticRep (Errors (ErrorsState ref eid aid)) $
+  (result, Errors {errors}) <-
+    runStaticRep (Errors errs eid aid) $
       tryIf (isMatch . matchError eid aid) action
-  errors <- unsafeEff_ $ readIORef ref
   return $ case errors of
     [] :| _ -> case result of
       Right result -> Right result
@@ -74,19 +70,23 @@ runErrorsNoCallStack action = do
   result <- runErrors action
   return $ map snd `leftMap` result
 
-addErrToIORef :: IORef (NonEmpty [(CallStack, e)]) -> (CallStack, e) -> IO ()
-addErrToIORef ref e = modifyIORef ref $ \(errs :| rest) -> (e : errs) :| rest
+addErr :: (Errors e :> es) => (CallStack, e) -> Eff es ()
+addErr e = do
+  Errors (errs :| rest) eid aid <- getStaticRep
+  putStaticRep $ Errors ((e : errs) :| rest) eid aid
 
-addErrsToIORef :: IORef (NonEmpty [(CallStack, e)]) -> [(CallStack, e)] -> IO ()
-addErrsToIORef ref e = modifyIORef ref $ \(errs :| rest) -> (e ++ errs) :| rest
+addErrs :: (Errors e :> es) => [(CallStack, e)] -> Eff es ()
+addErrs e = do
+  Errors (errs :| rest) eid aid <- getStaticRep
+  putStaticRep $ Errors ((e ++ errs) :| rest) eid aid
 
 -- | Mark down the error and abort the entire computation.
 -- Basically equivalent to `throwError` from the `Error` effect.
 throwErr :: (Show e, HasCallStack, Errors e :> es) => e -> Eff es a
 throwErr e = do
-  Errors (ErrorsState ref eid _) <- getStaticRep
-  _ <- unsafeEff_ $ addErrToIORef ref (callStack, e)
-  withFrozenCallStack throwIO $ ErrorWrapper eid callStack (show e) (toAny e)
+  Errors {errorId} <- getStaticRep
+  addErr (callStack, e)
+  withFrozenCallStack throwIO $ ErrorWrapper errorId callStack (show e) (toAny e)
 
 throwErrs :: (Show e, HasCallStack, Errors e :> es) => [e] -> Eff es a
 throwErrs errs = do
@@ -98,30 +98,28 @@ throwErrs errs = do
 -- (just as if you had called `throwErr`).
 abortIfAnyErrors :: (Show e, HasCallStack, Errors e :> es) => Eff es ()
 abortIfAnyErrors = do
-  Errors (ErrorsState ref _ aid) <- getStaticRep
-  errors <- unsafeEff_ $ readIORef ref
+  Errors {errors, abortId} <- getStaticRep
   case errors of
     [] :| _ -> return ()
-    _ -> withFrozenCallStack throwIO $ ErrorWrapper aid emptyCallStack "" (toAny ())
+    _ -> withFrozenCallStack throwIO $ ErrorWrapper abortId emptyCallStack "" (toAny ())
 
 throwErrWithCallStack :: (Show e, HasCallStack, Errors e :> es) => CallStack -> e -> Eff es a
 throwErrWithCallStack cs e = do
-  Errors (ErrorsState ref eid _) <- getStaticRep
-  _ <- unsafeEff_ $ addErrToIORef ref (cs, e)
-  withFrozenCallStack throwIO $ ErrorWrapper eid callStack (show e) (toAny e)
+  Errors {errorId} <- getStaticRep
+  addErr (cs, e)
+  withFrozenCallStack throwIO $ ErrorWrapper errorId callStack (show e) (toAny e)
 
 throwErrsWithCallStacks :: (Show e, HasCallStack, Errors e :> es) => [(CallStack, e)] -> Eff es a
 throwErrsWithCallStacks errs = do
-  Errors (ErrorsState ref eid _) <- getStaticRep
-  _ <- unsafeEff_ $ addErrsToIORef ref errs
-  withFrozenCallStack throwIO $ ErrorWrapper eid callStack (show (last errs)) (toAny (last errs))
+  Errors {errorId} <- getStaticRep
+  addErrs errs
+  withFrozenCallStack throwIO $ ErrorWrapper errorId callStack (show (last errs)) (toAny (last errs))
 
 -- | Mark down an error and continue the computation. Once the computation completes, it will
 -- fail with this error (and any others that were marked down).
 markErr :: (HasCallStack, Errors e :> es) => e -> Eff es ()
 markErr e = do
-  Errors (ErrorsState ref _ _) <- getStaticRep
-  unsafeEff_ $ addErrToIORef ref (callStack, e)
+  addErr (callStack, e)
 
 -- | Adapter for running functions that require the `Error` effect when in an `Errors` context.
 runErrorAsErrors :: (HasCallStack, Show e, Errors e :> es) => Eff (E.Error e : es) a -> Eff es a
@@ -134,27 +132,28 @@ runErrorAsErrors action = do
 -- | Attempt to run the function. If any errors are produced, return them within a `Left`.
 tryErr :: (Show e, HasCallStack, Errors e :> es) => Eff es a -> Eff es (Either [(CallStack, e)] a)
 tryErr action = do
-  Errors (ErrorsState ref eid aid) <- getStaticRep
+  staticRep <- getStaticRep
 
   -- Add a new errors list to the stack, otherwise running the internal effect will mess with the outer effect
-  _ <- unsafeEff_ $ modifyIORef ref ([] <|)
+  putStaticRep $ staticRep {errors = [] <| staticRep.errors}
 
   -- Attempt to run the inner effect. If it aborts computation, then save the errors it produced
-  result <- catchIf (isMatch . matchError eid aid) (Right <$> action) $ \_ -> do
-    errors <- unsafeEff_ $ readIORef ref
-    return $ Left $ NE.head errors
+  result <- catchIf (isMatch . matchError staticRep.errorId staticRep.abortId) (Right <$> action) $ \_ -> do
+    Left . NE.head . errors <$> getStaticRep
+
+  staticRep <- getStaticRep
 
   -- If it didn't abort computation, check to make sure it didn't produce any continuable errors
   result <- case result of
     Left _ -> return result
     Right _ -> do
-      (errors :| _) <- unsafeEff_ $ readIORef ref
+      (errors :| _) <- errors <$> getStaticRep
       case errors of
         [] -> return result
         errs -> return $ Left errs
 
   -- Finally, pop the errors list from the stack
-  _ <- unsafeEff_ $ modifyIORef ref (NE.fromList . NE.tail)
+  putStaticRep $ staticRep {errors = NE.fromList $ NE.tail staticRep.errors}
   return result
 
 tryErrNoCallStack :: (Show e, HasCallStack, Errors e :> es) => Eff es a -> Eff es (Either [e] a)
