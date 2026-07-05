@@ -4,8 +4,8 @@ module DW.AST where
 
 import Control.Monad.Writer
 import DW.Common hiding (Writer, execWriter, tell)
-import qualified Data.List.NonEmpty as NE
-import qualified Data.Text as T
+import Data.List.NonEmpty qualified as NE
+import Data.Text qualified as T
 
 class SyntaxTree t where
   node :: t a -> a

@@ -2,16 +2,16 @@
 
 module Main where
 
-import qualified CompilerSpec
-import qualified EmitCSpec
-import qualified ErrorsSpec
-import qualified IntegrationSpec
-import qualified LexerSpec
-import qualified LoopPassSpec
-import qualified LowerPassSpec
-import qualified ParserSpec
+import CompilerSpec qualified
+import EmitCSpec qualified
+import ErrorsSpec qualified
+import IntegrationSpec qualified
+import LexerSpec qualified
+import LoopPassSpec qualified
+import LowerPassSpec qualified
+import ParserSpec qualified
 import Test.Hspec
-import qualified TypecheckerSpec
+import TypecheckerSpec qualified
 
 main :: IO ()
 main = hspec $ do

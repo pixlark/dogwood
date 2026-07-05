@@ -5,10 +5,10 @@ module LoopPassSpec (spec) where
 import DW.Common
 import DW.Error
 import DW.Logging (noOpLogger, runLog)
-import qualified DW.LoopPass as LoopPass
-import qualified DW.LowerPass as LowerPass
-import qualified DW.Parser as Parser
-import qualified DW.Typechecker as Typechecker
+import DW.LoopPass qualified as LoopPass
+import DW.LowerPass qualified as LowerPass
+import DW.Parser qualified as Parser
+import DW.Typechecker qualified as Typechecker
 import DW.Util (stripCallStacks)
 import Test.Hspec
 import Prelude hiding (show)

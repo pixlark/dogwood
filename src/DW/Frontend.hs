@@ -2,23 +2,23 @@
 
 module DW.Frontend (run, lsp) where
 
-import qualified DW.Clang as Clang
+import DW.Clang qualified as Clang
 import DW.Common (HasCallStack, forM_, liftIO, runEff, runError, runErrorNoCallStack, runReader, traceShowId, when, withRegion)
-import qualified DW.Compiler.Internal as Compiler
+import DW.Compiler.Internal qualified as Compiler
 import DW.Config (ConfigData (..), LogLevel (..))
-import qualified DW.EmitC as EmitC
+import DW.EmitC qualified as EmitC
 import DW.Error (displayError)
 import DW.Error.Internal.ErrorsEffect (abortIfAnyErrors, runErrorAsErrors, runErrors, runErrorsNoCallStack)
-import qualified DW.LSP as LSP
+import DW.LSP qualified as LSP
 import DW.Logging (Logger, noOpLogger, runLog, scribe, standardLoggerWithIgnoredFunctions)
-import qualified DW.LoopPass as LoopPass
-import qualified DW.LowerPass as LowerPass
-import qualified DW.Parser as Parser
-import qualified DW.Typechecker as Typechecker
+import DW.LoopPass qualified as LoopPass
+import DW.LowerPass qualified as LowerPass
+import DW.Parser qualified as Parser
+import DW.Typechecker qualified as Typechecker
 import Data.Bifunctor (Bifunctor (..))
-import qualified Data.Text as Text
-import qualified Data.Text.IO as Text.IO
-import qualified Data.Text.Lazy as LazyText
+import Data.Text qualified as Text
+import Data.Text.IO qualified as Text.IO
+import Data.Text.Lazy qualified as LazyText
 import Effectful.Error.Static (prettyCallStack)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 

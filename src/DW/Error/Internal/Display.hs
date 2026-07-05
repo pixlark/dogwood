@@ -4,7 +4,7 @@ import Control.Monad (forM_, when)
 import DW.Error.Internal.Err
 import DW.Util (orElse)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Effectful (Eff, runPureEff, (:>))
 import Effectful.Reader.Static (Reader, ask, runReader)
 import Effectful.Writer.Static.Local (Writer, execWriter, tell)

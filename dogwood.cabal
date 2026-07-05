@@ -59,6 +59,7 @@ common extensions
         BlockArguments
         LambdaCase
         MultiWayIf
+        ImportQualifiedPost
         -- Make records more usable
         DuplicateRecordFields
         OverloadedRecordDot

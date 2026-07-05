@@ -3,8 +3,8 @@ module DW.Clang where
 import DW.Common
 import DW.Config (Config, ConfigData (..))
 import DW.Util (orElse)
-import qualified Data.Text as Text
-import qualified Data.Text.IO as Text.IO
+import Data.Text qualified as Text
+import Data.Text.IO qualified as Text.IO
 import System.Directory
 import System.Exit (ExitCode (..))
 import System.Process

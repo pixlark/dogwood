@@ -6,7 +6,7 @@ module DW.Logging (Log, Logger, scribe, runLog, standardLogger, standardLoggerWi
 
 import DW.Util (orElse, safeHead)
 import Data.Text.Lazy (Text)
-import qualified Data.Text.Lazy as Text
+import Data.Text.Lazy qualified as Text
 import Effectful (Dispatch (..), DispatchOf, Eff, Effect, IOE, (:>))
 import Effectful.Dispatch.Static (SideEffects (..), StaticRep, evalStaticRep, getStaticRep, putStaticRep, unsafeEff_)
 import GHC.Stack (HasCallStack, callStack, getCallStack)

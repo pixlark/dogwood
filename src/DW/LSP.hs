@@ -7,20 +7,20 @@ module DW.LSP where
 
 import Control.Monad (join)
 import DW.AST (AST (..))
-import qualified DW.AST as A
-import qualified DW.AST.Visit as AV
+import DW.AST qualified as A
+import DW.AST.Visit qualified as AV
 import DW.Common
 import DW.Error (displayError, displayErrorColorless)
 import DW.TypedAST (TST (..))
-import qualified DW.TypedAST as T
-import qualified DW.TypedAST.Visit as TV
+import DW.TypedAST qualified as T
+import DW.TypedAST.Visit qualified as TV
 import DW.Util (safeHead, (<$$>))
-import qualified Data.Aeson as J
+import Data.Aeson qualified as J
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
-import qualified Data.SortedList as SortedList
-import qualified Data.Text as Text
-import qualified Data.Text.Lazy as LazyText
+import Data.Map.Strict qualified as Map
+import Data.SortedList qualified as SortedList
+import Data.Text qualified as Text
+import Data.Text.Lazy qualified as LazyText
 import GHC.Generics (Generic)
 import Language.LSP.Diagnostics (partitionBySource)
 import Language.LSP.Protocol.Message

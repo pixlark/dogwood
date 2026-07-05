@@ -3,8 +3,8 @@ module DW.Lexer.Internal where
 import DW.Common
 import DW.Util
 import Data.Char
-import qualified Data.List as List
-import qualified Data.Text as T
+import Data.List qualified as List
+import Data.Text qualified as T
 
 data TokenKind = Eof | Symbol Text | Keyword Text | Glyph Text | IntLiteral Int
   deriving (Eq, Show)

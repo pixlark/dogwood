@@ -4,15 +4,15 @@
 module DW.EmitC where
 
 import DW.Common
-import Data.List (intersperse)
-import qualified Data.Text as Text
-import qualified Data.Text.Lazy as LazyText
-import Data.Text.Lazy.Builder (Builder, fromText, toLazyText)
 import DW.EmitC.Internal.EmitEffect
 import DW.IR
-import NeatInterpolation
 import DW.TypedAST
 import DW.Util (getSingleElement, orElse)
+import Data.List (intersperse)
+import Data.Text qualified as Text
+import Data.Text.Lazy qualified as LazyText
+import Data.Text.Lazy.Builder (Builder, fromText, toLazyText)
+import NeatInterpolation
 
 emitValueType :: forall es. (Emit :> es) => Eff es () -> ValueTypeExpr -> Eff es ()
 emitValueType name Any = do emit "Box"; name

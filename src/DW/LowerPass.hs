@@ -1,10 +1,10 @@
 module DW.LowerPass (runLowerPass) where
 
-import qualified DW.AST as AST
-import qualified DW.LoweredAST as L
+import DW.AST qualified as AST
+import DW.LoweredAST qualified as L
 import DW.Util
 import Data.List.NonEmpty (NonEmpty (..))
-import qualified Data.List.NonEmpty as NE
+import Data.List.NonEmpty qualified as NE
 
 lowerAST :: AST.AST a -> (a -> b) -> L.LST b
 lowerAST (AST.AST x span) f = L.LST (f x) span

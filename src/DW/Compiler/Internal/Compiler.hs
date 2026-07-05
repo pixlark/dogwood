@@ -7,16 +7,16 @@ import DW.Compiler.Internal.Program
 import DW.Compiler.Internal.Users
 import DW.IR
 import DW.LexicalScopes
-import qualified DW.Logging as Logging
+import DW.Logging qualified as Logging
 import DW.TypedAST
 import DW.Util
 import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet (HashSet)
-import qualified Data.HashSet as HashSet
+import Data.HashSet qualified as HashSet
 import Data.Hashable
 import Data.List (nub)
-import qualified Data.Text.Lazy
+import Data.Text.Lazy qualified
 
 newtype VarId = VarId Int
   deriving (Show, Eq)

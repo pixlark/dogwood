@@ -3,14 +3,14 @@
 module ParserSpec (spec) where
 
 import DW.AST (AST (..))
-import qualified DW.AST as A
+import DW.AST qualified as A
 import DW.Common
 import DW.Error
 import DW.Lexer.Internal
 import DW.Parser.Internal
 import DW.Util (stripCallStacks)
-import qualified Data.List.NonEmpty as NE
-import qualified Data.Text as T
+import Data.List.NonEmpty qualified as NE
+import Data.Text qualified as T
 import NeatInterpolation
 import Test.Hspec
 

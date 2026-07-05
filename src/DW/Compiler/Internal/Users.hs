@@ -5,10 +5,10 @@
 module DW.Compiler.Internal.Users where
 
 import DW.Common
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
 import DW.IR (BlockId, Name)
 import DW.Util
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
 
 -- | Uniquely identifies an instruction
 data UserReference

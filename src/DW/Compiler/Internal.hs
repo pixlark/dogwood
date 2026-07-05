@@ -11,7 +11,7 @@ import DW.LexicalScopes
 import DW.Typechecker (unifies)
 import DW.TypedAST
 import DW.Util
-import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict qualified as HashMap
 
 compileBody :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => Body -> Span -> Eff es Name
 compileBody (Body ty stmts) span = do

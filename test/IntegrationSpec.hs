@@ -2,10 +2,10 @@ module IntegrationSpec where
 
 import DW.Common
 import DW.Config (ConfigData (..), LogLevel (..))
-import qualified DW.Frontend as Frontend
+import DW.Frontend qualified as Frontend
 import DW.Util (orElse)
-import qualified Data.Text as Text
-import qualified Data.Text.IO as Text.IO
+import Data.Text qualified as Text
+import Data.Text.IO qualified as Text.IO
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, takeFileName)

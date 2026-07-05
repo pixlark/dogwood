@@ -1,13 +1,13 @@
 module DW.Parser.Internal where
 
 import DW.AST (AST (..))
-import qualified DW.AST as A
+import DW.AST qualified as A
 import DW.Common
 import DW.Error
 import DW.Error.Internal.ErrorsEffect (throwErrsWithCallStacks)
 import DW.Lexer.Internal (Lexer, Token (..), TokenKind (..), makeLexer, nextToken)
 import Data.List.NonEmpty (NonEmpty (..), (<|))
-import qualified Data.List.NonEmpty as NE
+import Data.List.NonEmpty qualified as NE
 
 data Parser = Parser {current :: Token, lexer :: Lexer, lastTokenEnd :: Int}
   deriving (Show)

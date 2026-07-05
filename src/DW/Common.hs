@@ -112,7 +112,7 @@ import Data.Either (isLeft, isRight)
 import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import Data.Text.Format (Format, Only (..), Shown (..), format)
-import qualified Data.Text.Lazy
+import Data.Text.Lazy qualified
 import Debug.Trace (trace, traceId, traceShow, traceShowId)
 import Effectful (Eff, IOE, liftIO, runEff, runPureEff, (:>))
 import Effectful.Error.Static (CallStack, Error, HasCallStack, runError, runErrorNoCallStack, throwError, tryError)

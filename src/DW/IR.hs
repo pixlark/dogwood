@@ -1,10 +1,10 @@
 module DW.IR where
 
 import DW.Common
+import DW.TypedAST qualified as T
 import Data.Hashable (Hashable (..))
 import Data.List (intercalate)
-import qualified Data.Text as Text
-import qualified DW.TypedAST as T
+import Data.Text qualified as Text
 
 newtype BlockId = BlockId Int
   deriving (Eq, Ord)

@@ -33,10 +33,10 @@ module DW.Error.Internal.ErrorsEffect where
 import Control.Monad (forM_)
 import DW.Util (leftMap)
 import Data.List.NonEmpty (NonEmpty (..), (<|))
-import qualified Data.List.NonEmpty as NE
+import Data.List.NonEmpty qualified as NE
 import Effectful
 import Effectful.Dispatch.Static
-import qualified Effectful.Error.Static as E
+import Effectful.Error.Static qualified as E
 import Effectful.Exception
 import Effectful.Internal.Utils
 import GHC.Stack

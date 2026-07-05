@@ -7,7 +7,7 @@ module DW.LexicalScopes (LexicalScopes, HasLexicalScopes (..), lookupVariable, l
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import DW.Common
 import Data.List.NonEmpty (NonEmpty ((:|)), (<|))
-import qualified Data.List.NonEmpty as NE
+import Data.List.NonEmpty qualified as NE
 
 type LexicalScopes a = NonEmpty [(Text, a)]
 

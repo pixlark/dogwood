@@ -8,11 +8,11 @@ import DW.Common
 import DW.Error (markSpan)
 import DW.LexicalScopes
 import DW.LoweredAST (LST (..))
-import qualified DW.LoweredAST as L
+import DW.LoweredAST qualified as L
 import DW.TypedAST (TST (..), typeOf)
-import qualified DW.TypedAST as T
+import DW.TypedAST qualified as T
 import DW.Util
-import qualified Data.Text as Text
+import Data.Text qualified as Text
 
 newtype Typechecker = Typechecker {scopes :: LexicalScopes T.TypeExpr}
 

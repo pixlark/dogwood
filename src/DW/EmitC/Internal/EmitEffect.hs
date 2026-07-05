@@ -7,9 +7,9 @@ module DW.EmitC.Internal.EmitEffect (Emit, emit, preamble, flush, abort, runEmit
 
 import DW.Common
 import Data.List.NonEmpty (NonEmpty (..))
-import qualified Data.List.NonEmpty as NE
-import qualified Data.Text as Text
-import qualified Data.Text.Lazy as LazyText
+import Data.List.NonEmpty qualified as NE
+import Data.Text qualified as Text
+import Data.Text.Lazy qualified as LazyText
 import Data.Text.Lazy.Builder (Builder, fromText, toLazyText)
 import Effectful
 import Effectful.Dispatch.Dynamic
