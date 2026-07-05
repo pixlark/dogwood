@@ -130,8 +130,12 @@ getBuiltins span =
 
 potentiallyBox :: (HasCallStack, Log :> es) => T.TypeExpr -> T.Expr -> Eff es T.Expr
 potentiallyBox (T.TypeExpr {valueExpr = T.Any}) e = do
-  scribe $ format "Boxing expression {} to coerce to any (original type: {})" (Shown e, Shown (typeOf e))
-  return $ T.Boxed (typeOf e) e
+  scribe $ format "{}" (Only (Shown e))
+  if typeOf e == T.mkAny
+    then return e -- already boxed
+    else do
+      scribe $ format "Boxing expression {} to coerce to any (original type: {})" (Shown e, Shown (typeOf e))
+      return $ T.Boxed (typeOf e) e
 potentiallyBox _ e = return e
 
 typecheckExpr ::
@@ -235,12 +239,14 @@ typecheckStmt ::
 typecheckStmt (LST (L.Let {name, type_, value}) span) = do
   tValue <- typecheckExpr value
 
+  scribe $ format "{} : {}" (Shown tValue, Shown (typeOf $ node tValue))
+
   let typeAnnotation = convertLST $ convertTypeExpr <$> type_
   let expectType = typeOf (node tValue)
   when (node typeAnnotation `doesNotUnify` expectType) do
     markSpan (spanOf value) (typeMismatch (node typeAnnotation) expectType)
 
-  tValue' <- potentiallyBox expectType `traverse` tValue
+  tValue' <- potentiallyBox (node typeAnnotation) `traverse` tValue
 
   scribe $ format "Binding variable {} (type: {})" (node name, Shown type_)
   bindNewVariable (node name) (node typeAnnotation)

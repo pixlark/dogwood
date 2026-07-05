@@ -110,6 +110,8 @@ lsp cfg = do
       -- Passes 1 and 2: Lexing and parsing
       ast <- runErrorAsErrors $ Parser.runParser source Parser.parseStmt
 
+      abortIfAnyErrors
+
       -- Pass 3: Lowering
       let loweredAST = LowerPass.runLowerPass ast
 

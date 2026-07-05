@@ -18,7 +18,6 @@ visitor = defaultVisitor {onStmt}
         put $ LoopPass True
         _ <- recurse
         put saved
-      recurse
     onStmt (TST Break span) recurse = do
       scribe "found break!"
       canBreak <- gets inBreakableContext
