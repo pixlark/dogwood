@@ -68,7 +68,14 @@ lowerExpr ast = lowerAST ast $ \case
   AST.ExprBody body -> L.ExprBody (lowerBody body)
   AST.IfChain _ _ -> error "unreachable"
   AST.Builtin name -> L.Builtin name
-  AST.Lambda {} -> undefined
+  AST.Lambda {params, returnType, body} ->
+    L.Lambda
+      { params = map (\(ty, name) -> (lowerTypeExpr ty, lowerAST name id)) params,
+        returnType =
+          (lowerTypeExpr <$> returnType)
+            `orElse` L.LST L.mkVoid (AST.spanOf ast),
+        body = lowerExpr body
+      }
 
 lowerLValue :: AST.AST AST.LValue -> L.LST L.LValue
 lowerLValue ast = lowerAST ast $ \(AST.LVariable name) -> L.LVariable name

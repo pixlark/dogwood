@@ -6,6 +6,7 @@ import DW.AST (SyntaxTree (..))
 import DW.Common hiding (Writer, execWriter, tell)
 
 import Control.Monad.Writer
+import Data.List (intersperse)
 import Data.Text qualified as T
 
 data LST a = LST a Span
@@ -52,9 +53,9 @@ data Expr
   | UnaryOperator Operator (LST Expr)
   | FunctionCall {function :: LST Expr, arguments :: [LST Expr]}
   | ExprBody Body
-  | -- | IfChain (NE.NonEmpty (LST Expr, LST Expr)) (Maybe (LST Expr))
-    IfThen (LST Expr) (LST Expr) (LST Expr)
+  | IfThen (LST Expr) (LST Expr) (LST Expr)
   | Builtin Text
+  | Lambda {params :: [(LST TypeExpr, LST Text)], returnType :: LST TypeExpr, body :: LST Expr}
   deriving (Eq)
 
 newtype LValue = LVariable T.Text
@@ -77,6 +78,14 @@ makeValueExpr valueExpr = TypeExpr {reference = False, valueExpr}
 
 makeReferenceExpr :: ValueTypeExpr -> TypeExpr
 makeReferenceExpr valueExpr = TypeExpr {reference = True, valueExpr}
+
+mkAny = makeValueExpr Any
+
+mkVoid = makeValueExpr Void
+
+mkBool = makeValueExpr Bool
+
+mkInt = makeValueExpr Int
 
 instance (Show a) => Show (LST a) where
   show (LST value _) = show value
@@ -139,6 +148,21 @@ instance Show Expr where
     tell " else "
     tell $ show elseBody
   show (Builtin name) = printf "builtin %s" name
+  show (Lambda {params, returnType, body}) = execWriter $ do
+    tell "fn("
+    forM_ (intersperse Nothing $ Just <$> params) $ \m -> do
+      case m of
+        Nothing -> tell ", "
+        Just (ty, name) -> do
+          tell $ T.unpack $ node name
+          tell ": "
+          tell $ show ty
+    tell ") -> "
+    tell $ show returnType
+    case node body of
+      ExprBody _ -> tell " "
+      _ -> tell ": "
+    tell $ show body
 
 instance Show LValue where
   show (LVariable name) = T.unpack name
@@ -152,7 +176,9 @@ instance Show Body where
     tell "}"
 
 instance Show Stmt where
-  show (Let {name = (LST name _), type_, value}) = printf "let %s: %s = %s;" (T.unpack name) (show type_) (show value)
+  show (Let {name = (LST name _), type_, value}) = case type_ of
+    Just type_ -> printf "let %s: %s = %s;" (T.unpack name) (show type_) (show value)
+    Nothing -> printf "let %s = %s;" (T.unpack name) (show value)
   show (Assign {lvalue, value}) = printf "%s = %s;" (show lvalue) (show value)
   show (ExprStmt {value, semicolon = True}) = printf "%s;" (show value)
   show (ExprStmt {value, semicolon = False}) = printf "%s" (show value)
