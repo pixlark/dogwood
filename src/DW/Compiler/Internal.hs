@@ -58,7 +58,7 @@ compileExpr (TST (FunctionCall ty fn args) span) = do
 compileExpr (TST (ExprBody body) span) = compileBody body span
 compileExpr (TST (IfThen ty condition body elseBody) span) = withRegion "Compiling if-then..." do
   -- Allocate a sealed block for the condition
-  conditionBlock <- allocateBlock
+  conditionBlock <- allocateBlock span
   scribe $ format "Allocating block {} for the condition" (Only (Shown conditionBlock))
   setControl (Jump conditionBlock) span
   markSealed conditionBlock span
@@ -68,9 +68,9 @@ compileExpr (TST (IfThen ty condition body elseBody) span) = withRegion "Compili
   resultName <- withRegion "Compiling the condition..." $ compileExpr condition
 
   -- Allocate a block for the body and the elseBody
-  bodyBlock <- allocateBlock
+  bodyBlock <- allocateBlock span
   scribe $ format "Allocating block {} for the body" (Only (Shown bodyBlock))
-  elseBodyBlock <- allocateBlock
+  elseBodyBlock <- allocateBlock span
   scribe $ format "Allocating block {} for the else-body" (Only (Shown elseBodyBlock))
 
   -- Now whatever the current block is should jump conditionally to those blocks
@@ -81,7 +81,7 @@ compileExpr (TST (IfThen ty condition body elseBody) span) = withRegion "Compili
   markSealed elseBodyBlock span
 
   -- Allocate an unsealed block to follow the if (and grab its result with a phi instruction)
-  postBlock <- allocateBlock
+  postBlock <- allocateBlock span
   scribe $ format "Allocating block {} for the if-result" (Only (Shown postBlock))
 
   -- Now we can actually compile into those blocks
@@ -117,6 +117,7 @@ compileExpr (TST (Builtin ty bName) span) = do
 compileExpr (TST (Boxed ty value) span) = do
   inner <- compileExpr (TST value span)
   emit mkAny (RBox ty inner) span
+compileExpr (TST (Lambda {}) span) = undefined
 
 compileStmt :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TST Stmt -> Eff es (Maybe Name)
 compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do
@@ -145,11 +146,11 @@ compileStmt (TST (ExprStmt expr semicolon) _) = do
 compileStmt (TST (Return _) _) = undefined
 compileStmt (TST (Loop (TST body bodySpan)) span) = withRegion "Compiling loop statement..." do
   -- allocate a new basic block to hold the body of the loop
-  loopBlock <- allocateBlock
+  loopBlock <- allocateBlock span
   scribe $ format "Allocated block {} for body of the loop" (Only (Shown loopBlock))
   -- also pre-allocate a block for the block that will follow the loop
   -- (this is where we'll jump to when we hit a break statement)
-  postLoopBlockId <- allocateBlock
+  postLoopBlockId <- allocateBlock span
   scribe $ format "Allocated block {} to follow the loop" (Only (Shown postLoopBlockId))
   modify (\c -> c {currentBreakBlocks = postLoopBlockId : c.currentBreakBlocks})
   -- the current block should conclude by jumping to the new loop block
@@ -185,7 +186,7 @@ compileStmt (TST Break span) = withRegion "Compiling break statement..." do
       --     control flow instruction we just wrote
       -- ideally once we introduce an optimizer pass, it will be able to trivially tell from the CFG
       -- that this block is never executed, and eliminate it before any code generation is actually done
-      nextBlock <- allocateBlock
+      nextBlock <- allocateBlock span
       markSealed nextBlock span
       scribe $ format "Allocated block {} to dump post-break instructions" (Only (Shown nextBlock))
       switchToBlock nextBlock
@@ -199,10 +200,11 @@ compileProgram stmt@(TST _ _) = withRegion "Compiling program..." do
 compileAndCheck :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TST Stmt -> Eff es ()
 compileAndCheck stmt = do
   compileProgram stmt
-  (Program blocks) <- gets program
-  forM_ blocks $ \(id, _) -> do
-    seal <- isSealed id
-    unless seal $ throwSpan (spanOf stmt) InternalCompilerError
+  (Program fns) <- gets program
+  forM_ (HashMap.toList fns) $ \(_, FnDef _ blocks) -> do
+    forM_ blocks $ \(id, _) -> do
+      seal <- isSealed id
+      unless seal $ throwSpan (spanOf stmt) InternalCompilerError
 
 runCompiler :: (HasCallStack, Errors Err :> es, Log :> es) => TST Stmt -> Eff es Program
 runCompiler stmt = do

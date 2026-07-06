@@ -35,7 +35,7 @@ testCompile source = do
   return $ first (concatMap $ unpack . displayError source) (stripCallStacks result)
 
 getPhis :: Program -> [Phi]
-getPhis (Program blocks) = concatMap (\(_, block) -> block.phis) blocks
+getPhis (Program fns) = concatMap (\(_, block) -> block.phis) (concatMap (\(FnDef _ blocks) -> blocks) fns)
 
 -- | Check if a phi has all operands pointing to the same name (trivial)
 isTrivialPhi :: Phi -> Bool

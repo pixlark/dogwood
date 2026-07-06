@@ -3,12 +3,14 @@
 
 module DW.EmitC where
 
+import DW.AST (node)
 import DW.Common
 import DW.EmitC.Internal.EmitEffect
 import DW.IR
 import DW.TypedAST
 import DW.Util (getSingleElement, orElse)
 
+import Data.HashMap.Strict qualified as HashMap
 import Data.List (intersperse)
 import Data.Text qualified as Text
 import Data.Text.Lazy qualified as LazyText
@@ -167,21 +169,8 @@ emitRHS (RBox TypeExpr {valueExpr = ty} name) = do
   emitRuntimeTypeInfo ty
   emit ")"
 
-emitC :: (Emit :> es) => Program -> Eff es ()
-emitC (Program blocks) = do
-  emit
-    [text|
-      #include <stdlib.h>
-      #include <stddef.h>
-      #include <stdio.h>
-      #include <stdint.h>
-      #include <stdbool.h>
-      #include <runtime.h>
-
-      int main() {
-    |]
-  emit "\n"
-
+emitFn :: (Emit :> es) => FnDef -> Eff es ()
+emitFn (FnDef _ blocks) = do
   -- declare all local variables at the top
   forM_ blocks $ \(_, Block {phis, instructions}) -> do
     forM_ instructions $ \(SSA {ty, name}) -> do
@@ -252,11 +241,49 @@ emitC (Program blocks) = do
   -- generate the return block
   emit "__ret:\n  return 0;\n"
 
+emitC :: (Emit :> es, Errors Err :> es) => Program -> Eff es ()
+emitC (Program fns) = do
   emit
     [text|
+      #include <stdlib.h>
+      #include <stddef.h>
+      #include <stdio.h>
+      #include <stdint.h>
+      #include <stdbool.h>
+      #include <runtime.h>
+    |]
+  emit "\n\n"
+  forM_ (HashMap.toList fns) $ \(id, def) -> do
+    emitFnHeader id def
+    emit ";\n"
+  emit "\n"
+  forM_ (HashMap.toList fns) $ \(id, def) -> do
+    emitFnHeader id def
+    emit "\n{\n"
+    emitFn def
+    emit "}\n\n"
+
+  emit
+    [text|
+      int main() {
+        _function_0();
+        return 0;
       }
     |]
-  emit "\n"
+  where
+    emitFnHeader (FnId id) fn@(FnDef ty _) = do
+      (params, ret) <- case ty of
+        TypeExpr {valueExpr = Function params ret} -> return (params, ret)
+        _ -> throwSpan (Span 0 1) InternalCompilerError
+      flip emitType (node ret) do
+        emit " _function_"
+        emit $ Text.show id
+        emit "("
+        forM_ (intersperse Nothing (Just <$> params `zip` [0 ..])) $ \case
+          Nothing -> emit ", "
+          Just (TST ty _, n) -> do
+            emitType (do emit " _"; emit $ Text.show n) ty
+        emit ")"
 
-runEmitC :: (HasCallStack) => Program -> Eff es Text
+runEmitC :: (HasCallStack, Errors Err :> es) => Program -> Eff es Text
 runEmitC = runEmit . emitC

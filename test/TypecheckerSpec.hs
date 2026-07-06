@@ -73,6 +73,10 @@ spec = do
       (show <$$> testTypecheck "loop { 15; }") `shouldReturn` Right "loop {\n15;\n} : void"
     it "typechecks lexical scopes" do
       (show <$$> testTypecheck "{ let x: int = 5; { let x: bool = false; x || false } x + 5 }") `shouldReturn` Right "{\nlet x: int = 5;\n{\nlet x: bool = false;\n((x : bool) || false : bool)\n} : bool\n((x : int) + 5 : int)\n} : int"
+    it "typechecks lambda expressions" do
+      (show <$$> testTypecheck "{ let x = 5; let f = fn() -> int: x; }") `shouldSatisfyM` isErrorKind (UnboundVariable "x")
+      (show <$$> testTypecheck "let f = fn() -> int: void;") `shouldSatisfyM` isErrorKind (TypeMismatch "void" "int")
+      (show <$$> testTypecheck "{ let f = fn(x: int) -> int: x; let y = f(1); }") `shouldReturn` Right "{\nlet f: fn(int) -> int = fn(x: int) -> int: (x : int);\nlet y: int = (f(1) : int);\n} : void"
     it "typchecks complex programs" do
       let source =
             [text|

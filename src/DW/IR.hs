@@ -3,6 +3,8 @@ module DW.IR where
 import DW.Common
 import DW.TypedAST qualified as T
 
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
 import Data.Hashable (Hashable (..))
 import Data.List (intercalate)
 import Data.Text qualified as Text
@@ -12,6 +14,9 @@ newtype BlockId = BlockId Int
 
 newtype Name = Name Int
   deriving (Eq)
+
+newtype FnId = FnId Int
+  deriving (Show, Eq)
 
 data RHS
   = -- Literals
@@ -44,8 +49,14 @@ data Block = Block {phis :: [Phi], instructions :: [SSA], control :: Control, pr
 mkBlock :: Block
 mkBlock = Block [] [] Halt []
 
-newtype Program = Program [(BlockId, Block)]
+data FnDef = FnDef T.TypeExpr [(BlockId, Block)]
   deriving (Eq)
+
+newtype Program = Program (HashMap FnId FnDef)
+  deriving (Eq)
+
+fnMap :: Program -> HashMap FnId FnDef
+fnMap (Program fnMap) = fnMap
 
 class ShowWithSource a where
   showWithSource :: Text -> a -> String
@@ -97,26 +108,32 @@ instance ShowWithSource SSA where
       left' = left ++ replicate padAmount ' '
 
 instance Show Block where
-  show (Block phis insts control _) = concatMap (printf "  %s\n" . show) phis ++ concatMap (printf "  %s\n" . show) insts ++ printf "  %s\n" (show control)
+  show (Block phis insts control _) = concatMap (printf "    %s\n" . show) phis ++ concatMap (printf "    %s\n" . show) insts ++ printf "    %s\n" (show control)
 
 instance ShowWithSource Block where
-  showWithSource source (Block phis insts control _) = concatMap (printf "  %s\n" . showWithSource source) phis ++ concatMap (printf "  %s\n" . showWithSource source) insts ++ printf "  %s\n" (show control)
+  showWithSource source (Block phis insts control _) = concatMap (printf "    %s\n" . showWithSource source) phis ++ concatMap (printf "    %s\n" . showWithSource source) insts ++ printf "    %s\n" (show control)
 
 instance Show Program where
   show (Program blocks) =
     concatMap
-      ( \(id, block@(Block _ _ _ preds)) ->
-          printf "%s%s:\n%s" (show id) (if null preds then "" :: String else printf "[%s]" $ intercalate ", " $ map show preds) (show block)
-      )
-      blocks
+      (uncurry showFnDef)
+      (HashMap.toList blocks)
+    where
+      showFnDef id (FnDef _ blocks) = printf "function %s:\n%s" (show id) (concatMap (uncurry showBlock) blocks)
+      showBlock :: BlockId -> Block -> String
+      showBlock id block =
+        printf "  %s%s:\n%s" (show id) (if null block.predecessors then "" :: String else printf "[%s]" $ intercalate ", " $ map show block.predecessors) (show block)
 
 instance ShowWithSource Program where
   showWithSource source (Program blocks) =
     concatMap
-      ( \(id, block@(Block _ _ _ preds)) ->
-          printf "%s%s:\n%s" (show id) (if null preds then "" :: String else printf "[%s]" $ intercalate ", " $ map show preds) (showWithSource source block)
-      )
-      blocks
+      (uncurry showFnDef)
+      (HashMap.toList blocks)
+    where
+      showFnDef id (FnDef _ blocks) = printf "function %s:\n%s" (show id) (concatMap (uncurry showBlock) blocks)
+      showBlock :: BlockId -> Block -> String
+      showBlock id block =
+        printf "  %s%s:\n%s" (show id) (if null block.predecessors then "" :: String else printf "[%s]" $ intercalate ", " $ map show block.predecessors) (showWithSource source block)
 
 instance Hashable Name where
   hash (Name name) = hash name
@@ -125,3 +142,7 @@ instance Hashable Name where
 instance Hashable BlockId where
   hash (BlockId id) = hash id
   hashWithSalt salt (BlockId id) = hashWithSalt salt id
+
+instance Hashable FnId where
+  hash (FnId id) = hash id
+  hashWithSalt salt (FnId id) = hashWithSalt salt id

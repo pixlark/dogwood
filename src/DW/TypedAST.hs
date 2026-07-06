@@ -4,6 +4,7 @@ import DW.AST (SyntaxTree (..))
 import DW.Common hiding (Writer, execWriter, tell)
 
 import Control.Monad.Trans.Writer (execWriter, tell)
+import Data.List (intersperse)
 import Data.Text qualified as T
 
 data TST a = TST a Span
@@ -62,6 +63,7 @@ data Expr
     IfThen TypeExpr (TST Expr) (TST Expr) (TST Expr)
   | Builtin TypeExpr Text
   | Boxed TypeExpr Expr
+  | Lambda {ty :: TypeExpr, params :: [(TST TypeExpr, TST Text)], returnType :: TST TypeExpr, body :: TST Expr}
   deriving (Eq)
 
 makeValueExpr :: ValueTypeExpr -> TypeExpr
@@ -95,6 +97,7 @@ typeOf (Builtin t _) = t
 -- the type annotation on Boxed isn't the type of the expression (a boxed expression is always of
 -- the Any type), but rather the type of the interior, boxed expression
 typeOf (Boxed _ _) = mkAny
+typeOf (Lambda t _ _ _) = t
 
 data LValue = LVariable TypeExpr T.Text
   deriving (Eq)
@@ -180,6 +183,21 @@ instance Show Expr where
     tell $ show ty
   show (Builtin ty name) = printf "builtin %s : %s" name (show ty)
   show (Boxed _ e) = show e
+  show (Lambda {params, returnType, body}) = execWriter $ do
+    tell "fn("
+    forM_ (intersperse Nothing $ Just <$> params) $ \m -> do
+      case m of
+        Nothing -> tell ", "
+        Just (ty, name) -> do
+          tell $ T.unpack $ node name
+          tell ": "
+          tell $ show ty
+    tell ") -> "
+    tell $ show returnType
+    case node body of
+      ExprBody _ -> tell " "
+      _ -> tell ": "
+    tell $ show body
 
 instance Show LValue where
   show (LVariable _ name) = T.unpack name

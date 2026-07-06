@@ -24,6 +24,9 @@ instance HasLexicalScopes T.TypeExpr Typechecker where
 mkTypechecker :: Typechecker
 mkTypechecker = Typechecker {scopes = mkScopes}
 
+rewrap :: LST a -> TST a
+rewrap (LST x span) = TST x span
+
 convertValueTypeExpr :: L.ValueTypeExpr -> T.ValueTypeExpr
 convertValueTypeExpr L.Any = T.Any
 convertValueTypeExpr L.Void = T.Void
@@ -221,6 +224,33 @@ typecheckExpr (LST (L.Builtin name) span) = do
   let builtins = getBuiltins span
   ty <- lookup name builtins `orElseMarkSpan` (span, InvalidBuiltinName name, T.mkAny)
   return $ TST (T.Builtin ty name) span
+typecheckExpr (LST (L.Lambda {params, returnType, body}) span) = do
+  -- We don't have closures yet, so while we're typechecking the body, we need to
+  -- have an empty typing environment
+  savedScopes <- gets scopes
+  modify (\t -> t {scopes = mkScopes})
+
+  params' <- forM params $ \(ty, name) -> do
+    let ty' = rewrap $ convertTypeExpr <$> ty
+        name' = rewrap name
+    bindNewVariable (node name) (node ty')
+    return (ty', name')
+
+  let returnType' = rewrap $ convertTypeExpr <$> returnType
+
+  body' <- typecheckExpr body
+
+  -- Make sure the lambda actually returns the annotated type
+  when (node returnType' `doesNotUnify` typeOf (node body')) do
+    markSpan (spanOf returnType') $ typeMismatch (typeOf (node body')) (node returnType')
+
+  -- Restore the saved scopes
+  modify (\t -> t {scopes = savedScopes})
+
+  -- Calculate a type for the lambda
+  let lambdaTy = T.makeValueExpr $ T.Function (map fst params') returnType'
+
+  return $ TST (T.Lambda lambdaTy params' returnType' body') span
 
 typeMismatch :: T.TypeExpr -> T.TypeExpr -> ErrorKind
 typeMismatch expected got = TypeMismatch {expectedType = Text.show expected, gotType = Text.show got}

@@ -43,17 +43,17 @@ runValueTypeExprVisitor v vte@(AST (Function params ret) _) =
 runValueTypeExprVisitor v vte = onValueTypeExpr v vte (return ())
 
 runTypeExprVisitor :: (Monad m) => Visitor m -> AST TypeExpr -> m ()
-runTypeExprVisitor v te@(AST (TypeExpr _ valueExpr) span_) =
+runTypeExprVisitor v te@(AST (TypeExpr _ valueExpr) span) =
   onTypeExpr v te $
-    runValueTypeExprVisitor v (AST valueExpr span_)
+    runValueTypeExprVisitor v (AST valueExpr span)
 
 runLValueVisitor :: (Monad m) => Visitor m -> AST LValue -> m ()
-runLValueVisitor v lv@(AST (LVariable _) span_) =
+runLValueVisitor v lv@(AST (LVariable _) _) =
   onLValue v lv $
     return ()
 
 runBodyVisitor :: (Monad m) => Visitor m -> AST Body -> m ()
-runBodyVisitor v body@(AST (Body stmts) span_) =
+runBodyVisitor v body@(AST (Body stmts) _) =
   onBody v body $ do
     forM_ stmts (runStmtVisitor v)
 
@@ -62,32 +62,39 @@ runExprVisitor v expr@(AST UndefinedLit _) = onExpr v expr (return ())
 runExprVisitor v expr@(AST VoidLit _) = onExpr v expr (return ())
 runExprVisitor v expr@(AST (BoolLit _) _) = onExpr v expr (return ())
 runExprVisitor v expr@(AST (IntLit _) _) = onExpr v expr (return ())
-runExprVisitor v expr@(AST (Variable _) span_) =
+runExprVisitor v expr@(AST (Variable _) _) =
   onExpr v expr $
     return ()
-runExprVisitor v expr@(AST (BinaryOperator _ left right) span_) =
+runExprVisitor v expr@(AST (BinaryOperator _ left right) _) =
   onExpr v expr $ do
     runExprVisitor v left
     runExprVisitor v right
-runExprVisitor v expr@(AST (UnaryOperator _ operand) span_) =
+runExprVisitor v expr@(AST (UnaryOperator _ operand) _) =
   onExpr v expr $ do
     runExprVisitor v operand
-runExprVisitor v expr@(AST (FunctionCall function arguments) span_) =
+runExprVisitor v expr@(AST (FunctionCall function arguments) _) =
   onExpr v expr $ do
     runExprVisitor v function
     forM_ arguments (runExprVisitor v)
-runExprVisitor v expr@(AST (ExprBody body) span_) =
+runExprVisitor v expr@(AST (ExprBody body) span) =
   onExpr v expr $
-    runBodyVisitor v (AST body span_)
-runExprVisitor v expr@(AST (IfChain bodies elseBody) span_) =
+    runBodyVisitor v (AST body span)
+runExprVisitor v expr@(AST (IfChain bodies elseBody) _) =
   onExpr v expr $ do
     forM_ bodies $ \(condition, body) -> do
       runExprVisitor v condition
       runExprVisitor v body
     forM_ elseBody $ runExprVisitor v
-runExprVisitor v expr@(AST (Builtin _) span) =
+runExprVisitor v expr@(AST (Builtin _) _) =
   onExpr v expr do
     return ()
+runExprVisitor v expr@(AST (Lambda {params, returnType, body}) _) = do
+  onExpr v expr do
+    forM_ params $ \(ty, _) -> do
+      runTypeExprVisitor v ty
+    forM_ returnType $ \returnType -> do
+      runTypeExprVisitor v returnType
+    runExprVisitor v body
 
 runStmtVisitor :: (Monad m) => Visitor m -> AST Stmt -> m ()
 runStmtVisitor v stmt@(AST (Let _ type_ value) _) =

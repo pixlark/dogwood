@@ -40,7 +40,9 @@ data Compiler = Compiler
   { nameCounter :: Int,
     blockCounter :: Int,
     varCounter :: Int,
+    fnCounter :: Int,
     program :: Program,
+    activeFn :: FnId,
     activeBlock :: BlockId,
     scopes :: LexicalScopes AbstractVariable,
     -- | Each entry in this map represents the SSA name associated with a particular AST variable
@@ -75,13 +77,18 @@ instance HasLexicalScopes AbstractVariable Compiler where
   getScopes = scopes
   setScopes scopes c = c {scopes}
 
+mkMainFnType :: TypeExpr
+mkMainFnType = TypeExpr {reference = False, valueExpr = Function [] (TST mkVoid (Span 0 1))}
+
 mkCompiler :: Compiler
 mkCompiler =
   Compiler
     { nameCounter = 0,
       blockCounter = 1,
       varCounter = 0,
-      program = Program [(BlockId 0, mkBlock)],
+      fnCounter = 1,
+      program = Program $ HashMap.fromList [(FnId 0, FnDef mkMainFnType [(BlockId 0, mkBlock)])],
+      activeFn = FnId 0,
       activeBlock = BlockId 0,
       scopes = mkScopes,
       variablesPerBlock = HashMap.empty,
@@ -119,6 +126,14 @@ mkVarId = do
   put compiler'
   return varId
 
+mkFnId :: (State Compiler :> es) => Eff es FnId
+mkFnId = do
+  compiler <- get
+  let fnId = FnId compiler.fnCounter
+      compiler' = compiler {fnCounter = compiler.fnCounter + 1}
+  put compiler'
+  return fnId
+
 --
 -- Scope handling
 --
@@ -136,15 +151,30 @@ spanForVariable varId span = do
   return var.span
 
 --
+-- Function manipulation
+--
+
+getCurrentFunction :: (HasCallStack, State Compiler :> es, Errors Err :> es) => Span -> Eff es FnDef
+getCurrentFunction span = do
+  compiler <- get
+  HashMap.lookup compiler.activeFn (fnMap compiler.program) `orICE` span
+
+modifyCurrentFunction :: (HasCallStack, State Compiler :> es, Errors Err :> es) => Span -> (FnDef -> Eff es FnDef) -> Eff es ()
+modifyCurrentFunction span f = do
+  compiler <- get
+  currentFn <- getCurrentFunction span
+  currentFn' <- f currentFn
+  modify (\c -> c {program = Program (HashMap.insert compiler.activeFn currentFn' (fnMap compiler.program))})
+
+--
 -- Block manipulation
 --
 
-allocateBlock :: (State Compiler :> es) => Eff es BlockId
-allocateBlock = do
+allocateBlock :: (State Compiler :> es, Errors Err :> es) => Span -> Eff es BlockId
+allocateBlock span = do
   id <- mkBlockId
-  compiler@Compiler {program = Program blocks} <- get
-  let compiler' = compiler {program = Program (blocks ++ [(id, mkBlock)])}
-  put compiler'
+  modifyCurrentFunction span $ \(FnDef ty blocks) -> do
+    return $ FnDef ty (blocks ++ [(id, mkBlock)])
   return id
 
 addPredecessor :: (HasCallStack, State Compiler :> es, Errors Err :> es) => BlockId -> BlockId -> Span -> Eff es ()
@@ -153,6 +183,23 @@ addPredecessor from to span = do
   when seal $ throwSpan span InternalCompilerError
   modifyBlock to span $ \block@Block {predecessors} -> do
     return block {predecessors = predecessors ++ [from]}
+
+getBlock ::
+  (HasCallStack, State Compiler :> es, Errors Err :> es)
+  => BlockId -> Span -> Eff es Block
+getBlock id span = do
+  FnDef _ blocks <- getCurrentFunction span
+  lookup id blocks `orICE` span
+
+modifyBlock ::
+  (HasCallStack, State Compiler :> es, Errors Err :> es)
+  => BlockId -> Span -> (Block -> Eff es Block) -> Eff es ()
+modifyBlock id span f = do
+  block <- getBlock id span
+  id <- gets activeBlock
+  modifyCurrentFunction span $ \(FnDef ty blocks) -> do
+    block' <- f block
+    return $ FnDef ty $ insertAssoc id block' blocks
 
 --
 -- Modifying the active block
