@@ -29,57 +29,127 @@ spec :: SpecWith ()
 spec = do
   describe "the Typechecker module" do
     it "typechecks basic expressions" do
-      (show <$$> testTypecheck "let x: void = void;") `shouldReturn` Right "let x: void = void;"
-      (show <$$> testTypecheck "let x: int = 1 + 2;") `shouldReturn` Right "let x: int = (1 + 2 : int);"
-      (show <$$> testTypecheck "let x: bool = !false;") `shouldReturn` Right "let x: bool = (!false : bool);"
-      (show <$$> testTypecheck "let x: int = 5 != 2;") `shouldSatisfyM` isErrorKind (TypeMismatch "int" "bool")
+      (show <$$> testTypecheck "let main = fn() { let x: void = void; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: void = void;\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let x: int = 1 + 2; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: int = (1 + 2 : int);\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let x: bool = !false; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: bool = (!false : bool);\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let x: int = 5 != 2; };")
+        `shouldSatisfyM` isErrorKind (TypeMismatch "int" "bool")
+
     it "typechecks undefined expressions" do
-      (show <$$> testTypecheck "let x: int = undefined;") `shouldReturn` Right "let x: int = undefined;"
-      (show <$$> testTypecheck "let x: bool = undefined;") `shouldReturn` Right "let x: bool = undefined;"
+      (show <$$> testTypecheck "let main = fn() { let x: int = undefined; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: int = undefined;\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let x: bool = undefined; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: bool = undefined;\n} : void;"
+
     it "typechecks body expressions" do
-      (show <$$> testTypecheck "{}") `shouldReturn` Right "{\n} : void"
-      (show <$$> testTypecheck "{ 5; }") `shouldReturn` Right "{\n5;\n} : void"
-      (show <$$> testTypecheck "{ 5 }") `shouldReturn` Right "{\n5\n} : int"
-      (show <$$> testTypecheck "{ true; 5; }") `shouldReturn` Right "{\ntrue;\n5;\n} : void"
-      (show <$$> testTypecheck "{ true; 5 }") `shouldReturn` Right "{\ntrue;\n5\n} : int"
-      (show <$$> testTypecheck "{ true 5 }") `shouldReturn` Right "{\ntrue\n5\n} : int"
+      (show <$$> testTypecheck "let main = fn() { {}; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\n{\n} : void;\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let x = { 5; }; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: void = {\n5;\n} : void;\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let x = { 5 }; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: int = {\n5\n} : int;\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let x = { true; 5; }; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: void = {\ntrue;\n5;\n} : void;\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let x = { true; 5 }; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: int = {\ntrue;\n5\n} : int;\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let x = { true 5 }; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: int = {\ntrue\n5\n} : int;\n} : void;"
+
     it "typechecks bound variables" do
-      (show <$$> testTypecheck "let x: int = foo;") `shouldSatisfyM` isErrorKind (UnboundVariable "foo")
-      (show <$$> testTypecheck "{let foo: int = 5; let bar: int = foo;}") `shouldReturn` Right "{\nlet foo: int = 5;\nlet bar: int = (foo : int);\n} : void"
+      (show <$$> testTypecheck "let main = fn() { let x: int = foo; };")
+        `shouldSatisfyM` isErrorKind (UnboundVariable "foo")
+
+      (show <$$> testTypecheck "let main = fn() { {let foo: int = 5; let bar: int = foo;}; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\n{\nlet foo: int = 5;\nlet bar: int = (foo : int);\n} : void;\n} : void;"
+
     it "can infer the type of a variable declaration" do
-      (show <$$> testTypecheck "let x = 5;") `shouldReturn` Right "let x: int = 5;"
-      (show <$$> testTypecheck "let print = builtin print;") `shouldReturn` Right "let print: fn(any) -> void = builtin print : fn(any) -> void;"
-      (show <$$> testTypecheck "{let x = 5; let y = x;}") `shouldReturn` Right "{\nlet x: int = 5;\nlet y: int = (x : int);\n} : void"
-      (show <$$> testTypecheck "let x = undefined;") `shouldReturn` Right "let x: any = undefined;"
-      (show <$$> testTypecheck "let x: int = undefined;") `shouldReturn` Right "let x: int = undefined;"
+      (show <$$> testTypecheck "let main = fn() { let x = 5; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: int = 5;\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let print = builtin print; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet print: fn(any) -> void = builtin print : fn(any) -> void;\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let x = 5; let y = x; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: int = 5;\nlet y: int = (x : int);\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let x = undefined; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: any = undefined;\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let x: int = undefined; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: int = undefined;\n} : void;"
+
     it "typechecks function calls" do
-      (show <$$> testTypecheck "{let x: int = 5; x(15, 16);}") `shouldSatisfyM` isErrorKind (CallingNonFunction "int")
-      (show <$$> testTypecheck "{let f: fn(int, int) -> bool = undefined; f(5, 6)}") `shouldReturn` Right "{\nlet f: fn(int, int) -> bool = undefined;\n(f(5, 6) : bool)\n} : bool"
-      (show <$$> testTypecheck "{let f: fn(int, int) -> bool = undefined; f(true, 6)}") `shouldSatisfyM` isErrorKind (TypeMismatch "int" "bool")
-      (show <$$> testTypecheck "{let f: fn(int, int) -> void = undefined; f(1)}") `shouldSatisfyM` isErrorKind (WrongArgumentCount 2 1)
+      (show <$$> testTypecheck "let main = fn() { let x: int = 5; x(15, 16); };")
+        `shouldSatisfyM` isErrorKind (CallingNonFunction "int")
+
+      (show <$$> testTypecheck "let main = fn() { let f: fn(int, int) -> bool = undefined; let y = f(5, 6); };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet f: fn(int, int) -> bool = undefined;\nlet y: bool = (f(5, 6) : bool);\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let f: fn(int, int) -> bool = undefined; f(true, 6); };")
+        `shouldSatisfyM` isErrorKind (TypeMismatch "int" "bool")
+
+      (show <$$> testTypecheck "let main = fn() { let f: fn(int, int) -> void = undefined; f(1); };")
+        `shouldSatisfyM` isErrorKind (WrongArgumentCount 2 1)
+
     it "typechecks if expressions" do
-      (show <$$> testTypecheck "if true void else if false void") `shouldReturn` Right "(if true void else (if false void else void) : void) : void"
-      (show <$$> testTypecheck "if 15 void else if false void") `shouldSatisfyM` isErrorKind (TypeMismatch "bool" "int")
-      (show <$$> testTypecheck "if true 15 else 16") `shouldReturn` Right "(if true 15 else 16) : int"
-      (show <$$> testTypecheck "if true 15 else true") `shouldSatisfyM` isErrorKind (TypeMismatch "int" "bool")
-      (show <$$> testTypecheck "if true { 15; }") `shouldReturn` Right "(if true {\n15;\n} : void else void) : void"
+      (show <$$> testTypecheck "let main = fn() { if true void else if false void; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\n(if true void else (if false void else void) : void) : void;\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { if 15 void else if false void; };")
+        `shouldSatisfyM` isErrorKind (TypeMismatch "bool" "int")
+
+      (show <$$> testTypecheck "let main = fn() { let x = if true 15 else 16; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: int = (if true 15 else 16) : int;\n} : void;"
+
+      (show <$$> testTypecheck "let main = fn() { let x = if true 15 else true; };")
+        `shouldSatisfyM` isErrorKind (TypeMismatch "int" "bool")
+
+      (show <$$> testTypecheck "let main = fn() { if true { 15; }; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\n(if true {\n15;\n} : void else void) : void;\n} : void;"
+
       -- TODO: is this one reasonable behavior? maybe we should be okay with this, even though they didn't
       --       "discard" the value with a semicolon?
       --       what does rust do?
-      (show <$$> testTypecheck "if true { 15 }") `shouldSatisfyM` isErrorKind (TypeMismatch "int" "void")
+      (show <$$> testTypecheck "let main = fn() { if true { 15 }; };")
+        `shouldSatisfyM` isErrorKind (TypeMismatch "int" "void")
+
     it "typechecks loops" do
-      (show <$$> testTypecheck "loop { 15 }") `shouldSatisfyM` isErrorKind (TypeMismatch "void" "int")
-      (show <$$> testTypecheck "loop { 15; }") `shouldReturn` Right "loop {\n15;\n} : void"
+      (show <$$> testTypecheck "let main = fn() { loop { 15 }; };")
+        `shouldSatisfyM` isErrorKind (TypeMismatch "void" "int")
+
+      (show <$$> testTypecheck "let main = fn() { loop { 15; }; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nloop {\n15;\n} : void;\n} : void;"
+
     it "typechecks lexical scopes" do
-      (show <$$> testTypecheck "{ let x: int = 5; { let x: bool = false; x || false } x + 5 }") `shouldReturn` Right "{\nlet x: int = 5;\n{\nlet x: bool = false;\n((x : bool) || false : bool)\n} : bool\n((x : int) + 5 : int)\n} : int"
+      (show <$$> testTypecheck "let main = fn() { let y = { let x: int = 5; { let x: bool = false; x || false } x + 5 }; };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet y: int = {\nlet x: int = 5;\n{\nlet x: bool = false;\n((x : bool) || false : bool)\n} : bool\n((x : int) + 5 : int)\n} : int;\n} : void;"
+
     it "typechecks lambda expressions" do
-      (show <$$> testTypecheck "{ let x = 5; let f = fn() -> int: x; }") `shouldSatisfyM` isErrorKind (UnboundVariable "x")
-      (show <$$> testTypecheck "let f = fn() -> int: void;") `shouldSatisfyM` isErrorKind (TypeMismatch "void" "int")
-      (show <$$> testTypecheck "{ let f = fn(x: int) -> int: x; let y = f(1); }") `shouldReturn` Right "{\nlet f: fn(int) -> int = fn(x: int) -> int: (x : int);\nlet y: int = (f(1) : int);\n} : void"
+      (show <$$> testTypecheck "let main = fn() { let x = 5; let f = fn() -> int: x; };")
+        `shouldSatisfyM` isErrorKind (UnboundVariable "x")
+
+      (show <$$> testTypecheck "let main = fn() { let f = fn() -> int: void; };")
+        `shouldSatisfyM` isErrorKind (TypeMismatch "void" "int")
+
+      (show <$$> testTypecheck "let main = fn() { let f = fn(x: int) -> int: x; let y = f(1); };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet f: fn(int) -> int = fn(x: int) -> int: (x : int);\nlet y: int = (f(1) : int);\n} : void;"
+
     it "typchecks complex programs" do
       let source =
             [text|
-              {
+              let main = fn() {
                 let n: int = 5;
                 let acc: int = 1;
                 loop {
@@ -89,11 +159,11 @@ spec = do
                   acc = acc * n;
                   n = n - 1;
                 }
-              }
+              };
             |]
           expected =
             [text|
-              {
+              let main: fn() -> void = fn() -> void {
               let n: int = 5;
               let acc: int = 1;
               loop {
@@ -103,6 +173,6 @@ spec = do
               acc = ((acc : int) * (n : int) : int);
               n = ((n : int) - 1 : int);
               } : void
-              } : void
+              };
             |]
       (show <$$> testTypecheck source) `shouldReturn` Right expected

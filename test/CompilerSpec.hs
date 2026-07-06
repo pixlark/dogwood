@@ -53,7 +53,7 @@ spec = do
         -- so reading x after the merge should NOT produce a phi (it gets reduced)
         let source =
               [text|
-                {
+                let main = fn() {
                   let x: int = 5;
                   if true {
                     let y: int = 1;
@@ -61,7 +61,7 @@ spec = do
                     let z: int = 2;
                   }
                   x
-                }
+                };
               |]
         result <- testCompile source
         case result of
@@ -76,7 +76,7 @@ spec = do
       it "does not reduce non-trivial phis when branches assign different values" do
         let source =
               [text|
-                {
+                let main = fn() {
                   let x: int = 0;
                   if true {
                     x = 1;
@@ -84,7 +84,7 @@ spec = do
                     x = 2;
                   }
                   x
-                }
+                };
               |]
         result <- testCompile source
         case result of
@@ -100,7 +100,7 @@ spec = do
       it "reduces trivial phis in nested control flow" do
         let source =
               [text|
-                {
+                let main = fn() {
                   let x: int = 5;
                   if true {
                     if false {
@@ -112,7 +112,7 @@ spec = do
                     let c: int = 3;
                   }
                   x
-                }
+                };
               |]
         result <- testCompile source
         case result of
@@ -127,7 +127,7 @@ spec = do
       it "handles the case where one branch modifies and one doesn't" do
         let source =
               [text|
-                {
+                let main = fn() {
                   let x: int = 5;
                   if true {
                     x = 10;
@@ -135,7 +135,7 @@ spec = do
                     let y: int = 1;
                   }
                   x
-                }
+                };
               |]
         result <- testCompile source
         case result of
@@ -151,7 +151,7 @@ spec = do
         -- x flows through multiple merge points unchanged
         let source =
               [text|
-                {
+                let main = fn() {
                   let x: int = 5;
                   if true {
                     let a: int = 1;
@@ -164,7 +164,7 @@ spec = do
                     let d: int = 4;
                   }
                   x
-                }
+                };
               |]
         result <- testCompile source
         case result of
