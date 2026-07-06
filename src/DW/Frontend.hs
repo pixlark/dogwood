@@ -15,7 +15,6 @@ import DW.LoopPass qualified as LoopPass
 import DW.LowerPass qualified as LowerPass
 import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
-
 import Data.Bifunctor (Bifunctor (..))
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -42,7 +41,7 @@ run cfg = do
   executableName <- runEff $ runLog logger $ runErrors $ runReader cfg $ do
     -- Passes 1 and 2: Lexing and parsing
     ast <- region "Lexing and parsing..." do
-      Parser.runParser source Parser.parseStmt
+      Parser.runParser source Parser.parseTopLevel
 
     -- If there any any parse errors, we give up on trying to continue.
     -- This shouldn't be a big deal because they're just syntax errors, easily fixed.
@@ -109,7 +108,7 @@ lsp cfg = do
       liftIO $ Text.IO.readFile (Text.unpack cfg.sourceFile)
     parseAndValidateAST logger source = runEff $ runLog logger $ runErrorsNoCallStack $ do
       -- Passes 1 and 2: Lexing and parsing
-      ast <- runErrorAsErrors $ Parser.runParser source Parser.parseStmt
+      ast <- runErrorAsErrors $ Parser.runParser source Parser.parseTopLevel
 
       abortIfAnyErrors
 

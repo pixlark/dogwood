@@ -5,6 +5,7 @@
 
 module DW.LSP where
 
+import Control.Monad (join)
 import DW.AST (AST (..))
 import DW.AST qualified as A
 import DW.AST.Visit qualified as AV
@@ -14,8 +15,6 @@ import DW.TypedAST (TST (..))
 import DW.TypedAST qualified as T
 import DW.TypedAST.Visit qualified as TV
 import DW.Util (safeHead, (<$$>))
-
-import Control.Monad (join)
 import Data.Aeson qualified as J
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -29,7 +28,7 @@ import Language.LSP.Protocol.Types
 import Language.LSP.Server
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 
-type Runner = IO (Either (Text, [Err]) (Text, AST A.Stmt, TST T.Stmt))
+type Runner = IO (Either (Text, [Err]) (Text, AST A.TopLevel, TST T.TopLevel))
 
 newtype UserConfig = UserConfig {serverPath :: Maybe Text}
   deriving (Generic, J.ToJSON, J.FromJSON, Show)
@@ -37,8 +36,8 @@ newtype UserConfig = UserConfig {serverPath :: Maybe Text}
 inSpan :: Int -> Span -> Bool
 inSpan pos (Span start len) = pos >= start && pos < start + len
 
-typeOfVariableAtSpan :: TST T.Stmt -> Span -> Maybe T.TypeExpr
-typeOfVariableAtSpan tStmt span = runPureEff $ execState Nothing $ TV.runStmtVisitor visitor tStmt
+typeOfVariableAtSpan :: TST T.TopLevel -> Span -> Maybe T.TypeExpr
+typeOfVariableAtSpan topLevel span = runPureEff $ execState Nothing $ TV.runTopLevelVisitor visitor topLevel
   where
     visitor :: (State (Maybe T.TypeExpr) :> es) => TV.Visitor (Eff es)
     visitor = TV.defaultVisitor {TV.onStmt, TV.onExpr, TV.onLValue}
@@ -57,8 +56,8 @@ typeOfVariableAtSpan tStmt span = runPureEff $ execState Nothing $ TV.runStmtVis
         put $ Just ty
       recurse
 
-variableAtPosition :: AST A.Stmt -> Int -> Maybe (AST Text)
-variableAtPosition stmt pos = runPureEff $ execState Nothing $ AV.runStmtVisitor visitor stmt
+variableAtPosition :: AST A.TopLevel -> Int -> Maybe (AST Text)
+variableAtPosition topLevel pos = runPureEff $ execState Nothing $ AV.runTopLevelVisitor visitor topLevel
   where
     visitor :: (State (Maybe (AST Text)) :> es) => AV.Visitor (Eff es)
     visitor = AV.defaultVisitor {AV.onStmt, AV.onExpr, AV.onLValue}
@@ -77,8 +76,8 @@ variableAtPosition stmt pos = runPureEff $ execState Nothing $ AV.runStmtVisitor
         put $ Just (A.AST name span)
       recurse
 
-typeExprAtPosition :: AST A.Stmt -> Int -> Maybe (AST A.TypeExpr)
-typeExprAtPosition stmt pos = safeHead $ runPureEff $ execState [] $ AV.runStmtVisitor visitor stmt
+typeExprAtPosition :: AST A.TopLevel -> Int -> Maybe (AST A.TypeExpr)
+typeExprAtPosition topLevel pos = safeHead $ runPureEff $ execState [] $ AV.runTopLevelVisitor visitor topLevel
   where
     visitor :: (State [AST A.TypeExpr] :> es) => AV.Visitor (Eff es)
     visitor = AV.defaultVisitor {AV.onTypeExpr}
@@ -93,7 +92,7 @@ italic t = "*" <> t <> "*"
 bold :: Text -> Text
 bold t = "**" <> t <> "**"
 
-handleHover :: AST A.Stmt -> TST T.Stmt -> Int -> Maybe Text
+handleHover :: AST A.TopLevel -> TST T.TopLevel -> Int -> Maybe Text
 handleHover stmt tStmt pos = tryTypeExpr <|> tryVariable
   where
     -- first, check if they're hovering a type expression, in which case
@@ -147,16 +146,15 @@ sendDiagnostics file = do
         case traceShowId range of
           Nothing -> return []
           Just range -> do
-            let
-              severity = Just DiagnosticSeverity_Error
-              code = Nothing
-              codeDescription = Nothing
-              source_ = Nothing
-              message = displayErrorColorless source err -- Text.show kind
-              tags = Nothing
-              relatedInformation = Nothing
-              data_ = Nothing
-              diagnostic = Diagnostic range severity code codeDescription source_ message tags relatedInformation data_
+            let severity = Just DiagnosticSeverity_Error
+                code = Nothing
+                codeDescription = Nothing
+                source_ = Nothing
+                message = displayErrorColorless source err -- Text.show kind
+                tags = Nothing
+                relatedInformation = Nothing
+                data_ = Nothing
+                diagnostic = Diagnostic range severity code codeDescription source_ message tags relatedInformation data_
             return [diagnostic]
       publish (concat diagnostics)
     Right _ -> trace "publishing zero diagnostics!" publish []

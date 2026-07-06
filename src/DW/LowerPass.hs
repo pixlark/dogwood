@@ -1,9 +1,9 @@
 module DW.LowerPass (runLowerPass) where
 
+import Control.Monad (forM)
 import DW.AST qualified as AST
 import DW.LoweredAST qualified as L
 import DW.Util
-
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 
@@ -97,5 +97,15 @@ lowerStmt ast = lowerAST ast $ \case
   AST.Loop body ->
     L.Loop (lowerAST body lowerBody)
 
-runLowerPass :: AST.AST AST.Stmt -> L.LST L.Stmt
-runLowerPass = lowerStmt
+lowerTopLevelStmt :: AST.AST AST.TopLevelStmt -> L.LST L.TopLevelStmt
+lowerTopLevelStmt ast = lowerAST ast $ \case
+  AST.TLet {name, ty, value} ->
+    L.TLet (lowerAST name id) (lowerTypeExpr <$> ty) (lowerExpr value)
+
+lowerTopLevel :: AST.AST AST.TopLevel -> L.LST L.TopLevel
+lowerTopLevel stmts = lowerAST stmts $
+  \(AST.TopLevel stmts) ->
+    L.TopLevel $ map lowerTopLevelStmt stmts
+
+runLowerPass :: AST.AST AST.TopLevel -> L.LST L.TopLevel
+runLowerPass = lowerTopLevel

@@ -2,15 +2,14 @@ module LowerPassSpec (spec) where
 
 import DW.Common
 import DW.LowerPass
-import DW.Parser (parseStmt, runParser)
+import DW.Parser (parseTopLevel, runParser)
 import DW.Util (stripCallStacks)
-
 import Data.Text qualified as Text
 import Test.Hspec
 
 testLowerPass :: Text -> Result Text
 testLowerPass source = stripCallStacks $ runPureEff $ runErrors do
-  ast <- runParser source parseStmt
+  ast <- runParser source parseTopLevel
   let loweredAST = runLowerPass ast
   return $ Text.show loweredAST
 

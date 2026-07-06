@@ -12,7 +12,6 @@ import DW.LoweredAST qualified as L
 import DW.TypedAST (TST (..), typeOf)
 import DW.TypedAST qualified as T
 import DW.Util
-
 import Data.Text qualified as Text
 
 newtype Typechecker = Typechecker {scopes :: LexicalScopes T.TypeExpr}
@@ -106,9 +105,9 @@ doesNotUnify :: T.TypeExpr -> T.TypeExpr -> Bool
 doesNotUnify t1 t2 = not (t1 `unifies` t2)
 
 typecheckBody ::
-  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
-  => LST L.Body
-  -> Eff es (TST T.Body)
+  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
+  LST L.Body ->
+  Eff es (TST T.Body)
 typecheckBody (LST (L.Body stmts) span) = withRegion "Entering scope..." do
   -- each body opens a new lexical scope
   pushScope
@@ -143,9 +142,9 @@ potentiallyBox (T.TypeExpr {valueExpr = T.Any}) e = do
 potentiallyBox _ e = return e
 
 typecheckExpr ::
-  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
-  => LST L.Expr
-  -> Eff es (TST T.Expr)
+  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
+  LST L.Expr ->
+  Eff es (TST T.Expr)
 typecheckExpr (LST L.UndefinedLit span) = do
   scribe "Encountered undefined value - boxing it"
   return $ TST (T.Boxed T.mkUndefined T.UndefinedLit) span
@@ -264,9 +263,9 @@ typecheckLValue (LST (L.LVariable name) span) = do
   return $ TST (T.LVariable ty name) span
 
 typecheckStmt ::
-  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
-  => LST L.Stmt
-  -> Eff es (TST T.Stmt)
+  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
+  LST L.Stmt ->
+  Eff es (TST T.Stmt)
 typecheckStmt (LST (L.Let {name, type_, value}) span) = do
   tValue <- typecheckExpr value
 
@@ -318,8 +317,20 @@ typecheckStmt (LST (L.Loop body) span) = do
     markSpan (spanOf body) (typeMismatch (T.makeValueExpr T.Void) ty)
   return $ TST (T.Loop tBody) span
 
+typecheckTopLevelStmt ::
+  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
+  LST L.TopLevelStmt ->
+  Eff es (TST T.TopLevelStmt)
+typecheckTopLevelStmt = undefined
+
+typecheckTopLevel ::
+  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
+  LST L.TopLevel ->
+  Eff es (TST T.TopLevel)
+typecheckTopLevel = undefined
+
 runTypechecker ::
-  (HasCallStack, Errors Err :> es, Log :> es)
-  => LST L.Stmt
-  -> Eff es (TST T.Stmt)
-runTypechecker = evalState mkTypechecker . typecheckStmt
+  (HasCallStack, Errors Err :> es, Log :> es) =>
+  LST L.TopLevel ->
+  Eff es (TST T.TopLevel)
+runTypechecker = evalState mkTypechecker . typecheckTopLevel

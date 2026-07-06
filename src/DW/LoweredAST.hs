@@ -2,10 +2,9 @@
 
 module DW.LoweredAST where
 
+import Control.Monad.Writer
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (Writer, execWriter, tell)
-
-import Control.Monad.Writer
 import Data.List (intersperse)
 import Data.Text qualified as T
 
@@ -72,6 +71,10 @@ data Stmt
   | Break
   | Loop (LST Body)
   deriving (Eq)
+
+data TopLevelStmt = TLet {name :: LST T.Text, ty :: Maybe (LST TypeExpr), value :: LST Expr}
+
+newtype TopLevel = TopLevel [LST TopLevelStmt]
 
 makeValueExpr :: ValueTypeExpr -> TypeExpr
 makeValueExpr valueExpr = TypeExpr {reference = False, valueExpr}
@@ -186,3 +189,14 @@ instance Show Stmt where
   show (Return (Just value)) = printf "return %s;" (show value)
   show Break = "break;"
   show (Loop body) = printf "loop %s" (show body)
+
+instance Show TopLevelStmt where
+  show (TLet {name = (LST name _), ty, value}) = case ty of
+    Just ty -> printf "let %s: %s = %s;" (T.unpack name) (show ty) (show value)
+    Nothing -> printf "let %s = %s;" (T.unpack name) (show value)
+
+instance Show TopLevel where
+  show (TopLevel stmts) = execWriter $ do
+    forM_ stmts $ \stmt -> do
+      tell $ show stmt
+      tell "\n"

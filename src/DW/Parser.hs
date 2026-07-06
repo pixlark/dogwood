@@ -1,6 +1,7 @@
 module DW.Parser
   ( makeParser,
     makeParserCallStack,
+    parseTopLevel,
     parseStmt,
     parseExpr,
     runParser,

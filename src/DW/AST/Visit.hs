@@ -9,6 +9,8 @@ module DW.AST.Visit
     runTypeExprVisitor,
     runValueTypeExprVisitor,
     runBodyVisitor,
+    runTopLevelStmtVisitor,
+    runTopLevelVisitor,
   )
 where
 
@@ -21,7 +23,9 @@ data Visitor m = Visitor
     onExpr :: AST Expr -> m () -> m (),
     onStmt :: AST Stmt -> m () -> m (),
     onLValue :: AST LValue -> m () -> m (),
-    onBody :: AST Body -> m () -> m ()
+    onBody :: AST Body -> m () -> m (),
+    onTopLevelStmt :: AST TopLevelStmt -> m () -> m (),
+    onTopLevel :: AST TopLevel -> m () -> m ()
   }
 
 defaultVisitor :: (Monad m) => Visitor m
@@ -32,12 +36,14 @@ defaultVisitor =
       onExpr = \_ children -> children,
       onStmt = \_ children -> children,
       onLValue = \_ children -> children,
-      onBody = \_ children -> children
+      onBody = \_ children -> children,
+      onTopLevelStmt = \_ children -> children,
+      onTopLevel = \_ children -> children
     }
 
 runValueTypeExprVisitor :: (Monad m) => Visitor m -> AST ValueTypeExpr -> m ()
 runValueTypeExprVisitor v vte@(AST (Function params ret) _) =
-  onValueTypeExpr v vte $ do
+  onValueTypeExpr v vte do
     forM_ params (runTypeExprVisitor v)
     runTypeExprVisitor v ret
 runValueTypeExprVisitor v vte = onValueTypeExpr v vte (return ())
@@ -54,7 +60,7 @@ runLValueVisitor v lv@(AST (LVariable _) _) =
 
 runBodyVisitor :: (Monad m) => Visitor m -> AST Body -> m ()
 runBodyVisitor v body@(AST (Body stmts) _) =
-  onBody v body $ do
+  onBody v body do
     forM_ stmts (runStmtVisitor v)
 
 runExprVisitor :: (Monad m) => Visitor m -> AST Expr -> m ()
@@ -66,21 +72,21 @@ runExprVisitor v expr@(AST (Variable _) _) =
   onExpr v expr $
     return ()
 runExprVisitor v expr@(AST (BinaryOperator _ left right) _) =
-  onExpr v expr $ do
+  onExpr v expr do
     runExprVisitor v left
     runExprVisitor v right
 runExprVisitor v expr@(AST (UnaryOperator _ operand) _) =
-  onExpr v expr $ do
+  onExpr v expr do
     runExprVisitor v operand
 runExprVisitor v expr@(AST (FunctionCall function arguments) _) =
-  onExpr v expr $ do
+  onExpr v expr do
     runExprVisitor v function
     forM_ arguments (runExprVisitor v)
 runExprVisitor v expr@(AST (ExprBody body) span) =
   onExpr v expr $
     runBodyVisitor v (AST body span)
 runExprVisitor v expr@(AST (IfChain bodies elseBody) _) =
-  onExpr v expr $ do
+  onExpr v expr do
     forM_ bodies $ \(condition, body) -> do
       runExprVisitor v condition
       runExprVisitor v body
@@ -98,11 +104,11 @@ runExprVisitor v expr@(AST (Lambda {params, returnType, body}) _) = do
 
 runStmtVisitor :: (Monad m) => Visitor m -> AST Stmt -> m ()
 runStmtVisitor v stmt@(AST (Let _ type_ value) _) =
-  onStmt v stmt $ do
+  onStmt v stmt do
     forM_ type_ $ runTypeExprVisitor v
     runExprVisitor v value
 runStmtVisitor v stmt@(AST (Assign lvalue value) _) =
-  onStmt v stmt $ do
+  onStmt v stmt do
     runLValueVisitor v lvalue
     runExprVisitor v value
 runStmtVisitor v stmt@(AST (ExprStmt value _) _) =
@@ -116,3 +122,15 @@ runStmtVisitor v stmt@(AST Break _) =
 runStmtVisitor v stmt@(AST (Loop body) _) =
   onStmt v stmt $
     runBodyVisitor v body
+
+runTopLevelStmtVisitor :: (Monad m) => Visitor m -> AST TopLevelStmt -> m ()
+runTopLevelStmtVisitor v tls@(AST (TLet {ty, value}) span) = do
+  onTopLevelStmt v tls do
+    forM_ ty $ runTypeExprVisitor v
+    runExprVisitor v value
+
+runTopLevelVisitor :: (Monad m) => Visitor m -> AST TopLevel -> m ()
+runTopLevelVisitor v tl@(AST (TopLevel stmts) _) = do
+  onTopLevel v tl do
+    forM_ stmts $ \stmt -> do
+      runTopLevelStmtVisitor v stmt

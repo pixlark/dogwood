@@ -13,7 +13,6 @@ import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
 import DW.TypedAST (ValueTypeExpr (..), makeValueExpr)
 import DW.Util (stripCallStacks)
-
 import Data.Bifunctor (Bifunctor (first))
 import Data.Text (unpack)
 import NeatInterpolation
@@ -23,7 +22,7 @@ testCompile :: Text -> IO (Either String Program)
 testCompile source = do
   result <- runEff $ runLog noOpLogger $ runErrors $ do
     -- Passes 1 and 2: Lexing and parsing
-    ast <- runErrorAsErrors $ Parser.runParser source Parser.parseStmt
+    ast <- runErrorAsErrors $ Parser.runParser source Parser.parseTopLevel
     -- Pass 3: Lowering
     let loweredAST = LowerPass.runLowerPass ast
     -- Pass 4: Typechecking

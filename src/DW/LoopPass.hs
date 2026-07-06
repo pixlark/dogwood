@@ -26,9 +26,9 @@ visitor = defaultVisitor {onStmt}
       recurse
     onStmt _ recurse = recurse
 
-loopPass :: (HasCallStack, Errors Err :> es, Log :> es) => TST Stmt -> Eff es ()
-loopPass stmt = evalState (LoopPass False) do
-  runStmtVisitor visitor stmt
+loopPass :: (HasCallStack, Errors Err :> es, Log :> es) => TST TopLevel -> Eff es ()
+loopPass topLevel = evalState (LoopPass False) do
+  runTopLevelVisitor visitor topLevel
 
-runLoopPass :: (HasCallStack, Errors Err :> es, Log :> es) => TST Stmt -> Eff es ()
+runLoopPass :: (HasCallStack, Errors Err :> es, Log :> es) => TST TopLevel -> Eff es ()
 runLoopPass = loopPass

@@ -1,9 +1,8 @@
 module DW.TypedAST where
 
+import Control.Monad.Trans.Writer (execWriter, tell)
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (Writer, execWriter, tell)
-
-import Control.Monad.Trans.Writer (execWriter, tell)
 import Data.List (intersperse)
 import Data.Text qualified as T
 
@@ -114,7 +113,11 @@ data Stmt
   | Loop (TST Body)
   deriving (Eq)
 
-data AnyAST = AnyStmt Stmt | AnyExpr Expr | AnyLValue LValue | AnyBody Body | AnyTypeExpr TypeExpr | AnyText T.Text
+data TopLevelStmt = TLet {name :: TST T.Text, ty :: TST TypeExpr, value :: TST Expr}
+
+newtype TopLevel = TopLevel [TST TopLevelStmt]
+
+data AnyAST = AnyTopLevel TopLevel | AnyTopLevelStmt TopLevelStmt | AnyStmt Stmt | AnyExpr Expr | AnyLValue LValue | AnyBody Body | AnyTypeExpr TypeExpr | AnyText T.Text
   deriving (Show)
 
 instance (Show a) => Show (TST a) where
@@ -219,3 +222,12 @@ instance Show Stmt where
   show (Return (Just value)) = printf "return %s;" (show value)
   show Break = "break;"
   show (Loop body) = printf "loop %s" (show body)
+
+instance Show TopLevelStmt where
+  show (TLet {name = (TST name _), ty, value}) = printf "let %s: %s = %s;" (T.unpack name) (show ty) (show value)
+
+instance Show TopLevel where
+  show (TopLevel stmts) = execWriter $ do
+    forM_ stmts $ \stmt -> do
+      tell $ show stmt
+      tell "\n"

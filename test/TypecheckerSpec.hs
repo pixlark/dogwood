@@ -9,7 +9,6 @@ import DW.LowerPass qualified as LowerPass
 import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
 import DW.Util (stripCallStacks)
-
 import Data.Text (show)
 import NeatInterpolation
 import Test.Hspec
@@ -18,7 +17,7 @@ import Prelude hiding (show)
 
 testTypecheck source = fmap stripCallStacks $ runEff $ runErrors $ runLog noOpLogger do
   -- Passes 1 and 2: Lexing and parsing
-  ast <- Parser.runParser source Parser.parseStmt
+  ast <- Parser.runParser source Parser.parseTopLevel
   -- Pass 3: Lowering
   let loweredAST = LowerPass.runLowerPass ast
   -- Pass 4: Typechecking

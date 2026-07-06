@@ -2,9 +2,8 @@
 
 module DW.AST where
 
-import DW.Common hiding (Writer, execWriter, tell)
-
 import Control.Monad.Writer
+import DW.Common hiding (Writer, execWriter, tell)
 import Data.List (intercalate, intersperse)
 import Data.List.NonEmpty qualified as NE
 import Data.Text qualified as T
@@ -84,7 +83,11 @@ data Stmt
   | Loop (AST Body)
   deriving (Eq)
 
-data AnyAST = AnyStmt Stmt | AnyExpr Expr | AnyLValue LValue | AnyBody Body | AnyTypeExpr TypeExpr | AnyText T.Text
+data TopLevelStmt = TLet {name :: AST T.Text, ty :: Maybe (AST TypeExpr), value :: AST Expr}
+
+newtype TopLevel = TopLevel [AST TopLevelStmt]
+
+data AnyAST = AnyTopLevel TopLevel | AnyTopLevelStmt TopLevelStmt | AnyStmt Stmt | AnyExpr Expr | AnyLValue LValue | AnyBody Body | AnyTypeExpr TypeExpr | AnyText T.Text
   deriving (Show)
 
 makeValueExpr :: ValueTypeExpr -> TypeExpr
@@ -205,3 +208,14 @@ instance Show Stmt where
   show (Return (Just value)) = printf "return %s;" (show value)
   show Break = "break;"
   show (Loop body) = printf "loop %s" (show body)
+
+instance Show TopLevelStmt where
+  show (TLet {name = (AST name _), ty, value}) = case ty of
+    Just ty -> printf "let %s: %s = %s;" (T.unpack name) (show ty) (show value)
+    Nothing -> printf "let %s = %s;" (T.unpack name) (show value)
+
+instance Show TopLevel where
+  show (TopLevel stmts) = execWriter $ do
+    forM_ stmts $ \stmt -> do
+      tell $ show stmt
+      tell "\n"

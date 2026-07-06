@@ -5,8 +5,7 @@ import DW.AST qualified as A
 import DW.Common
 import DW.Error.Internal.ErrorsEffect (throwErrsWithCallStacks)
 import DW.Lexer.Internal (Lexer, Token (..), TokenKind (..), makeLexer, nextToken)
-import DW.Util (ifM, whenM)
-
+import DW.Util (ifM, whenM, (<$$>))
 import Data.List.NonEmpty (NonEmpty (..), (<|))
 import Data.List.NonEmpty qualified as NE
 
@@ -246,10 +245,10 @@ parseUnary = produceSpannedAST $ do
 
 {- HLINT ignore "Use <$>" -}
 parseBinary ::
-  (State Parser :> es, Errors Err :> es)
-  => Eff es (AST A.Expr)
-  -> [(TokenKind, AST A.Expr -> AST A.Expr -> A.Expr)]
-  -> Eff es (AST A.Expr)
+  (State Parser :> es, Errors Err :> es) =>
+  Eff es (AST A.Expr) ->
+  [(TokenKind, AST A.Expr -> AST A.Expr -> A.Expr)] ->
+  Eff es (AST A.Expr)
 parseBinary nextParser operators = produceSpannedAST $ do
   left <- nextParser
   current <- gets current
@@ -395,6 +394,19 @@ parseLet = produceSpannedAST $ do
   value <- parseExpr
   returnWrap $ A.Let {name, type_, value}
 
+parseTopLevelLet :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.TopLevelStmt)
+parseTopLevelLet = produceSpannedAST do
+  expectKeyword "let"
+  name <- readSymbol
+  colon <- matchGlyph ":"
+  ty <-
+    if colon
+      then Just <$> parseTypeExpr
+      else return Nothing
+  expectGlyph "="
+  value <- parseExpr
+  returnWrap $ A.TLet {name, ty, value}
+
 attempt :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (Maybe a) -> Eff es (Maybe a)
 attempt f = do
   parser <- get
@@ -484,11 +496,34 @@ parseStmt = produceSpannedAST $ do
           semicolon <- matchGlyph ";"
           returnWrap $ A.ExprStmt {value = expr, semicolon}
 
+parseTopLevelStmt :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.TopLevelStmt)
+parseTopLevelStmt = do
+  cur <- gets current
+  case cur.kind of
+    Keyword "let" -> do
+      let_ <- parseTopLevelLet
+      expectGlyph ";"
+      return let_
+    _ -> throwSpan cur.span (ExpectedKeyword "let")
+
+parseTopLevel :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.TopLevel)
+parseTopLevel = produceSpannedAST do
+  topLevel <- A.TopLevel <$> parseTopLevel' []
+  returnWrap topLevel
+  where
+    parseTopLevel' acc = do
+      current <- gets current
+      if current.kind == Eof
+        then return acc
+        else do
+          stmt <- parseTopLevelStmt
+          parseTopLevel' (acc ++ [stmt])
+
 runParser ::
-  (HasCallStack, Errors Err :> es)
-  => Text
-  -> Eff (State Parser : es) a
-  -> Eff es a
+  (HasCallStack, Errors Err :> es) =>
+  Text ->
+  Eff (State Parser : es) a ->
+  Eff es a
 runParser source f = do
   let lexer = makeLexer source
   let parser = makeParser lexer

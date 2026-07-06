@@ -9,6 +9,8 @@ module DW.TypedAST.Visit
     runTypeExprVisitor,
     runValueTypeExprVisitor,
     runBodyVisitor,
+    runTopLevelStmtVisitor,
+    runTopLevelVisitor,
   )
 where
 
@@ -21,7 +23,9 @@ data Visitor m = Visitor
     onExpr :: TST Expr -> m () -> m (),
     onStmt :: TST Stmt -> m () -> m (),
     onLValue :: TST LValue -> m () -> m (),
-    onBody :: TST Body -> m () -> m ()
+    onBody :: TST Body -> m () -> m (),
+    onTopLevelStmt :: TST TopLevelStmt -> m () -> m (),
+    onTopLevel :: TST TopLevel -> m () -> m ()
   }
 
 defaultVisitor :: (Monad m) => Visitor m
@@ -32,7 +36,9 @@ defaultVisitor =
       onExpr = \_ children -> children,
       onStmt = \_ children -> children,
       onLValue = \_ children -> children,
-      onBody = \_ children -> children
+      onBody = \_ children -> children,
+      onTopLevelStmt = \_ children -> children,
+      onTopLevel = \_ children -> children
     }
 
 runValueTypeExprVisitor :: (Monad m) => Visitor m -> TST ValueTypeExpr -> m ()
@@ -124,3 +130,15 @@ runStmtVisitor v stmt@(TST Break _) =
 runStmtVisitor v stmt@(TST (Loop body) _) =
   onStmt v stmt $
     runBodyVisitor v body
+
+runTopLevelStmtVisitor :: (Monad m) => Visitor m -> TST TopLevelStmt -> m ()
+runTopLevelStmtVisitor v tls@(TST (TLet {ty, value}) _) = do
+  onTopLevelStmt v tls do
+    runTypeExprVisitor v ty
+    runExprVisitor v value
+
+runTopLevelVisitor :: (Monad m) => Visitor m -> TST TopLevel -> m ()
+runTopLevelVisitor v tl@(TST (TopLevel stmts) _) = do
+  onTopLevel v tl do
+    forM_ stmts $ \stmt -> do
+      runTopLevelStmtVisitor v stmt
