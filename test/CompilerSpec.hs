@@ -4,6 +4,7 @@ module CompilerSpec (spec) where
 
 import DW.Common
 import DW.Compiler qualified as Compiler
+import DW.ConstExprPass qualified as ConstExprPass
 import DW.Error (displayError)
 import DW.IR
 import DW.Logging (noOpLogger, runLog)
@@ -23,13 +24,15 @@ testCompile source = do
   result <- runEff $ runLog noOpLogger $ runErrors $ do
     -- Passes 1 and 2: Lexing and parsing
     ast <- runErrorAsErrors $ Parser.runParser source Parser.parseTopLevel
-    -- Pass 3: Lowering
+    -- Pass 3: Constexpr checking
+    ConstExprPass.runConstExprPass ast
+    -- Pass 4: Lowering
     let loweredAST = LowerPass.runLowerPass ast
-    -- Pass 4: Typechecking
+    -- Pass 5: Typechecking
     typedAST <- runErrorAsErrors $ Typechecker.runTypechecker loweredAST
-    -- Pass 5: Loop validation
+    -- Pass 6: Loop validation
     LoopPass.runLoopPass typedAST
-    -- Pass 6: Compile to IR
+    -- Pass 7: Compile to IR
     Compiler.runCompiler typedAST
   return $ first (concatMap $ unpack . displayError source) (stripCallStacks result)
 

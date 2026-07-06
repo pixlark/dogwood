@@ -262,6 +262,9 @@ typecheckLValue (LST (L.LVariable name) span) = do
   ty <- lookupVariable name `orElseMarkSpanM` (span, UnboundVariable name, T.mkAny)
   return $ TST (T.LVariable ty name) span
 
+-- typecheckLet :: (State Typechecker :> es, Errors Err :> es)
+--   => (LST Text, Maybe (LST L.TypeExpr), LST L.Expr)
+
 typecheckStmt ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
   LST L.Stmt ->
@@ -321,7 +324,7 @@ typecheckTopLevelStmt ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
   LST L.TopLevelStmt ->
   Eff es (TST T.TopLevelStmt)
-typecheckTopLevelStmt = undefined
+typecheckTopLevelStmt (LST (L.TLet {name, ty, value}) span) = undefined
 
 typecheckTopLevel ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>

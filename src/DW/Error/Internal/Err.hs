@@ -23,6 +23,8 @@ data ErrorKind
   | WrongArgumentCount {expectedCount :: Int, gotCount :: Int}
   | BreakOutsideLoop
   | InvalidBuiltinName Text
+  | TopLevelBoxedType
+  | NonConstTopLevelExpression
   deriving (Eq)
 
 data Err = Err ErrorKind Span
@@ -45,3 +47,5 @@ instance Show ErrorKind where
   show (WrongArgumentCount expected got) = printf "Expected %d arguments, but received %d" expected got
   show BreakOutsideLoop = "Cannot use a break statement outside of a loop"
   show (InvalidBuiltinName name) = printf "Invalid builtin name '%s'" name
+  show TopLevelBoxedType = printf "Top-level variables cannot have type 'any'"
+  show NonConstTopLevelExpression = printf "Top-level expressions must be constant"

@@ -109,6 +109,7 @@ library dogwood-core
             DW.Lexer.Internal,
         DW.Parser,
             DW.Parser.Internal,
+        DW.ConstExprPass,
         DW.LowerPass,
         DW.Typechecker,
             DW.Typechecker.Internal,

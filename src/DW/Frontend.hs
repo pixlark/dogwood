@@ -6,6 +6,7 @@ import DW.Clang qualified as Clang
 import DW.Common (HasCallStack, forM_, liftIO, runEff, runError, runErrorNoCallStack, runReader, traceShowId, when, withRegion)
 import DW.Compiler.Internal qualified as Compiler
 import DW.Config (ConfigData (..), LogLevel (..))
+import DW.ConstExprPass qualified as ConstExprPass
 import DW.EmitC qualified as EmitC
 import DW.Error (displayError)
 import DW.Error.Internal.ErrorsEffect (abortIfAnyErrors, runErrorAsErrors, runErrors, runErrorsNoCallStack)
@@ -47,15 +48,19 @@ run cfg = do
     -- This shouldn't be a big deal because they're just syntax errors, easily fixed.
     abortIfAnyErrors
 
-    -- Pass 3: Lowering
+    -- Pass 3: Constexpr checking
+    region "Checking constant expressions..." do
+      ConstExprPass.runConstExprPass ast
+
+    -- Pass 4: Lowering
     loweredAST <- region "Lowering AST..." do
       return $ LowerPass.runLowerPass ast
 
-    -- Pass 4: Typechecking
+    -- Pass 5: Typechecking
     typedAST <- region "Typechecking AST..." do
       Typechecker.runTypechecker loweredAST
 
-    -- Pass 5: Loop validation
+    -- Pass 6: Loop validation
     region "Validating loops..." do
       LoopPass.runLoopPass typedAST
 
@@ -65,17 +70,17 @@ run cfg = do
     -- a bunch of internal compiler errors).
     abortIfAnyErrors
 
-    -- Pass 6: Compile to IR
+    -- Pass 7: Compile to IR
     program <- region "Compiling to IR..." do
       Compiler.runCompiler typedAST
 
     abortIfAnyErrors
 
-    -- Pass 7: Generate C
+    -- Pass 8: Generate C
     generatedC <- region "Generating C..." do
       EmitC.runEmitC program
 
-    -- Pass 8: Compile C with clang
+    -- Pass 9: Compile C with clang
     executableName <- region "Compiling with clang..." do
       Clang.compileExecutable generatedC
 
@@ -112,13 +117,16 @@ lsp cfg = do
 
       abortIfAnyErrors
 
-      -- Pass 3: Lowering
+      -- Pass 3: Constexpr checking
+      ConstExprPass.runConstExprPass ast
+
+      -- Pass 4: Lowering
       let loweredAST = LowerPass.runLowerPass ast
 
-      -- Pass 4: Typechecking
+      -- Pass 5: Typechecking
       typedAST <- Typechecker.runTypechecker loweredAST
 
-      -- Pass 5: Loop validation
+      -- Pass 6: Loop validation
       LoopPass.runLoopPass typedAST
 
       return (source, ast, typedAST)

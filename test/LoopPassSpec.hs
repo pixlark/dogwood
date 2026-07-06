@@ -3,6 +3,7 @@
 module LoopPassSpec (spec) where
 
 import DW.Common
+import DW.ConstExprPass qualified as ConstExprPass
 import DW.Error
 import DW.Logging (noOpLogger, runLog)
 import DW.LoopPass qualified as LoopPass
@@ -16,11 +17,13 @@ import Prelude hiding (show)
 testLoopPass source = fmap stripCallStacks $ runEff $ runErrors $ runLog noOpLogger do
   -- Passes 1 and 2: Lexing and parsing
   ast <- Parser.runParser source Parser.parseTopLevel
-  -- Pass 3: Lowering
+  -- Pass 3: Constexpr checking
+  ConstExprPass.runConstExprPass ast
+  -- Pass 4: Lowering
   let loweredAST = LowerPass.runLowerPass ast
-  -- Pass 4: Typechecking
+  -- Pass 5: Typechecking
   typedAST <- Typechecker.runTypechecker loweredAST
-  -- Pass 5: Loop validation
+  -- Pass 6: Loop validation
   LoopPass.runLoopPass typedAST
 
 spec = do
