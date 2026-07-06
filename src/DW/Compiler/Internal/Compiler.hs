@@ -10,7 +10,6 @@ import DW.LexicalScopes
 import DW.Logging qualified as Logging
 import DW.TypedAST
 import DW.Util
-
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet (HashSet)
@@ -139,8 +138,10 @@ mkFnId = do
 --
 
 lookupVariableById ::
-  (HasCallStack, State s :> es, HasLexicalScopes AbstractVariable s, Errors Err :> es)
-  => Span -> VarId -> Eff es AbstractVariable
+  (HasCallStack, State s :> es, HasLexicalScopes AbstractVariable s, Errors Err :> es) =>
+  Span ->
+  VarId ->
+  Eff es AbstractVariable
 lookupVariableById span id = do
   scopes <- gets getScopes
   lookupByValue span (\v -> v.varId == id) scopes `orICEM` span
@@ -166,6 +167,57 @@ modifyCurrentFunction span f = do
   currentFn' <- f currentFn
   modify (\c -> c {program = Program (HashMap.insert compiler.activeFn currentFn' (fnMap compiler.program))})
 
+saveCompilerAndResetForNewFn :: (HasCallStack, State Compiler :> es) => TypeExpr -> Eff es (FnId, Compiler)
+saveCompilerAndResetForNewFn ty = do
+  -- Make the new function and insert it into the program state
+  fnId <- mkFnId
+  let fnDef = FnDef ty [(BlockId 0, mkBlock)]
+  modify
+    ( \c@Compiler {program = Program fns} ->
+        c {program = Program $ HashMap.insert fnId fnDef fns}
+    )
+
+  -- Save the compiler state at this point
+  savedCompiler <- get
+
+  -- Reset function-specific state to baseline
+  modify
+    ( \c ->
+        c
+          { nameCounter = 0,
+            blockCounter = 1,
+            activeFn = fnId,
+            activeBlock = BlockId 0,
+            scopes = mkScopes,
+            variablesPerBlock = HashMap.empty,
+            incompletePhis = HashMap.empty,
+            userMap = HashMap.empty,
+            sealed = HashSet.fromList [BlockId 0],
+            currentBreakBlocks = []
+          }
+    )
+
+  return (fnId, savedCompiler)
+
+restoreSavedCompilerAfterFnCompile :: (HasCallStack, State Compiler :> es) => Compiler -> Eff es ()
+restoreSavedCompilerAfterFnCompile saved = do
+  -- Restore function-specific state from saved compiler
+  modify
+    ( \c ->
+        c
+          { nameCounter = saved.nameCounter,
+            blockCounter = saved.blockCounter,
+            activeFn = saved.activeFn,
+            activeBlock = saved.activeBlock,
+            scopes = saved.scopes,
+            variablesPerBlock = saved.variablesPerBlock,
+            incompletePhis = saved.incompletePhis,
+            userMap = saved.userMap,
+            sealed = saved.sealed,
+            currentBreakBlocks = saved.currentBreakBlocks
+          }
+    )
+
 --
 -- Block manipulation
 --
@@ -185,18 +237,22 @@ addPredecessor from to span = do
     return block {predecessors = predecessors ++ [from]}
 
 getBlock ::
-  (HasCallStack, State Compiler :> es, Errors Err :> es)
-  => BlockId -> Span -> Eff es Block
+  (HasCallStack, State Compiler :> es, Errors Err :> es) =>
+  BlockId ->
+  Span ->
+  Eff es Block
 getBlock id span = do
   FnDef _ blocks <- getCurrentFunction span
   lookup id blocks `orICE` span
 
 modifyBlock ::
-  (HasCallStack, State Compiler :> es, Errors Err :> es)
-  => BlockId -> Span -> (Block -> Eff es Block) -> Eff es ()
+  (HasCallStack, State Compiler :> es, Errors Err :> es) =>
+  BlockId ->
+  Span ->
+  (Block -> Eff es Block) ->
+  Eff es ()
 modifyBlock id span f = do
   block <- getBlock id span
-  id <- gets activeBlock
   modifyCurrentFunction span $ \(FnDef ty blocks) -> do
     block' <- f block
     return $ FnDef ty $ insertAssoc id block' blocks
@@ -206,14 +262,18 @@ modifyBlock id span f = do
 --
 
 setControl ::
-  (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es)
-  => Control -> Span -> Eff es ()
+  (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) =>
+  Control ->
+  Span ->
+  Eff es ()
 setControl control span = do
   activeBlock <- gets activeBlock
 
   -- when we make a new jump, that creates a new edge in the CFG
   -- so wherever we're jumping to, we should add ourself to its predecessors
   case control of
+    Halt -> return ()
+    Ret _ -> return ()
     Jump target -> do
       scribe $ format "Jump {} -> {}" (Shown activeBlock, Shown target)
       addPredecessor activeBlock target span
@@ -222,7 +282,6 @@ setControl control span = do
       addUser name (ControlUser activeBlock)
       addPredecessor activeBlock target1 span
       addPredecessor activeBlock target2 span
-    Halt -> return ()
 
   modifyBlock activeBlock span $ \block -> do
     return block {control}
@@ -233,7 +292,7 @@ switchToBlock id = do
   compiler <- get
   put compiler {activeBlock = id}
 
-emit :: (HasCallStack, State Compiler :> es, Errors Err :> es) => TypeExpr -> RHS -> Span -> Eff es Name
+emit :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TypeExpr -> RHS -> Span -> Eff es Name
 emit ty rhs span = do
   name <- mkName
   let ssa = SSA {ty, name, rhs, span}
@@ -343,8 +402,11 @@ determineNameInBlockRec varId blockId span = do
 --
 
 addEmptyPhi ::
-  (HasCallStack, State Compiler :> es, Errors Err :> es)
-  => BlockId -> VarId -> Span -> Eff es PhiReference
+  (HasCallStack, State Compiler :> es, Errors Err :> es) =>
+  BlockId ->
+  VarId ->
+  Span ->
+  Eff es PhiReference
 addEmptyPhi blockId varId span = do
   AbstractVariable {ty} <- lookupVariableById span varId
   name <- mkName
@@ -355,8 +417,12 @@ addEmptyPhi blockId varId span = do
   return phiRef
 
 addCompletePhi ::
-  (HasCallStack, State Compiler :> es, Errors Err :> es)
-  => BlockId -> TypeExpr -> [(BlockId, Name)] -> Span -> Eff es Name
+  (HasCallStack, State Compiler :> es, Errors Err :> es) =>
+  BlockId ->
+  TypeExpr ->
+  [(BlockId, Name)] ->
+  Span ->
+  Eff es Name
 addCompletePhi blockId ty operands span = do
   name <- mkName
   let phi = Phi {ty, name, operands, span}
@@ -397,8 +463,10 @@ setIncompletePhi blockId phiRef = do
   modify (\c -> c {incompletePhis = incompletePhis'})
 
 recursivelySetPhiOperands ::
-  (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es)
-  => PhiReference -> Span -> Eff es Name
+  (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) =>
+  PhiReference ->
+  Span ->
+  Eff es Name
 recursivelySetPhiOperands phiRef span = do
   Block {predecessors} <- getBlock phiRef.inBlock span
   operands <- forM predecessors $ \pred -> do
@@ -423,8 +491,10 @@ replaceNameInRHS from to (RCall fn args) = RCall fn' args'
 replaceNameInRHS _ _ rhs = rhs
 
 tryRemoveTrivialPhi ::
-  (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es)
-  => PhiReference -> Span -> Eff es Name
+  (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) =>
+  PhiReference ->
+  Span ->
+  Eff es Name
 tryRemoveTrivialPhi phiRef span = do
   phi <- getPhi phiRef span `orICEM` span
   let operands' = nub $ filter (/= phi.name) $ snd <$> phi.operands
@@ -497,6 +567,7 @@ tryRemoveTrivialPhi phiRef span = do
       block <- getBlock blockId span
       control' <- case block.control of
         Halt -> throwSpan span InternalCompilerError
+        Ret name -> return $ Ret $ if name == replaceName then withName else name
         Jump _ -> throwSpan span InternalCompilerError
         JumpIf name t1 t2 -> return $ JumpIf (if name == replaceName then withName else name) t1 t2
       modifyBlock blockId span $ \block -> do

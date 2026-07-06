@@ -4,7 +4,6 @@ import DW.Common
 import DW.Config (ConfigData (..), LogLevel (..))
 import DW.Frontend qualified as Frontend
 import DW.Util (orElse)
-
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import System.Directory (createDirectoryIfMissing, doesFileExist)
@@ -56,3 +55,7 @@ spec = do
       void $ integrationTest "evaluateundefined.pr"
     it "handles variable shadowing" do
       void $ integrationTest "variableshadowing.pr"
+    it "can define and use a basic function" do
+      void $ integrationTest "basicfn.pr"
+    it "can define and use a more complex function" do
+      void $ integrationTest "complexfn.pr"

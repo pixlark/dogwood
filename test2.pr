@@ -1,3 +1,0 @@
-#let print = builtin print;
-let x = 5;
-#print(x);

@@ -2,6 +2,7 @@
 
 module DW.Compiler.Internal where
 
+import Control.Monad (join)
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (scribe)
 import DW.Compiler.Internal.Compiler
@@ -10,8 +11,6 @@ import DW.LexicalScopes
 import DW.Typechecker (unifies)
 import DW.TypedAST
 import DW.Util
-
-import Control.Monad (join)
 import Data.HashMap.Strict qualified as HashMap
 
 compileBody :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => Body -> Span -> Eff es Name
@@ -117,7 +116,29 @@ compileExpr (TST (Builtin ty bName) span) = do
 compileExpr (TST (Boxed ty value) span) = do
   inner <- compileExpr (TST value span)
   emit mkAny (RBox ty inner) span
-compileExpr (TST (Lambda {}) span) = undefined
+compileExpr (TST (Lambda {ty, params, body}) span) = do
+  fnId <- withRegion "Saving compiler state to compile new function..." do
+    (fnId, savedCompiler) <- saveCompilerAndResetForNewFn ty
+
+    forM_ (params `zip` [0 ..]) $ \((TST ty _, name), i) -> do
+      varId <- mkVarId
+      scribe $ format "Binding parameter {} ({})" (Shown name, Shown varId)
+      bindNewVariable (node name) $ AbstractVariable {varId, ty, span = spanOf name}
+      blockId <- gets activeBlock
+
+      name <- emit ty (RParameter i) span
+      modify (\c -> c {variablesPerBlock = HashMap.insert (varId, blockId) name c.variablesPerBlock})
+      scribe $ format "Parameter loaded into name {}" (Only (Shown name))
+
+    scribe $ format "Compiling new function ({})" (Only (Shown fnId))
+    resultName <- compileExpr body
+    setControl (Ret resultName) span
+
+    scribe "Restoring compiler state"
+    restoreSavedCompilerAfterFnCompile savedCompiler
+    return fnId
+
+  emit ty (RLoadFn fnId) span
 
 compileStmt :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TST Stmt -> Eff es (Maybe Name)
 compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do
@@ -195,6 +216,8 @@ compileStmt (TST Break span) = withRegion "Compiling break statement..." do
 compileProgram :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TST Stmt -> Eff es ()
 compileProgram stmt@(TST _ _) = withRegion "Compiling program..." do
   _ <- compileStmt stmt
+  program <- gets program
+  scribe $ format "Program:\n\n{}" (Only (Shown program))
   return ()
 
 compileAndCheck :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TST Stmt -> Eff es ()

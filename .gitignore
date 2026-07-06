@@ -2,7 +2,7 @@ dist-newstyle/
 haddocks/
 a.out
 generated.c
-test.pr
+test*.pr
 .testdata/
 .gdb_history
 

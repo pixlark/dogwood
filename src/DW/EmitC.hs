@@ -9,7 +9,6 @@ import DW.EmitC.Internal.EmitEffect
 import DW.IR
 import DW.TypedAST
 import DW.Util (getSingleElement, orElse)
-
 import Data.HashMap.Strict qualified as HashMap
 import Data.List (intersperse)
 import Data.Text qualified as Text
@@ -160,6 +159,12 @@ emitRHS (RCall fn args) = do
     Just arg -> emit $ Text.show arg
     Nothing -> emit ", "
   emit ")"
+emitRHS (RLoadFn (FnId fnId)) = do
+  emit "_function_"
+  emit $ Text.show fnId
+emitRHS (RParameter idx) = do
+  emit "_arg"
+  emit $ Text.show idx
 emitRHS (RBuiltin name) = do
   emit name
 emitRHS (RBox TypeExpr {valueExpr = ty} name) = do
@@ -169,8 +174,18 @@ emitRHS (RBox TypeExpr {valueExpr = ty} name) = do
   emitRuntimeTypeInfo ty
   emit ")"
 
-emitFn :: (Emit :> es) => FnDef -> Eff es ()
-emitFn (FnDef _ blocks) = do
+emitFn :: (Emit :> es, Errors Err :> es) => FnDef -> Eff es ()
+emitFn (FnDef ty blocks) = do
+  returnType <- case ty of
+    TypeExpr {valueExpr = Function _ (TST returnType _)} -> return returnType
+    _ -> throwSpan (Span 0 1) InternalCompilerError
+
+  emit "  "
+  emitType (do emit " "; emit "_retValue") returnType
+  emit " = "
+  emitZeroValue returnType
+  emit ";\n"
+
   -- declare all local variables at the top
   forM_ blocks $ \(_, Block {phis, instructions}) -> do
     forM_ instructions $ \(SSA {ty, name}) -> do
@@ -207,6 +222,7 @@ emitFn (FnDef _ blocks) = do
     -- then we fill out any phis that we are reponsible for
     let nextBlocks = case control of
           Halt -> []
+          Ret _ -> []
           Jump b -> [b]
           JumpIf _ b1 b2 -> [b1, b2]
     forM_ nextBlocks $ \nextBlockId -> do
@@ -223,7 +239,12 @@ emitFn (FnDef _ blocks) = do
     -- lastly, we generate the control instruction
     emit "  "
     case control of
-      Halt -> emit "goto __ret;\n"
+      Halt -> emit "  goto __ret;\n"
+      Ret name -> do
+        emit "_retValue = "
+        emit $ Text.show name
+        emit ";\n"
+        emit "  goto __ret;\n"
       Jump toBlock -> do
         emit "goto "
         emit $ Text.show toBlock
@@ -239,7 +260,7 @@ emitFn (FnDef _ blocks) = do
     emit "\n"
 
   -- generate the return block
-  emit "__ret:\n  return 0;\n"
+  emit "__ret:\n  return _retValue;\n"
 
 emitC :: (Emit :> es, Errors Err :> es) => Program -> Eff es ()
 emitC (Program fns) = do
@@ -282,7 +303,7 @@ emitC (Program fns) = do
         forM_ (intersperse Nothing (Just <$> params `zip` [0 ..])) $ \case
           Nothing -> emit ", "
           Just (TST ty _, n) -> do
-            emitType (do emit " _"; emit $ Text.show n) ty
+            emitType (do emit " _arg"; emit $ Text.show n) ty
         emit ")"
 
 runEmitC :: (HasCallStack, Errors Err :> es) => Program -> Eff es Text

@@ -1,0 +1,15 @@
+{
+    let print = builtin print;
+
+    let calculate = fn(x: int, y: int) -> int {
+        let print = builtin print;
+
+        let z = x + 2 * y;
+        print(z);
+
+        let result = z * x;
+        result
+    };
+
+    print(calculate(5, 2));
+}

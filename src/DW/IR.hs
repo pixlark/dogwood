@@ -2,7 +2,6 @@ module DW.IR where
 
 import DW.Common
 import DW.TypedAST qualified as T
-
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Hashable (Hashable (..))
@@ -29,6 +28,9 @@ data RHS
   | RUnaryOp T.Operator Name
   | -- Control flow
     RCall Name [Name]
+  | -- Functions
+    RLoadFn FnId
+  | RParameter Int
   | -- Misc
     RBuiltin Text
   | RBox T.TypeExpr Name
@@ -37,7 +39,7 @@ data RHS
 data Phi = Phi {ty :: T.TypeExpr, name :: Name, operands :: [(BlockId, Name)], span :: Span}
   deriving (Eq)
 
-data Control = Halt | Jump BlockId | JumpIf Name BlockId BlockId
+data Control = Halt | Ret Name | Jump BlockId | JumpIf Name BlockId BlockId
   deriving (Eq)
 
 data SSA = SSA {ty :: T.TypeExpr, name :: Name, rhs :: RHS, span :: Span}
@@ -50,7 +52,7 @@ mkBlock :: Block
 mkBlock = Block [] [] Halt []
 
 data FnDef = FnDef T.TypeExpr [(BlockId, Block)]
-  deriving (Eq)
+  deriving (Eq, Show)
 
 newtype Program = Program (HashMap FnId FnDef)
   deriving (Eq)
@@ -75,6 +77,8 @@ instance Show RHS where
   show (RBinOp op l r) = printf "%s %s %s" (show l) (show op) (show r)
   show (RUnaryOp op v) = printf "%s%s" (show op) (show v)
   show (RCall fn args) = printf "call %s (%s)" (show fn) (intercalate ", " $ map show args)
+  show (RLoadFn id) = printf "loadfn %s" (show id)
+  show (RParameter idx) = printf "param %s" (show idx)
   show (RBuiltin name) = Text.unpack name
   show (RBox ty name) = printf "box %s : %s" (show name) (show ty)
 
@@ -92,6 +96,7 @@ instance ShowWithSource Phi where
 
 instance Show Control where
   show Halt = printf "halt"
+  show (Ret name) = printf "ret %s" (show name)
   show (Jump id) = printf "jump %s" (show id)
   show (JumpIf name id1 id2) = printf "jump if %s to %s else %s" (show name) (show id1) (show id2)
 

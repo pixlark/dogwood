@@ -1,0 +1,5 @@
+{
+    let print = builtin print;
+    let id = fn(x: int) -> int: x;
+    print(id(5));
+}
