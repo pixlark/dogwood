@@ -3,25 +3,48 @@
 
 module DW.Typechecker.Internal where
 
+import Control.Monad (join)
 import DW.AST (SyntaxTree (..))
 import DW.Common
 import DW.Error (markSpan)
-import DW.LexicalScopes
+import DW.LexicalScopes hiding (lookupVariable)
+import DW.LexicalScopes qualified as LexicalScopes
 import DW.LoweredAST (LST (..))
 import DW.LoweredAST qualified as L
 import DW.TypedAST (TST (..), typeOf)
 import DW.TypedAST qualified as T
 import DW.Util
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
 import Data.Text qualified as Text
 
-newtype Typechecker = Typechecker {scopes :: LexicalScopes T.TypeExpr}
+data Typechecker = Typechecker
+  { scopes :: LexicalScopes T.TypeExpr,
+    topLevelBindings :: HashMap Text T.TypeExpr
+  }
 
 instance HasLexicalScopes T.TypeExpr Typechecker where
   getScopes = scopes
   setScopes scopes t = t {scopes}
 
 mkTypechecker :: Typechecker
-mkTypechecker = Typechecker {scopes = mkScopes}
+mkTypechecker = Typechecker {scopes = mkScopes, topLevelBindings = HashMap.empty}
+
+bindTopLevelVariable :: (State Typechecker :> es, Errors Err :> es) => Text -> T.TypeExpr -> Span -> Eff es ()
+bindTopLevelVariable name ty span = do
+  topLevelBindings <- gets topLevelBindings
+  when (isJust $ HashMap.lookup name topLevelBindings) do
+    markSpan span (MultipleDefinitionsOfTLVariable name)
+  modify (\t -> t {topLevelBindings = HashMap.insert name ty topLevelBindings})
+
+lookupVariable :: (State Typechecker :> es) => Text -> Eff es (Maybe T.TypeExpr)
+lookupVariable name = do
+  maybeLocal <- LexicalScopes.lookupVariable name
+  case maybeLocal of
+    Just local -> return $ Just local
+    Nothing -> do
+      topLevelBindings <- gets topLevelBindings
+      return $ HashMap.lookup name topLevelBindings
 
 rewrap :: LST a -> TST a
 rewrap (LST x span) = TST x span
@@ -262,17 +285,12 @@ typecheckLValue (LST (L.LVariable name) span) = do
   ty <- lookupVariable name `orElseMarkSpanM` (span, UnboundVariable name, T.mkAny)
   return $ TST (T.LVariable ty name) span
 
--- typecheckLet :: (State Typechecker :> es, Errors Err :> es)
---   => (LST Text, Maybe (LST L.TypeExpr), LST L.Expr)
-
 typecheckStmt ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
   LST L.Stmt ->
   Eff es (TST T.Stmt)
 typecheckStmt (LST (L.Let {name, type_, value}) span) = do
   tValue <- typecheckExpr value
-
-  scribe $ format "{} : {}" (Shown tValue, Shown (typeOf $ node tValue))
 
   -- If they provided a type annotation, then make sure it's correct
   maybeBoxedTValue <- forM type_ $ \type_ -> do
@@ -320,17 +338,65 @@ typecheckStmt (LST (L.Loop body) span) = do
     markSpan (spanOf body) (typeMismatch (T.makeValueExpr T.Void) ty)
   return $ TST (T.Loop tBody) span
 
-typecheckTopLevelStmt ::
+typecheckTopLevelStmtWithoutRecursing ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
   LST L.TopLevelStmt ->
+  Eff es (TST Text, TST T.TypeExpr)
+typecheckTopLevelStmtWithoutRecursing (LST (L.TLet {name, ty, value}) span) = do
+  valueTy <- case node value of
+    L.VoidLit -> return T.mkVoid
+    L.IntLit _ -> return T.mkInt
+    L.BoolLit _ -> return T.mkBool
+    L.Lambda {params, returnType} -> do
+      let params' = convertLST . (convertTypeExpr <$>) . fst <$> params
+      let returnType' = convertLST $ convertTypeExpr <$> returnType
+      return $ T.TypeExpr {reference = False, valueExpr = T.Function params' returnType'}
+    -- This should have been verified by the constexpr pass
+    _ -> throwSpan span InternalCompilerError
+
+  -- If they provided a type annotation, then make sure it's correct
+  forM_ ty $ \type_ -> do
+    let typeAnnotation = convertLST $ convertTypeExpr <$> type_
+    when (node typeAnnotation `doesNotUnify` valueTy) do
+      markSpan (spanOf value) (typeMismatch (node typeAnnotation) valueTy)
+
+  -- We don't worry about auto-boxing because boxed values are forbidden at
+  -- the top level (since they're dynamically allocated).
+  -- This has already been verified by the ConstExprPass.
+
+  -- If they provided a type annotation, then we take that as canonical.
+  -- Otherwise, we use the inferred type.
+  -- Generally they'll be the same, but subtyping introduces some subtlety here
+  let boundTy = (convertLST <$> convertTypeExpr <$$> ty) `orElse` TST valueTy (spanOf value)
+
+  scribe $ format "Binding top-level variable {} (type: {})" (node name, Shown boundTy)
+  bindTopLevelVariable (node name) (node boundTy) (spanOf name)
+
+  return (convertLST name, boundTy)
+
+typecheckTopLevelStmtRecursively ::
+  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
+  LST L.TopLevelStmt ->
+  (TST Text, TST T.TypeExpr) ->
   Eff es (TST T.TopLevelStmt)
-typecheckTopLevelStmt (LST (L.TLet {name, ty, value}) span) = undefined
+typecheckTopLevelStmtRecursively (LST (L.TLet {value}) span) (name, ty) = do
+  tValue <- typecheckExpr value
+  return $ TST (T.TLet {name, ty, value = tValue}) span
 
 typecheckTopLevel ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
   LST L.TopLevel ->
   Eff es (TST T.TopLevel)
-typecheckTopLevel = undefined
+typecheckTopLevel (LST (L.TopLevel stmts) span) = do
+  -- Before recursing into the bodies of any functions, we first go through all the top-level
+  -- bindings. This way the user can define mutually recursive functions rather than being restricted
+  -- to top-to-bottom order.
+  types <- forM stmts $ \stmt -> do
+    typecheckTopLevelStmtWithoutRecursing stmt
+  -- Then, we go through and actually evaluate the function bodies
+  tStmts <- forM (stmts `zip` types) $ \(stmt, (name, boundTy)) -> do
+    typecheckTopLevelStmtRecursively stmt (name, boundTy)
+  return $ TST (T.TopLevel tStmts) span
 
 runTypechecker ::
   (HasCallStack, Errors Err :> es, Log :> es) =>

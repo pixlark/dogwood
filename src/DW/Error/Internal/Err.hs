@@ -25,6 +25,7 @@ data ErrorKind
   | InvalidBuiltinName Text
   | TopLevelBoxedType
   | NonConstTopLevelExpression
+  | MultipleDefinitionsOfTLVariable Text
   deriving (Eq)
 
 data Err = Err ErrorKind Span
@@ -49,3 +50,4 @@ instance Show ErrorKind where
   show (InvalidBuiltinName name) = printf "Invalid builtin name '%s'" name
   show TopLevelBoxedType = printf "Top-level variables cannot have type 'any'"
   show NonConstTopLevelExpression = printf "Top-level expressions must be constant"
+  show (MultipleDefinitionsOfTLVariable name) = printf "Found multiple definitions of %s" name

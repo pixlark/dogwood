@@ -29,8 +29,8 @@ testLoopPass source = fmap stripCallStacks $ runEff $ runErrors $ runLog noOpLog
 spec = do
   describe "the LoopPass module" do
     it "handles breaks correctly" do
-      result <- testLoopPass "let main = fn() { loop { break; }; };"
+      result <- testLoopPass "let main = fn() { loop { break; } };"
       result `shouldSatisfy` isRight
 
-      result <- testLoopPass "let main = fn() { break; }"
+      result <- testLoopPass "let main = fn() { break; };"
       result `shouldSatisfy` isErrorKind BreakOutsideLoop

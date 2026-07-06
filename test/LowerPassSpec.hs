@@ -23,5 +23,5 @@ spec :: SpecWith ()
 spec = do
   describe "the LowerPass module" do
     it "lowers omitted lambda return types" do
-      testLowerPass "let f = fn() {};" `shouldReturn` Right "let f = fn() -> void {\n};"
-      testLowerPass "let f = fn(x: int): void;" `shouldReturn` Right "let f = fn(x: int) -> void: void;"
+      testLowerPass "let f = fn() {};" `shouldReturn` Right "let f = fn() -> void {\n};\n"
+      testLowerPass "let f = fn(x: int): void;" `shouldReturn` Right "let f = fn(x: int) -> void: void;\n"
