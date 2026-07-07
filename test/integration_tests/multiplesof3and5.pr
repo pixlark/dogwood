@@ -1,4 +1,4 @@
-{
+let main = fn() {
     let print: fn(any) -> void = builtin print;
 
     let n: int = 1;
@@ -13,4 +13,4 @@
     }
 
     print(acc);
-}
+};

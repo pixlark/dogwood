@@ -12,13 +12,31 @@ import DW.LoopPass qualified as LoopPass
 import DW.LowerPass qualified as LowerPass
 import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
-import DW.TypedAST (ValueTypeExpr (..), makeValueExpr)
+import DW.TypedAST
 import DW.Util (stripCallStacks)
 import Data.Bifunctor (Bifunctor (first))
 import Data.Text (unpack)
 import NeatInterpolation
 import Test.Hspec
 
+-- testCompile :: Text -> IO (Either String Program)
+-- testCompile source = do
+--   result <- runEff $ runLog noOpLogger $ runErrors $ do
+--     -- Passes 1 and 2: Lexing and parsing
+--     ast <- runErrorAsErrors $ Parser.runParser source Parser.parseTopLevel
+--     -- Pass 3: Constexpr checking
+--     ConstExprPass.runConstExprPass ast
+--     -- Pass 4: Lowering
+--     let loweredAST = LowerPass.runLowerPass ast
+--     -- Pass 5: Typechecking
+--     typedAST <- runErrorAsErrors $ Typechecker.runTypechecker loweredAST
+--     -- Pass 6: Loop validation
+--     LoopPass.runLoopPass typedAST
+--     -- Pass 7: Compile to IR
+--     Compiler.runCompiler typedAST
+--   return $ first (concatMap $ unpack . displayError source) (stripCallStacks result)
+
+-- Stopgap while doing refactoring
 testCompile :: Text -> IO (Either String Program)
 testCompile source = do
   result <- runEff $ runLog noOpLogger $ runErrors $ do
@@ -29,11 +47,15 @@ testCompile source = do
     -- Pass 4: Lowering
     let loweredAST = LowerPass.runLowerPass ast
     -- Pass 5: Typechecking
-    typedAST <- runErrorAsErrors $ Typechecker.runTypechecker loweredAST
+    typedAST@(TST (TopLevel tlStmts) _) <- runErrorAsErrors $ Typechecker.runTypechecker loweredAST
     -- Pass 6: Loop validation
     LoopPass.runLoopPass typedAST
+
+    let reducedStmt = case tlStmts of
+          [TST (TLet {name = (TST "main" _), value = (TST (Lambda {body = (TST body span)}) _)}) _] -> TST (ExprStmt (TST body span) True) span
+          _ -> undefined
     -- Pass 7: Compile to IR
-    Compiler.runCompiler typedAST
+    Compiler.runCompiler reducedStmt
   return $ first (concatMap $ unpack . displayError source) (stripCallStacks result)
 
 getPhis :: Program -> [Phi]
@@ -63,7 +85,8 @@ spec = do
                   } else {
                     let z: int = 2;
                   }
-                  x
+                  let print = builtin print;
+                  print(x);
                 };
               |]
         result <- testCompile source
@@ -86,7 +109,8 @@ spec = do
                   } else {
                     x = 2;
                   }
-                  x
+                  let print = builtin print;
+                  print(x);
                 };
               |]
         result <- testCompile source
@@ -114,7 +138,8 @@ spec = do
                   } else {
                     let c: int = 3;
                   }
-                  x
+                  let print = builtin print;
+                  print(x);
                 };
               |]
         result <- testCompile source
@@ -137,7 +162,8 @@ spec = do
                   } else {
                     let y: int = 1;
                   }
-                  x
+                  let print = builtin print;
+                  print(x);
                 };
               |]
         result <- testCompile source
@@ -166,7 +192,8 @@ spec = do
                   } else {
                     let d: int = 4;
                   }
-                  x
+                  let print = builtin print;
+                  print(x);
                 };
               |]
         result <- testCompile source

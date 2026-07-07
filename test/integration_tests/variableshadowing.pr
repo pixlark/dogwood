@@ -1,4 +1,4 @@
-{
+let main = fn() {
     let print = builtin print;
 
     let x = 5;
@@ -6,4 +6,4 @@
 
     let x = false;
     print(x);
-}
+};

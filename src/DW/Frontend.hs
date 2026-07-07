@@ -2,6 +2,7 @@
 
 module DW.Frontend (run, lsp) where
 
+import DW.AST (node)
 import DW.Clang qualified as Clang
 import DW.Common (HasCallStack, forM_, liftIO, runEff, runError, runErrorNoCallStack, runReader, traceShowId, when, withRegion)
 import DW.Compiler.Internal qualified as Compiler
@@ -16,6 +17,7 @@ import DW.LoopPass qualified as LoopPass
 import DW.LowerPass qualified as LowerPass
 import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
+import DW.TypedAST
 import Data.Bifunctor (Bifunctor (..))
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -57,7 +59,7 @@ run cfg = do
       return $ LowerPass.runLowerPass ast
 
     -- Pass 5: Typechecking
-    typedAST <- region "Typechecking AST..." do
+    typedAST@(TST (TopLevel tlStmts) _) <- region "Typechecking AST..." do
       Typechecker.runTypechecker loweredAST
 
     -- Pass 6: Loop validation
@@ -71,8 +73,15 @@ run cfg = do
     abortIfAnyErrors
 
     -- Pass 7: Compile to IR
-    program <- region "Compiling to IR..." do
-      Compiler.runCompiler typedAST
+    -- program <- region "Compiling to IR..." do
+    --   Compiler.runCompiler undefined
+
+    -- stopgap
+    let reducedStmt = case tlStmts of
+          [TST (TLet {name = (TST "main" _), value = (TST (Lambda {body = (TST body span)}) _)}) _] -> TST (ExprStmt (TST body span) True) span
+          _ -> undefined
+    -- Pass 7: Compile to IR
+    program <- Compiler.runCompiler reducedStmt
 
     abortIfAnyErrors
 

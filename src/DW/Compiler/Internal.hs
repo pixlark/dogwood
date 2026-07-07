@@ -216,22 +216,23 @@ compileStmt (TST Break span) = withRegion "Compiling break statement..." do
 compileTopLevel :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TST TopLevel -> Eff es ()
 compileTopLevel = undefined
 
-compileProgram :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TST TopLevel -> Eff es ()
-compileProgram topLevel = withRegion "Compiling program..." do
-  compileTopLevel topLevel
+compileProgram :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TST Stmt -> Eff es ()
+compileProgram stmt = withRegion "Compiling program..." do
+  -- compileTopLevel topLevel
+  _ <- compileStmt stmt
   program <- gets program
   scribe $ format "Program:\n\n{}" (Only (Shown program))
 
-compileAndCheck :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TST TopLevel -> Eff es ()
-compileAndCheck topLevel = do
-  compileProgram topLevel
+compileAndCheck :: (HasCallStack, State Compiler :> es, Errors Err :> es, Log :> es) => TST Stmt -> Eff es ()
+compileAndCheck stmt = do
+  compileProgram stmt
   (Program fns) <- gets program
   forM_ (HashMap.toList fns) $ \(_, FnDef _ blocks) -> do
     forM_ blocks $ \(id, _) -> do
       seal <- isSealed id
-      unless seal $ throwSpan (spanOf topLevel) InternalCompilerError
+      unless seal $ throwSpan (spanOf stmt) InternalCompilerError
 
-runCompiler :: (HasCallStack, Errors Err :> es, Log :> es) => TST TopLevel -> Eff es Program
+runCompiler :: (HasCallStack, Errors Err :> es, Log :> es) => TST Stmt -> Eff es Program
 runCompiler topLevel = do
   compiler <- execState mkCompiler $ compileAndCheck topLevel
   return compiler.program
