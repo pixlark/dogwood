@@ -146,7 +146,7 @@ typecheckBody (LST (L.Body stmts) span) = withRegion "Entering scope..." do
       retType = safeLast retTypes `orElse` T.makeValueExpr T.Void
 
   -- close the lexical scope
-  popScope `orICEM` span
+  popScope <&> unwrapICE
   return $ TST (T.Body retType tStmts') span
 
 getBuiltins :: Span -> [(Text, T.TypeExpr)]
@@ -352,7 +352,7 @@ typecheckTopLevelStmtWithoutRecursing (LST (L.TLet {name, ty, value}) span) = do
       let returnType' = convertLST $ convertTypeExpr <$> returnType
       return $ T.TypeExpr {reference = False, valueExpr = T.Function params' returnType'}
     -- This should have been verified by the constexpr pass
-    _ -> throwSpan span InternalCompilerError
+    _ -> throwICE
 
   -- If they provided a type annotation, then make sure it's correct
   forM_ ty $ \type_ -> do

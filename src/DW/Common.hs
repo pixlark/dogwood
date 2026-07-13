@@ -66,8 +66,6 @@ module DW.Common
     throwSpan,
     orThrowSpan,
     orThrowSpanM,
-    orICE,
-    orICEM,
     throwErr,
     throwErrs,
     tryErr,
@@ -80,20 +78,26 @@ module DW.Common
     runErrorAsErrors,
     runErrors,
     runErrorsNoCallStack,
+    InternalCompilerError,
+    throwICE,
+    unwrapICE,
+    (&),
+    (<&>),
   )
 where
 
+import Control.Applicative (Alternative ((<|>)))
+import Control.Monad (forM, forM_, msum, unless, void, when)
 import DW.Error
   ( Err (..),
     ErrorKind (..),
     Errors,
+    InternalCompilerError,
     Result,
     Span (..),
     getLineForSpan,
     orElseMarkSpan,
     orElseMarkSpanM,
-    orICE,
-    orICEM,
     orThrowSpan,
     orThrowSpanM,
     runErrorAsErrors,
@@ -101,15 +105,16 @@ import DW.Error
     runErrorsNoCallStack,
     throwErr,
     throwErrs,
+    throwICE,
     throwSpan,
     tryErr,
+    unwrapICE,
   )
 import DW.Logging (Log, scribe, withRegion)
 import DW.Util ((!?))
-
-import Control.Applicative (Alternative ((<|>)))
-import Control.Monad (forM, forM_, msum, unless, void, when)
 import Data.Either (isLeft, isRight)
+import Data.Function
+import Data.Functor
 import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import Data.Text.Format (Format, Only (..), Shown (..), format)

@@ -9,7 +9,7 @@ import DW.Compiler.Internal qualified as Compiler
 import DW.Config (ConfigData (..), LogLevel (..))
 import DW.ConstExprPass qualified as ConstExprPass
 import DW.EmitC qualified as EmitC
-import DW.Error (displayError)
+import DW.Error (InternalCompilerError, displayError)
 import DW.Error.Internal.ErrorsEffect (abortIfAnyErrors, runErrorAsErrors, runErrors, runErrorsNoCallStack)
 import DW.LSP qualified as LSP
 import DW.Logging (Logger, noOpLogger, runLog, scribe, standardLoggerWithIgnoredFunctions)
@@ -18,6 +18,8 @@ import DW.LowerPass qualified as LowerPass
 import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
 import DW.TypedAST
+
+import Control.Exception (catch)
 import Data.Bifunctor (Bifunctor (..))
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -26,7 +28,7 @@ import Effectful.Error.Static (prettyCallStack)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 
 run :: (HasCallStack) => ConfigData -> IO ExitCode
-run cfg = do
+run cfg = catchICE $ do
   source <- Text.IO.readFile (Text.unpack cfg.sourceFile)
 
   let logger = if cfg.logLevel == Loud then standardLoggerWithIgnoredFunctions ignoredFunctions else noOpLogger
@@ -80,6 +82,7 @@ run cfg = do
     let reducedStmt = case tlStmts of
           [TST (TLet {name = (TST "main" _), value = (TST (Lambda {body = (TST body span)}) _)}) _] -> TST (ExprStmt (TST body span) True) span
           _ -> undefined
+
     -- Pass 7: Compile to IR
     program <- Compiler.runCompiler reducedStmt
 
@@ -111,6 +114,19 @@ run cfg = do
   where
     -- functions that we want to ignore when marking the current function in the logging framework
     ignoredFunctions = ["markSealed", "potentiallyBox"]
+    catchICE :: IO ExitCode -> IO ExitCode
+    catchICE f =
+      catch
+        f
+        ( \(_ :: InternalCompilerError) -> do
+            putStrLn ""
+            putStrLn "===== INTERNAL COMPILER ERROR ====="
+            putStrLn " Please leave a bug report with a"
+            putStrLn " description of how this happened"
+            putStrLn "==================================="
+            putStrLn ""
+            return (ExitFailure 1)
+        )
 
 lsp :: (HasCallStack) => ConfigData -> IO ExitCode
 lsp cfg = do

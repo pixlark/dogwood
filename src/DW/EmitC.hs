@@ -178,7 +178,7 @@ emitFn :: (Emit :> es, Errors Err :> es) => FnDef -> Eff es ()
 emitFn (FnDef ty blocks) = do
   returnType <- case ty of
     TypeExpr {valueExpr = Function _ (TST returnType _)} -> return returnType
-    _ -> throwSpan (Span 0 1) InternalCompilerError
+    _ -> throwICE
 
   emit "  "
   emitType (do emit " "; emit "_retValue") returnType
@@ -295,7 +295,7 @@ emitC (Program fns) = do
     emitFnHeader (FnId id) fn@(FnDef ty _) = do
       (params, ret) <- case ty of
         TypeExpr {valueExpr = Function params ret} -> return (params, ret)
-        _ -> throwSpan (Span 0 1) InternalCompilerError
+        _ -> throwICE
       flip emitType (node ret) do
         emit " _function_"
         emit $ Text.show id

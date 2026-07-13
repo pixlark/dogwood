@@ -1,10 +1,9 @@
 module DW.Error.Internal where
 
+import Control.Monad
 import DW.Error.Internal.Err
 import DW.Error.Internal.ErrorsEffect
 import DW.Util
-
-import Control.Monad
 import Effectful (Eff, (:>))
 import Effectful.Error.Static (HasCallStack)
 
@@ -27,13 +26,13 @@ orThrowSpanM m e = do
   m' <- m
   orThrowSpan m' e
 
--- | Unpack the `Maybe` value, or otherwise throw an internal compiler error with the given span
-orICE :: (HasCallStack, Errors Err :> es) => Maybe a -> Span -> Eff es a
-orICE m span = m `orThrowSpan` (span, InternalCompilerError)
+-- -- | Unpack the `Maybe` value, or otherwise throw an internal compiler error with the given span
+-- orICE :: (HasCallStack, Errors Err :> es) => Maybe a -> Span -> Eff es a
+-- orICE m span = m `orThrowSpan` (span, InternalCompilerError)
 
--- | Unpack the `Maybe` value produced by the effect, or otherwise throw an internal compiler error with the given span
-orICEM :: (HasCallStack, Errors Err :> es) => Eff es (Maybe a) -> Span -> Eff es a
-orICEM m span = m `orThrowSpanM` (span, InternalCompilerError)
+-- -- | Unpack the `Maybe` value produced by the effect, or otherwise throw an internal compiler error with the given span
+-- orICEM :: (HasCallStack, Errors Err :> es) => Eff es (Maybe a) -> Span -> Eff es a
+-- orICEM m span = m `orThrowSpanM` (span, InternalCompilerError)
 
 markSpan :: (HasCallStack, Errors Err :> es) => Span -> ErrorKind -> Eff es ()
 markSpan span kind = markErr $ Err kind span

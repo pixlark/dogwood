@@ -7,8 +7,8 @@ data Span = Span Int Int
   deriving (Eq, Show)
 
 data ErrorKind
-  = InternalCompilerError
-  | UnrecognizedCharacter Char
+  = -- = InternalCompilerError
+    UnrecognizedCharacter Char
   | ExpectedKeyword Text
   | ExpectedGlyph Text
   | ExpectedSymbol
@@ -32,7 +32,7 @@ data Err = Err ErrorKind Span
   deriving (Eq, Show)
 
 instance Show ErrorKind where
-  show InternalCompilerError = "Internal compiler error!"
+  -- show InternalCompilerError = "Internal compiler error!"
   show (UnrecognizedCharacter c) = printf "Unrecognized character %c" c
   show (ExpectedKeyword keyword) = printf "Expected keyword %s" keyword
   show (ExpectedGlyph glyph) = printf "Expected glyph %s" glyph

@@ -14,8 +14,6 @@ module DW.Error
     markSpan,
     orThrowSpan,
     orThrowSpanM,
-    orICE,
-    orICEM,
     orElseMarkSpan,
     orElseMarkSpanM,
     getLineForSpan,
@@ -28,9 +26,14 @@ module DW.Error
     tryErr,
     throwErrs,
     Errors,
-  ) where
+    InternalCompilerError,
+    throwICE,
+    unwrapICE,
+  )
+where
 
 import DW.Error.Internal
 import DW.Error.Internal.Display
 import DW.Error.Internal.Err
 import DW.Error.Internal.ErrorsEffect
+import DW.Error.Internal.ICE

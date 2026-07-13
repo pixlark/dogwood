@@ -137,6 +137,7 @@ library dogwood-core
         DW.Error,
             DW.Error.Internal,
             DW.Error.Internal.Err,
+            DW.Error.Internal.ICE,
             DW.Error.Internal.Display,
             DW.Error.Internal.ErrorsEffect,
         -- Language server
