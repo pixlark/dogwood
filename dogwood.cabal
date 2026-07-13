@@ -118,7 +118,7 @@ library dogwood-core
             DW.Compiler.Internal,
             DW.Compiler.Internal.Users,
             DW.Compiler.Internal.Compiler,
-            DW.Compiler.Internal.Program,
+            DW.Compiler.Internal.Types,
         DW.EmitC,
             DW.EmitC.Internal.EmitEffect,
         DW.Clang,

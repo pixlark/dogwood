@@ -5,6 +5,7 @@ module DW.Compiler.Internal where
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (scribe)
 import DW.Compiler.Internal.Compiler
+import DW.Compiler.Internal.Types
 import DW.IR
 import DW.LexicalScopes
 import DW.Typechecker (unifies)

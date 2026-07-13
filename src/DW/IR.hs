@@ -2,11 +2,15 @@ module DW.IR where
 
 import DW.Common
 import DW.TypedAST qualified as T
+
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Hashable (Hashable (..))
 import Data.List (intercalate)
 import Data.Text qualified as Text
+
+newtype Label = Label Int
+  deriving (Show, Eq, Ord)
 
 newtype BlockId = BlockId Int
   deriving (Eq, Ord)
