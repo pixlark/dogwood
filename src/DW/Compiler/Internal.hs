@@ -14,27 +14,27 @@ import DW.Util
 import Control.Monad (join)
 import Data.HashMap.Strict qualified as HashMap
 
-compileBody :: (HasCallStack, State Compiler :> es, Log :> es) => Body -> Span -> Eff es Name
+compileBody :: (HasCallStack, State Compiler :> es, Log :> es) => Body -> Span -> Eff es Term
 compileBody (Body ty stmts) span = do
   -- each body opens a new lexical scope
   pushScope
 
   results <- forM stmts compileStmt
   let result = join $ safeLast results
-  name <- case result of
+  term <- case result of
     Nothing | ty `unifies` mkVoid -> do
       emit mkVoid RVoid span
     Nothing -> throwICE
-    Just name -> return name
+    Just term -> return term
 
   -- close the lexical scope
   popScope <&> unwrapICE
 
-  return name
+  return term
 
--- | Compile the expression into the current program. Returns name of the local SSA form that contains
+-- | Compile the expression into the current program. Returns term of the local SSA form that contains
 -- | the final value of the expression.
-compileExpr :: (HasCallStack, State Compiler :> es, Log :> es) => TST Expr -> Eff es Name
+compileExpr :: (HasCallStack, State Compiler :> es, Log :> es) => TST Expr -> Eff es Term
 compileExpr (TST UndefinedLit span) = emit mkAny RUndefined span
 compileExpr (TST VoidLit span) = emit mkVoid RVoid span
 compileExpr (TST (BoolLit b) span) = emit mkBool (RBool b) span
@@ -43,18 +43,18 @@ compileExpr (TST (Variable _ name) _) = do
   AbstractVariable {varId} <- lookupVariable name <&> unwrapICE
   scribe $ format "Looking up variable {} ({})" (name, Shown varId)
   activeBlock <- gets activeBlock
-  determineNameInBlock varId activeBlock
+  determineTermInBlock varId activeBlock
 compileExpr (TST (BinaryOperator ty op l r) span) = do
-  lName <- compileExpr l
-  rName <- compileExpr r
-  emit ty (RBinOp op lName rName) span
+  lTerm <- compileExpr l
+  rTerm <- compileExpr r
+  emit ty (RBinOp op lTerm rTerm) span
 compileExpr (TST (UnaryOperator ty op v) span) = do
-  name <- compileExpr v
-  emit ty (RUnaryOp op name) span
+  term <- compileExpr v
+  emit ty (RUnaryOp op term) span
 compileExpr (TST (FunctionCall ty fn args) span) = do
-  fnName <- compileExpr fn
-  argNames <- mapM compileExpr args
-  emit ty (RCall fnName argNames) span
+  fnTerm <- compileExpr fn
+  argTerms <- mapM compileExpr args
+  emit ty (RCall fnTerm argTerms) span
 compileExpr (TST (ExprBody body) span) = compileBody body span
 compileExpr (TST (IfThen ty condition body elseBody) span) = withRegion "Compiling if-then..." do
   -- Allocate a sealed block for the condition
@@ -65,7 +65,7 @@ compileExpr (TST (IfThen ty condition body elseBody) span) = withRegion "Compili
   switchToBlock conditionBlock
 
   -- Compile the condition into that block
-  resultName <- withRegion "Compiling the condition..." $ compileExpr condition
+  resultTerm <- withRegion "Compiling the condition..." $ compileExpr condition
 
   -- Allocate a block for the body and the elseBody
   bodyBlock <- allocateBlock
@@ -74,7 +74,7 @@ compileExpr (TST (IfThen ty condition body elseBody) span) = withRegion "Compili
   scribe $ format "Allocating block {} for the else-body" (Only (Shown elseBodyBlock))
 
   -- Now whatever the current block is should jump conditionally to those blocks
-  setControl (JumpIf resultName bodyBlock elseBodyBlock)
+  setControl (JumpIf resultTerm bodyBlock elseBodyBlock)
 
   -- Now we can mark both of them as sealed (they only have one predecessor each)
   markSealed bodyBlock
@@ -86,18 +86,18 @@ compileExpr (TST (IfThen ty condition body elseBody) span) = withRegion "Compili
 
   -- Now we can actually compile into those blocks
   switchToBlock bodyBlock
-  bodyResultName <- withRegion "Compiling the body..." $ compileExpr body
+  bodyResultTerm <- withRegion "Compiling the body..." $ compileExpr body
   finalBodyBlock <- gets activeBlock
   setControl (Jump postBlock)
 
   switchToBlock elseBodyBlock
-  elseBodyResultName <- withRegion "Compiling the else-body..." $ compileExpr elseBody
+  elseBodyResultTerm <- withRegion "Compiling the else-body..." $ compileExpr elseBody
   finalElseBodyBlock <- gets activeBlock
   setControl (Jump postBlock)
 
   -- Generate the phi instruction for the post block
-  phiName <- addCompletePhi postBlock ty [(finalBodyBlock, bodyResultName), (finalElseBodyBlock, elseBodyResultName)] span
-  scribe $ format "Result is collected from phi instruction into {}" (Only (Shown phiName))
+  phiTerm <- addCompletePhi postBlock ty [(finalBodyBlock, bodyResultTerm), (finalElseBodyBlock, elseBodyResultTerm)] span
+  scribe $ format "Result is collected from phi instruction into {}" (Only (Shown phiTerm))
 
   -- Now that the postBlock has all its predecessors determined, we can seal it
   markSealed postBlock
@@ -107,7 +107,7 @@ compileExpr (TST (IfThen ty condition body elseBody) span) = withRegion "Compili
   -- to it as its creator).
   switchToBlock postBlock
 
-  return phiName
+  return phiTerm
 compileExpr (TST (Builtin ty bName) span) = do
   bName' <- translateBuiltin bName
   emit ty (RBuiltin bName') span
@@ -127,13 +127,13 @@ compileExpr (TST (Lambda {ty, params, body}) span) = do
       bindNewVariable (node name) $ AbstractVariable {varId, ty, span = spanOf name}
       blockId <- gets activeBlock
 
-      name <- emit ty (RParameter i) span
-      modify (\c -> c {variablesPerBlock = HashMap.insert (varId, blockId) name c.variablesPerBlock})
-      scribe $ format "Parameter loaded into name {}" (Only (Shown name))
+      term <- emit ty (RParameter i) span
+      modify (\c -> c {variablesPerBlock = HashMap.insert (varId, blockId) term c.variablesPerBlock})
+      scribe $ format "Parameter loaded into term {}" (Only (Shown term))
 
     scribe $ format "Compiling new function ({})" (Only (Shown fnId))
-    resultName <- compileExpr body
-    setControl (Ret resultName)
+    resultTerm <- compileExpr body
+    setControl (Ret resultTerm)
 
     scribe "Restoring compiler state"
     restoreSavedCompilerAfterFnCompile savedCompiler
@@ -141,30 +141,30 @@ compileExpr (TST (Lambda {ty, params, body}) span) = do
 
   emit ty (RLoadFn fnId) span
 
-compileStmt :: (HasCallStack, State Compiler :> es, Log :> es) => TST Stmt -> Eff es (Maybe Name)
+compileStmt :: (HasCallStack, State Compiler :> es, Log :> es) => TST Stmt -> Eff es (Maybe Term)
 compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do
   -- special case for undefined
   -- this should get torn out eventually
-  valName <- case value of
+  valTerm <- case value of
     (TST UndefinedLit span) -> emit ty RUndefined span
     _ -> do compileExpr value
   varId <- mkVarId
   blockId <- gets activeBlock
   scribe $ format "Binding new variable {} ({}) in block {}" (name, Shown varId, Shown blockId)
   bindNewVariable name $ AbstractVariable {varId, ty, span}
-  modify (\c -> c {variablesPerBlock = HashMap.insert (varId, blockId) valName c.variablesPerBlock})
+  modify (\c -> c {variablesPerBlock = HashMap.insert (varId, blockId) valTerm c.variablesPerBlock})
   return Nothing
 compileStmt (TST (Assign (TST (LVariable _ name) _) value) _) = do
-  valName <- compileExpr value
+  valTerm <- compileExpr value
   AbstractVariable {varId} <- lookupVariable name <&> unwrapICE
   compiler <- get
   scribe $ format "Encountered variable assignment to {} ({}) in block {}" (name, Shown varId, Shown compiler.activeBlock)
-  let variablesPerBlock' = HashMap.insert (varId, compiler.activeBlock) valName compiler.variablesPerBlock
+  let variablesPerBlock' = HashMap.insert (varId, compiler.activeBlock) valTerm compiler.variablesPerBlock
   put compiler {variablesPerBlock = variablesPerBlock'}
   return Nothing
 compileStmt (TST (ExprStmt expr semicolon) _) = do
-  name <- compileExpr expr
-  if semicolon then return Nothing else return (Just name)
+  term <- compileExpr expr
+  if semicolon then return Nothing else return (Just term)
 compileStmt (TST (Return _) _) = undefined
 compileStmt (TST (Loop (TST body bodySpan)) _) = withRegion "Compiling loop statement..." do
   -- allocate a new basic block to hold the body of the loop

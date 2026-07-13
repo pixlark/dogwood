@@ -11,7 +11,7 @@ import Data.Text qualified as Text
 newtype BlockId = BlockId Int
   deriving (Eq, Ord)
 
-newtype Name = Name Int
+newtype Term = Term Int
   deriving (Eq)
 
 newtype FnId = FnId Int
@@ -24,25 +24,25 @@ data RHS
   | RInt Int
   | RBool Bool
   | -- Operators
-    RBinOp T.Operator Name Name
-  | RUnaryOp T.Operator Name
+    RBinOp T.Operator Term Term
+  | RUnaryOp T.Operator Term
   | -- Control flow
-    RCall Name [Name]
+    RCall Term [Term]
   | -- Functions
     RLoadFn FnId
   | RParameter Int
   | -- Misc
     RBuiltin Text
-  | RBox T.TypeExpr Name
+  | RBox T.TypeExpr Term
   deriving (Eq)
 
-data Phi = Phi {ty :: T.TypeExpr, name :: Name, operands :: [(BlockId, Name)], span :: Span}
+data Phi = Phi {ty :: T.TypeExpr, term :: Term, operands :: [(BlockId, Term)], span :: Span}
   deriving (Eq)
 
-data Control = Halt | Ret Name | Jump BlockId | JumpIf Name BlockId BlockId
+data Control = Halt | Ret Term | Jump BlockId | JumpIf Term BlockId BlockId
   deriving (Eq)
 
-data SSA = SSA {ty :: T.TypeExpr, name :: Name, rhs :: RHS, span :: Span}
+data SSA = SSA {ty :: T.TypeExpr, term :: Term, rhs :: RHS, span :: Span}
   deriving (Eq)
 
 data Block = Block {phis :: [Phi], instructions :: [SSA], control :: Control, predecessors :: [BlockId]}
@@ -66,8 +66,8 @@ class ShowWithSource a where
 instance Show BlockId where
   show (BlockId n) = printf "__%d" n
 
-instance Show Name where
-  show (Name n) = printf "_%d" n
+instance Show Term where
+  show (Term n) = printf "_%d" n
 
 instance Show RHS where
   show RUndefined = "undefined"
@@ -80,10 +80,10 @@ instance Show RHS where
   show (RLoadFn id) = printf "loadfn %s" (show id)
   show (RParameter idx) = printf "param %s" (show idx)
   show (RBuiltin name) = Text.unpack name
-  show (RBox ty name) = printf "box %s : %s" (show name) (show ty)
+  show (RBox ty term) = printf "box %s : %s" (show term) (show ty)
 
 instance Show Phi where
-  show Phi {ty, name, operands} = printf "%s: %s = phi %s" (show name) (show ty) (intercalate ", " $ map (\(id, name) -> printf "%s[%s]" (show id) (show name)) operands)
+  show Phi {ty, term, operands} = printf "%s: %s = phi %s" (show term) (show ty) (intercalate ", " $ map (\(id, t) -> printf "%s[%s]" (show id) (show t)) operands)
 
 instance ShowWithSource Phi where
   showWithSource source phi@Phi {span} = printf "%s// %s" left' (Text.takeWhile (/= '\n') $ fst $ getLineForSpan source span)
@@ -96,12 +96,12 @@ instance ShowWithSource Phi where
 
 instance Show Control where
   show Halt = printf "halt"
-  show (Ret name) = printf "ret %s" (show name)
+  show (Ret term) = printf "ret %s" (show term)
   show (Jump id) = printf "jump %s" (show id)
-  show (JumpIf name id1 id2) = printf "jump if %s to %s else %s" (show name) (show id1) (show id2)
+  show (JumpIf term id1 id2) = printf "jump if %s to %s else %s" (show term) (show id1) (show id2)
 
 instance Show SSA where
-  show SSA {ty, name, rhs} = printf "%s: %s = %s" (show name) (show ty) (show rhs)
+  show SSA {ty, term, rhs} = printf "%s: %s = %s" (show term) (show ty) (show rhs)
 
 instance ShowWithSource SSA where
   showWithSource source ssa@SSA {span} = printf "%s// %s" left' (Text.takeWhile (/= '\n') $ fst $ getLineForSpan source span)
@@ -140,9 +140,9 @@ instance ShowWithSource Program where
       showBlock id block =
         printf "  %s%s:\n%s" (show id) (if null block.predecessors then "" :: String else printf "[%s]" $ intercalate ", " $ map show block.predecessors) (showWithSource source block)
 
-instance Hashable Name where
-  hash (Name name) = hash name
-  hashWithSalt salt (Name name) = hashWithSalt salt name
+instance Hashable Term where
+  hash (Term t) = hash t
+  hashWithSalt salt (Term t) = hashWithSalt salt t
 
 instance Hashable BlockId where
   hash (BlockId id) = hash id

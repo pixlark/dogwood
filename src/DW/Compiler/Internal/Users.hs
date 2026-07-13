@@ -5,7 +5,7 @@
 module DW.Compiler.Internal.Users where
 
 import DW.Common
-import DW.IR (BlockId, Name)
+import DW.IR (BlockId, Term)
 import DW.Util
 
 import Data.HashMap.Strict (HashMap)
@@ -13,13 +13,13 @@ import Data.HashMap.Strict qualified as HashMap
 
 -- | Uniquely identifies an instruction
 data UserReference
-  = PhiUser Name BlockId
-  | SSAUser Name BlockId
+  = PhiUser Term BlockId
+  | SSAUser Term BlockId
   | ControlUser BlockId
   deriving (Show, Eq)
 
--- | Maps `Name`s to the places that use that name
-type UserMap = HashMap Name [UserReference]
+-- | Maps `Term`s to the places that use that term
+type UserMap = HashMap Term [UserReference]
 
 class HasUserMap s where
   getUserMap :: s -> UserMap
@@ -28,27 +28,27 @@ class HasUserMap s where
 mkUserMap :: UserMap
 mkUserMap = HashMap.empty
 
-getUsers :: (State s :> es, HasUserMap s) => Name -> Eff es [UserReference]
-getUsers name = do
+getUsers :: (State s :> es, HasUserMap s) => Term -> Eff es [UserReference]
+getUsers term = do
   userMap <- gets getUserMap
-  return (HashMap.lookup name userMap `orElse` [])
+  return (HashMap.lookup term userMap `orElse` [])
 
-addUser :: (State s :> es, HasUserMap s) => Name -> UserReference -> Eff es ()
-addUser name userRef = do
+addUser :: (State s :> es, HasUserMap s) => Term -> UserReference -> Eff es ()
+addUser term userRef = do
   userMap <- gets getUserMap
-  let existing = HashMap.lookup name userMap `orElse` []
-      userMap' = HashMap.insert name (existing ++ [userRef]) userMap
+  let existing = HashMap.lookup term userMap `orElse` []
+      userMap' = HashMap.insert term (existing ++ [userRef]) userMap
   modify (setUserMap userMap')
 
-removeUser :: (State s :> es, HasUserMap s) => Name -> UserReference -> Eff es ()
-removeUser name userRef = do
+removeUser :: (State s :> es, HasUserMap s) => Term -> UserReference -> Eff es ()
+removeUser term userRef = do
   userMap <- gets getUserMap
-  let existing = HashMap.lookup name userMap `orElse` []
-      userMap' = HashMap.insert name (filter (/= userRef) existing) userMap
+  let existing = HashMap.lookup term userMap `orElse` []
+      userMap' = HashMap.insert term (filter (/= userRef) existing) userMap
   modify (setUserMap userMap')
 
-removeAllUsers :: (State s :> es, HasUserMap s) => Name -> Eff es ()
-removeAllUsers name = do
+removeAllUsers :: (State s :> es, HasUserMap s) => Term -> Eff es ()
+removeAllUsers term = do
   userMap <- gets getUserMap
-  let userMap' = HashMap.delete name userMap
+  let userMap' = HashMap.delete term userMap
   modify (setUserMap userMap')

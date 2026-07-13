@@ -149,9 +149,9 @@ emitRHS (RBinOp op l r) = do
   emit $ emitOperator op
   emit " "
   emit $ Text.show r
-emitRHS (RUnaryOp op name) = do
+emitRHS (RUnaryOp op term) = do
   emit $ emitOperator op
-  emit $ Text.show name
+  emit $ Text.show term
 emitRHS (RCall fn args) = do
   emit $ Text.show fn
   emit "("
@@ -167,9 +167,9 @@ emitRHS (RParameter idx) = do
   emit $ Text.show idx
 emitRHS (RBuiltin name) = do
   emit name
-emitRHS (RBox TypeExpr {valueExpr = ty} name) = do
+emitRHS (RBox TypeExpr {valueExpr = ty} term) = do
   emit "box_value(&"
-  emit $ Text.show name
+  emit $ Text.show term
   emit ", "
   emitRuntimeTypeInfo ty
   emit ")"
@@ -188,15 +188,15 @@ emitFn (FnDef ty blocks) = do
 
   -- declare all local variables at the top
   forM_ blocks $ \(_, Block {phis, instructions}) -> do
-    forM_ instructions $ \(SSA {ty, name}) -> do
+    forM_ instructions $ \(SSA {ty, term}) -> do
       emit "  "
-      emitType (do emit " "; emit $ Text.show name) ty
+      emitType (do emit " "; emit $ Text.show term) ty
       emit " = "
       emitZeroValue ty
       emit ";\n"
-    forM_ phis $ \(Phi {ty, name}) -> do
+    forM_ phis $ \(Phi {ty, term}) -> do
       emit "  "
-      emitType (do emit " "; emit $ Text.show name) ty
+      emitType (do emit " "; emit $ Text.show term) ty
       emit " = "
       emitZeroValue ty
       emit ";\t/* phi */\n"
@@ -209,12 +209,12 @@ emitFn (FnDef ty blocks) = do
     emit ":\n"
 
     -- then we generate the instructions
-    forM_ instructions $ \(SSA {name, rhs}) -> do
+    forM_ instructions $ \(SSA {term, rhs}) -> do
       -- the RHS might need to generate some preamble
       -- so we flush the stream to mark that the preamble will get placed here, right before the instruction
       flush
       emit "  "
-      emit $ Text.show name
+      emit $ Text.show term
       emit " = "
       emitRHS rhs
       emit ";\n"
@@ -227,7 +227,7 @@ emitFn (FnDef ty blocks) = do
           JumpIf _ b1 b2 -> [b1, b2]
     forM_ nextBlocks $ \nextBlockId -> do
       let (_, nextBlock) = blocks `getSingleElement` (\(id, _) -> id == nextBlockId) `orElse` error "unreachable"
-      forM_ nextBlock.phis $ \Phi {name = toRemote, operands} -> do
+      forM_ nextBlock.phis $ \Phi {term = toRemote, operands} -> do
         let operands' = filter (\(b, _) -> b == blockId) operands
         forM_ operands' $ \(_, fromLocal) -> do
           emit "  "
@@ -240,18 +240,18 @@ emitFn (FnDef ty blocks) = do
     emit "  "
     case control of
       Halt -> emit "  goto __ret;\n"
-      Ret name -> do
+      Ret term -> do
         emit "_retValue = "
-        emit $ Text.show name
+        emit $ Text.show term
         emit ";\n"
         emit "  goto __ret;\n"
       Jump toBlock -> do
         emit "goto "
         emit $ Text.show toBlock
         emit ";\n"
-      JumpIf name target1 target2 -> do
+      JumpIf term target1 target2 -> do
         emit "if ("
-        emit $ Text.show name
+        emit $ Text.show term
         emit ") { goto "
         emit $ Text.show target1
         emit "; } else { goto "

@@ -26,18 +26,18 @@ instance Hashable VarId where
   hash (VarId id) = hash id
   hashWithSalt salt (VarId id) = hashWithSalt salt id
 
-data PhiReference = PhiReference {name :: Name, forVariable :: VarId, inBlock :: BlockId}
+data PhiReference = PhiReference {term :: Term, forVariable :: VarId, inBlock :: BlockId}
   deriving (Eq)
 
 instance Show PhiReference where
-  show (PhiReference {name, forVariable, inBlock}) = Data.Text.Lazy.unpack $ format "φ({} for {} in {})" (Shown name, Shown forVariable, Shown inBlock)
+  show (PhiReference {term, forVariable, inBlock}) = Data.Text.Lazy.unpack $ format "φ({} for {} in {})" (Shown term, Shown forVariable, Shown inBlock)
 
 -- | Refers to a unique variable in the original source code
 data AbstractVariable = AbstractVariable {varId :: VarId, ty :: TypeExpr, span :: Span}
   deriving (Show, Eq)
 
 data Compiler = Compiler
-  { nameCounter :: Int,
+  { termCounter :: Int,
     blockCounter :: Int,
     varCounter :: Int,
     fnCounter :: Int,
@@ -45,15 +45,15 @@ data Compiler = Compiler
     activeFn :: FnId,
     activeBlock :: BlockId,
     scopes :: LexicalScopes AbstractVariable,
-    -- | Each entry in this map represents the SSA name associated with a particular AST variable
+    -- | Each entry in this map represents the SSA term associated with a particular AST variable
     -- | in a particular block. these get used to fill out phi functions.
     -- | Equivalent of `currentDef` in the Braun construction.
-    variablesPerBlock :: HashMap (VarId, BlockId) Name,
-    -- | When generating code, sometimes we reach a point where we can't be sure what `Name` refers
+    variablesPerBlock :: HashMap (VarId, BlockId) Term,
+    -- | When generating code, sometimes we reach a point where we can't be sure what `Term` refers
     -- | to a given variable. In those instances, we generate an empty phi instruction, and mark it
     -- | in this map so that we can come back to it later when that block is sealed.
     incompletePhis :: HashMap BlockId [PhiReference],
-    -- | Each entry in this map represents an instance in the IR where a `Name` gets used, whether
+    -- | Each entry in this map represents an instance in the IR where a `Term` gets used, whether
     -- | that's as an operand to an instruction, as an operand to a phi instruction, or as the condition
     -- | in a `JumpIf` control.
     userMap :: UserMap,
@@ -83,7 +83,7 @@ mkMainFnType = TypeExpr {reference = False, valueExpr = Function [] (TST mkVoid 
 mkCompiler :: Compiler
 mkCompiler =
   Compiler
-    { nameCounter = 0,
+    { termCounter = 0,
       blockCounter = 1,
       varCounter = 0,
       fnCounter = 1,
@@ -102,13 +102,13 @@ mkCompiler =
 -- Counter manipulation
 --
 
-mkName :: (State Compiler :> es) => Eff es Name
-mkName = do
+mkTerm :: (State Compiler :> es) => Eff es Term
+mkTerm = do
   compiler <- get
-  let name = Name compiler.nameCounter
-      compiler' = compiler {nameCounter = compiler.nameCounter + 1}
+  let term = Term compiler.termCounter
+      compiler' = compiler {termCounter = compiler.termCounter + 1}
   put compiler'
-  return name
+  return term
 
 mkBlockId :: (State Compiler :> es) => Eff es BlockId
 mkBlockId = do
@@ -183,7 +183,7 @@ saveCompilerAndResetForNewFn ty = do
   modify
     ( \c ->
         c
-          { nameCounter = 0,
+          { termCounter = 0,
             blockCounter = 1,
             activeFn = fnId,
             activeBlock = BlockId 0,
@@ -204,7 +204,7 @@ restoreSavedCompilerAfterFnCompile saved = do
   modify
     ( \c ->
         c
-          { nameCounter = saved.nameCounter,
+          { termCounter = saved.termCounter,
             blockCounter = saved.blockCounter,
             activeFn = saved.activeFn,
             activeBlock = saved.activeBlock,
@@ -269,9 +269,9 @@ setControl control = do
     Jump target -> do
       scribe $ format "Jump {} -> {}" (Shown activeBlock, Shown target)
       addPredecessor activeBlock target
-    JumpIf name target1 target2 -> do
+    JumpIf term target1 target2 -> do
       scribe $ format "JumpIf {} -> ({}, {})" (Shown activeBlock, Shown target1, Shown target2)
-      addUser name (ControlUser activeBlock)
+      addUser term (ControlUser activeBlock)
       addPredecessor activeBlock target1
       addPredecessor activeBlock target2
 
@@ -284,24 +284,24 @@ switchToBlock id = do
   compiler <- get
   put compiler {activeBlock = id}
 
-emit :: (HasCallStack, State Compiler :> es, Log :> es) => TypeExpr -> RHS -> Span -> Eff es Name
+emit :: (HasCallStack, State Compiler :> es, Log :> es) => TypeExpr -> RHS -> Span -> Eff es Term
 emit ty rhs span = do
-  name <- mkName
-  let ssa = SSA {ty, name, rhs, span}
+  term <- mkTerm
+  let ssa = SSA {ty, term, rhs, span}
   activeBlock <- gets activeBlock
   modifyBlock activeBlock $ \block@Block {instructions} -> do
     return block {instructions = instructions ++ [ssa]}
 
-  -- update the users map (if we reference any names on our RHS)
-  let usesNames = nub $ case rhs of
+  -- update the users map (if we reference any terms on our RHS)
+  let usesTerms = nub $ case rhs of
         RBinOp _ left right -> [left, right]
-        RUnaryOp _ name -> [name]
+        RUnaryOp _ t -> [t]
         RCall fn args -> fn : args
         _ -> []
-  unless (null usesNames) $ do
-    forM_ usesNames $ \usesName -> addUser usesName (SSAUser name activeBlock)
+  unless (null usesTerms) $ do
+    forM_ usesTerms $ \usesTerm -> addUser usesTerm (SSAUser term activeBlock)
 
-  return name
+  return term
 
 --
 -- Sealing
@@ -329,35 +329,35 @@ markSealed blockId = withRegion (format "Marking {} as sealed" (Only (Shown bloc
 -- Variable determination
 --
 
--- | Provide the `Name` that will contain the value of the given variable in the given block.
+-- | Provide the `Term` that will contain the value of the given variable in the given block.
 -- | Equivalent to `currentDef` in the Braun construction.
-setVariableNameInBlock :: (HasCallStack, State Compiler :> es) => VarId -> BlockId -> Name -> Eff es ()
-setVariableNameInBlock varId blockId name = do
+setVariableTermInBlock :: (HasCallStack, State Compiler :> es) => VarId -> BlockId -> Term -> Eff es ()
+setVariableTermInBlock varId blockId term = do
   vars <- gets variablesPerBlock
   -- We allow overwrites, in case a phi reduction happens
-  -- when (((/= name) <$> HashMap.lookup (varId, blockId) vars) `orElse` False) $ throwSpan span InternalCompilerError
-  modify (\c -> c {variablesPerBlock = HashMap.insert (varId, blockId) name vars})
+  -- when (((/= term) <$> HashMap.lookup (varId, blockId) vars) `orElse` False) $ throwSpan span InternalCompilerError
+  modify (\c -> c {variablesPerBlock = HashMap.insert (varId, blockId) term vars})
 
--- | For the given variable and block, determine the `Name` that will contain the
+-- | For the given variable and block, determine the `Term` that will contain the
 -- | value of that variable.
 -- | This will generate phi instructions as necessary.
 -- | Equivalent to `readVariable` in the Braun construction.
-determineNameInBlock :: (HasCallStack, State Compiler :> es, Log :> es) => VarId -> BlockId -> Eff es Name
-determineNameInBlock varId blockId = do
+determineTermInBlock :: (HasCallStack, State Compiler :> es, Log :> es) => VarId -> BlockId -> Eff es Term
+determineTermInBlock varId blockId = do
   variables <- gets variablesPerBlock
   case HashMap.lookup (varId, blockId) variables of
     -- local value numbering
     -- (this variable is already bound to an SSA value in this block)
-    Just name -> return name
+    Just term -> return term
     -- global value numbering
-    Nothing -> determineNameInBlockRec varId blockId
+    Nothing -> determineTermInBlockRec varId blockId
 
-determineNameInBlockRec :: (HasCallStack, State Compiler :> es, Log :> es) => VarId -> BlockId -> Eff es Name
-determineNameInBlockRec varId blockId = do
+determineTermInBlockRec :: (HasCallStack, State Compiler :> es, Log :> es) => VarId -> BlockId -> Eff es Term
+determineTermInBlockRec varId blockId = do
   blockIsSealed <- isSealed blockId
   Block {predecessors} <- getBlock blockId
   varSpan <- spanForVariable varId
-  name <-
+  term <-
     if
       | not blockIsSealed -> do
           -- The current block doesn't have all its predecessors determined
@@ -366,11 +366,11 @@ determineNameInBlockRec varId blockId = do
           phiRef <- addEmptyPhi blockId varId varSpan
           scribe $ format "Generating incomplete phi {}" (Only (Shown phiRef))
           setIncompletePhi blockId phiRef
-          return phiRef.name
+          return phiRef.term
       | length predecessors == 1 -> do
           -- If we know we only have one predecessor, we can just recurse
           -- into that predecessor.
-          determineNameInBlock varId (head predecessors)
+          determineTermInBlock varId (head predecessors)
       | otherwise -> do
           -- Multiple predecessors means we need a phi instruction.
 
@@ -378,16 +378,16 @@ determineNameInBlockRec varId blockId = do
           -- loops back around to this block, the recursion will terminate.
           phiRef <- addEmptyPhi blockId varId varSpan
           scribe $ format "Generating phi {}" (Only (Shown phiRef))
-          setVariableNameInBlock varId blockId phiRef.name
+          setVariableTermInBlock varId blockId phiRef.term
 
           -- Then we fill out the phi's operands by recursing through
           -- each predecessor (basically the same as in the last branch,
           -- except multiple times).
-          name <- recursivelySetPhiOperands phiRef
+          term <- recursivelySetPhiOperands phiRef
 
-          return name
-  setVariableNameInBlock varId blockId name
-  return name
+          return term
+  setVariableTermInBlock varId blockId term
+  return term
 
 --
 -- Phi handling
@@ -401,37 +401,37 @@ addEmptyPhi ::
   -> Eff es PhiReference
 addEmptyPhi blockId varId span = do
   AbstractVariable {ty} <- lookupVariableById varId
-  name <- mkName
-  let phi = Phi {ty, name, operands = [], span}
+  term <- mkTerm
+  let phi = Phi {ty, term, operands = [], span}
   modifyBlock blockId $ \block -> do
     return block {phis = block.phis ++ [phi]}
-  let phiRef = PhiReference name varId blockId
+  let phiRef = PhiReference term varId blockId
   return phiRef
 
 addCompletePhi ::
   (HasCallStack, State Compiler :> es)
   => BlockId
   -> TypeExpr
-  -> [(BlockId, Name)]
+  -> [(BlockId, Term)]
   -> Span
-  -> Eff es Name
+  -> Eff es Term
 addCompletePhi blockId ty operands span = do
-  name <- mkName
-  let phi = Phi {ty, name, operands, span}
+  term <- mkTerm
+  let phi = Phi {ty, term, operands, span}
   modifyBlock blockId $ \block -> do
     return block {phis = block.phis ++ [phi]}
-  return name
+  return term
 
 getPhi :: (HasCallStack, State Compiler :> es) => PhiReference -> Eff es (Maybe Phi)
 getPhi phiRef = do
   -- find the block that this phi reference points to
   block <- getBlock phiRef.inBlock
   -- find the phi in the block that the phi reference points to
-  case [phi | phi@Phi {name} <- block.phis, name == phiRef.name] of
+  case [phi | phi@Phi {term} <- block.phis, term == phiRef.term] of
     [phi] -> return $ Just phi
     _ -> return Nothing
 
-setPhiOperands :: (HasCallStack, State Compiler :> es) => PhiReference -> [(BlockId, Name)] -> Eff es ()
+setPhiOperands :: (HasCallStack, State Compiler :> es) => PhiReference -> [(BlockId, Term)] -> Eff es ()
 setPhiOperands phiRef operands = do
   -- find the block that this phi reference points to
   block <- getBlock phiRef.inBlock
@@ -439,12 +439,12 @@ setPhiOperands phiRef operands = do
   phi <- getPhi phiRef <&> unwrapICE
   -- update the phi to contains the new operands
   let phi' = phi {operands}
-      phis' = [if p.name == phi.name then phi' else p | p <- block.phis]
+      phis' = [if p.term == phi.term then phi' else p | p <- block.phis]
   -- modify the block
   modifyBlock phiRef.inBlock $ \block ->
     return block {phis = phis'}
   -- update the users map
-  forM_ (snd <$> operands) $ \usesName -> addUser usesName (PhiUser phi.name phiRef.inBlock)
+  forM_ (snd <$> operands) $ \usesTerm -> addUser usesTerm (PhiUser phi.term phiRef.inBlock)
 
 setIncompletePhi :: (HasCallStack, State Compiler :> es) => BlockId -> PhiReference -> Eff es ()
 setIncompletePhi blockId phiRef = do
@@ -456,77 +456,77 @@ setIncompletePhi blockId phiRef = do
 
 recursivelySetPhiOperands ::
   (HasCallStack, State Compiler :> es, Log :> es)
-  => PhiReference -> Eff es Name
+  => PhiReference -> Eff es Term
 recursivelySetPhiOperands phiRef = do
   Block {predecessors} <- getBlock phiRef.inBlock
   operands <- forM predecessors $ \pred -> do
-    name <- determineNameInBlock phiRef.forVariable pred
-    return (pred, name)
+    term <- determineTermInBlock phiRef.forVariable pred
+    return (pred, term)
   setPhiOperands phiRef operands
   tryRemoveTrivialPhi phiRef
 
-data PhiReduction = PRUnreachable | PRNoReduce | PRReduceTo Name
+data PhiReduction = PRUnreachable | PRNoReduce | PRReduceTo Term
   deriving (Show)
 
-replaceNameInRHS :: Name -> Name -> RHS -> RHS
-replaceNameInRHS from to (RBinOp op left right) = RBinOp op left' right'
+replaceTermInRHS :: Term -> Term -> RHS -> RHS
+replaceTermInRHS from to (RBinOp op left right) = RBinOp op left' right'
   where
     left' = if from == left then to else left
     right' = if from == right then to else right
-replaceNameInRHS from to (RUnaryOp op name) = RUnaryOp op (if from == name then to else name)
-replaceNameInRHS from to (RCall fn args) = RCall fn' args'
+replaceTermInRHS from to (RUnaryOp op term) = RUnaryOp op (if from == term then to else term)
+replaceTermInRHS from to (RCall fn args) = RCall fn' args'
   where
     fn' = if from == fn then to else fn
     args' = map (\a -> if from == a then to else a) args
-replaceNameInRHS _ _ rhs = rhs
+replaceTermInRHS _ _ rhs = rhs
 
 tryRemoveTrivialPhi ::
   (HasCallStack, State Compiler :> es, Log :> es)
-  => PhiReference -> Eff es Name
+  => PhiReference -> Eff es Term
 tryRemoveTrivialPhi phiRef = do
   phi <- getPhi phiRef <&> unwrapICE
-  let operands' = nub $ filter (/= phi.name) $ snd <$> phi.operands
+  let operands' = nub $ filter (/= phi.term) $ snd <$> phi.operands
       reduceTo = case operands' of
         [] -> PRUnreachable
-        [name'] -> PRReduceTo name'
+        [term'] -> PRReduceTo term'
         _ -> PRNoReduce
 
   scribe $ format "phiRef {} reduction status: {}" (Shown phiRef, Shown reduceTo)
 
   case reduceTo of
-    PRUnreachable -> return phiRef.name
-    PRNoReduce -> return phiRef.name
+    PRUnreachable -> return phiRef.term
+    PRNoReduce -> return phiRef.term
     PRReduceTo reduceTo -> do
       -- find all the places that use the value produced by this phi
-      users <- getUsers phi.name
-      let users' = filter (\case PhiUser n _ -> n /= phi.name; _ -> True) users
+      users <- getUsers phi.term
+      let users' = filter (\case PhiUser t _ -> t /= phi.term; _ -> True) users
       scribe $ format "found {} users" (Only (length users'))
       -- for each place that uses this phi's value, rewrite them to use the original value instead
       forM_ users' $ \user -> do
         scribe $ format "rewriting user: {}" (Only (Shown user))
         case user of
-          PhiUser userName blockId -> replacePhiUser blockId userName phi.name reduceTo
-          SSAUser userName blockId -> replaceSSAUser blockId userName phi.name reduceTo
-          ControlUser blockId -> replaceControlUser blockId phi.name reduceTo
+          PhiUser userTerm blockId -> replacePhiUser blockId userTerm phi.term reduceTo
+          SSAUser userTerm blockId -> replaceSSAUser blockId userTerm phi.term reduceTo
+          ControlUser blockId -> replaceControlUser blockId phi.term reduceTo
         -- update the user map too
         addUser reduceTo user
 
       -- this phi has become completely useless (it literally has no users)
       -- so we delete it from the block
       modifyBlock phiRef.inBlock $ \block -> do
-        return block {phis = filter (\p -> p.name /= phi.name) block.phis}
+        return block {phis = filter (\p -> p.term /= phi.term) block.phis}
       -- and any place where it's marked as a user, we remove
-      forM_ phi.operands $ \(_, operandName) ->
-        removeUser operandName (PhiUser phi.name phiRef.inBlock)
+      forM_ phi.operands $ \(_, operandTerm) ->
+        removeUser operandTerm (PhiUser phi.term phiRef.inBlock)
       -- and we remove its own entries from userMap as well
-      removeAllUsers phi.name
+      removeAllUsers phi.term
 
       -- then, for each place that used this phi's value, if that place was _itself_ a phi, it could potentially
       -- have become trivial itself. so, we recurse onto it
       forM_ users' $ \user -> do
         case user of
-          PhiUser userName blockId -> do
-            let recursePhiRef = PhiReference userName undefined blockId
+          PhiUser userTerm blockId -> do
+            let recursePhiRef = PhiReference userTerm undefined blockId
             -- a previous recursion might have removed this phi reference, so make sure it still exists
             stillExists <- isJust <$> getPhi recursePhiRef
             when stillExists $ void $ tryRemoveTrivialPhi recursePhiRef
@@ -534,30 +534,30 @@ tryRemoveTrivialPhi phiRef = do
 
       return reduceTo
   where
-    replacePhiUser :: (State Compiler :> es) => BlockId -> Name -> Name -> Name -> Eff es ()
-    replacePhiUser blockId userName replaceName withName = do
+    replacePhiUser :: (State Compiler :> es) => BlockId -> Term -> Term -> Term -> Eff es ()
+    replacePhiUser blockId userTerm replaceTerm withTerm = do
       block <- getBlock blockId
-      let userPhi = block.phis `getSingleElement` (\p -> p.name == userName) & unwrapICE
-      let userPhi' = userPhi {operands = map (\(id, n) -> (id, if n == replaceName then withName else n)) userPhi.operands}
-      let phis' = modifyElementBy block.phis (\p -> p.name == userName) (const userPhi') & unwrapICE
+      let userPhi = block.phis `getSingleElement` (\p -> p.term == userTerm) & unwrapICE
+      let userPhi' = userPhi {operands = map (\(id, term) -> (id, if term == replaceTerm then withTerm else term)) userPhi.operands}
+      let phis' = modifyElementBy block.phis (\p -> p.term == userTerm) (const userPhi') & unwrapICE
       modifyBlock blockId $ \block -> do
         return block {phis = phis'}
-    replaceSSAUser :: (State Compiler :> es) => BlockId -> Name -> Name -> Name -> Eff es ()
-    replaceSSAUser blockId userName replaceName withName = do
+    replaceSSAUser :: (State Compiler :> es) => BlockId -> Term -> Term -> Term -> Eff es ()
+    replaceSSAUser blockId userTerm replaceTerm withTerm = do
       block <- getBlock blockId
-      let userSSA = block.instructions `getSingleElement` (\s -> s.name == userName) & unwrapICE
-      let userSSA' = userSSA {rhs = replaceNameInRHS replaceName withName userSSA.rhs}
-      let instructions' = modifyElementBy block.instructions (\s -> s.name == userName) (const userSSA') & unwrapICE
+      let userSSA = block.instructions `getSingleElement` (\s -> s.term == userTerm) & unwrapICE
+      let userSSA' = userSSA {rhs = replaceTermInRHS replaceTerm withTerm userSSA.rhs}
+      let instructions' = modifyElementBy block.instructions (\s -> s.term == userTerm) (const userSSA') & unwrapICE
       modifyBlock blockId $ \block -> do
         return block {instructions = instructions'}
-    replaceControlUser :: (State Compiler :> es) => BlockId -> Name -> Name -> Eff es ()
-    replaceControlUser blockId replaceName withName = do
+    replaceControlUser :: (State Compiler :> es) => BlockId -> Term -> Term -> Eff es ()
+    replaceControlUser blockId replaceTerm withTerm = do
       block <- getBlock blockId
       control' <- case block.control of
         Halt -> throwICE
-        Ret name -> return $ Ret $ if name == replaceName then withName else name
+        Ret term -> return $ Ret $ if term == replaceTerm then withTerm else term
         Jump _ -> throwICE
-        JumpIf name t1 t2 -> return $ JumpIf (if name == replaceName then withName else name) t1 t2
+        JumpIf term t1 t2 -> return $ JumpIf (if term == replaceTerm then withTerm else term) t1 t2
       modifyBlock blockId $ \block -> do
         return block {control = control'}
 

@@ -61,11 +61,11 @@ testCompile source = do
 getPhis :: Program -> [Phi]
 getPhis (Program fns) = concatMap (\(_, block) -> block.phis) (concatMap (\(FnDef _ blocks) -> blocks) fns)
 
--- | Check if a phi has all operands pointing to the same name (trivial)
+-- | Check if a phi has all operands pointing to the same term (trivial)
 isTrivialPhi :: Phi -> Bool
 isTrivialPhi phi =
-  let operandNames = filter (/= phi.name) $ snd <$> phi.operands
-   in case operandNames of
+  let operandTerms = filter (/= phi.term) $ snd <$> phi.operands
+   in case operandTerms of
         [] -> True -- unreachable
         (x : xs) -> all (== x) xs
 
