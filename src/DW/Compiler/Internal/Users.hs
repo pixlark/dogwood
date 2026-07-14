@@ -1,21 +1,14 @@
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeApplications #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
-
 module DW.Compiler.Internal.Users where
 
 import DW.Common
+import DW.Compiler.Internal.Lenses
 import DW.Compiler.Internal.Types
 import DW.IR
 import DW.Lens
 import DW.Util
 
 import Data.Bifunctor (second)
-import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
-import GHC.Generics (Generic)
 
 mkUserMap :: UserMap
 mkUserMap = HashMap.empty
@@ -44,19 +37,6 @@ removeAllUsers term = do
   userMap <- gets getUserMap
   let userMap' = HashMap.delete term userMap
   modify (setUserMap userMap')
-
-deriving instance Generic FnDef
-
-makeLenses ''Compiler
-makeLenses ''Block
-makeLensesWithPrefix "phi" ''Phi
-makeLensesWithPrefix "ssa" ''SSA
-
-programIso :: Iso' Program (HashMap FnId FnDef)
-programIso = coerced
-
-fnsL :: Lens' FnDef [(BlockId, Block)]
-fnsL = gposition @2
 
 replaceTermInUser :: UserReference -> (Term, Term) -> Compiler -> Compiler
 replaceTermInUser ref (ifTerm, withTerm) compiler = compiler & activeFnLens %~ modify ref

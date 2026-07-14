@@ -13,18 +13,10 @@ import DW.Logging qualified as Logging
 import DW.TypedAST
 import DW.Util
 
-import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
-import Data.HashSet (HashSet)
 import Data.HashSet qualified as HashSet
-import Data.Hashable
 import Data.List (nub)
 import Data.Text.Lazy qualified
-
--- instance DereferenceUser (State Compiler) PhiReference Phi where
---   dereferenceUser :: (State Compiler :> es) => PhiReference -> (Phi -> Eff es Phi) -> Eff es ()
---   dereferenceUser phiRef transform = do
---     return ()
 
 mkMainFnType :: TypeExpr
 mkMainFnType = TypeExpr {reference = False, valueExpr = Function [] (TST mkVoid (Span 0 1))}
