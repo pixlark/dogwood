@@ -18,6 +18,7 @@ deriving instance Generic FnDef
 makeLenses ''Compiler
 makeLenses ''Block
 makeLensesWithPrefix "phi" ''Phi
+makePrisms ''Instruction
 makeLensesWithPrefix "ssa" ''SSA
 
 programIso :: Iso' Program (HashMap FnId FnDef)

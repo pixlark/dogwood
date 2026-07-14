@@ -9,6 +9,7 @@ import DW.EmitC.Internal.EmitEffect
 import DW.IR
 import DW.TypedAST
 import DW.Util (getSingleElement, orElse)
+
 import Data.HashMap.Strict qualified as HashMap
 import Data.List (intersperse)
 import Data.Text qualified as Text
@@ -165,6 +166,7 @@ emitRHS (RLoadFn (FnId fnId)) = do
 emitRHS (RParameter idx) = do
   emit "_arg"
   emit $ Text.show idx
+emitRHS (RLoadStatic static) = undefined
 emitRHS (RBuiltin name) = do
   emit name
 emitRHS (RBox TypeExpr {valueExpr = ty} term) = do
@@ -188,12 +190,15 @@ emitFn (FnDef ty blocks) = do
 
   -- declare all local variables at the top
   forM_ blocks $ \(_, Block {phis, instructions}) -> do
-    forM_ instructions $ \(SSA {ty, term}) -> do
-      emit "  "
-      emitType (do emit " "; emit $ Text.show term) ty
-      emit " = "
-      emitZeroValue ty
-      emit ";\n"
+    forM_ instructions $ \inst -> do
+      case inst of
+        SSAInst (SSA {ty, term}) -> do
+          emit "  "
+          emitType (do emit " "; emit $ Text.show term) ty
+          emit " = "
+          emitZeroValue ty
+          emit ";\n"
+        SetStaticInst (SetStatic {}) -> return ()
     forM_ phis $ \(Phi {ty, term}) -> do
       emit "  "
       emitType (do emit " "; emit $ Text.show term) ty
@@ -209,15 +214,18 @@ emitFn (FnDef ty blocks) = do
     emit ":\n"
 
     -- then we generate the instructions
-    forM_ instructions $ \(SSA {term, rhs}) -> do
-      -- the RHS might need to generate some preamble
-      -- so we flush the stream to mark that the preamble will get placed here, right before the instruction
-      flush
-      emit "  "
-      emit $ Text.show term
-      emit " = "
-      emitRHS rhs
-      emit ";\n"
+    forM_ instructions $ \inst -> do
+      case inst of
+        SSAInst (SSA {term, rhs}) -> do
+          -- the RHS might need to generate some preamble
+          -- so we flush the stream to mark that the preamble will get placed here, right before the instruction
+          flush
+          emit "  "
+          emit $ Text.show term
+          emit " = "
+          emitRHS rhs
+          emit ";\n"
+        SetStaticInst (SetStatic {}) -> undefined
 
     -- then we fill out any phis that we are reponsible for
     let nextBlocks = case control of

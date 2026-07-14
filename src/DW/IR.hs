@@ -15,6 +15,9 @@ newtype Label = Label Int
 newtype BlockId = BlockId Int
   deriving (Eq, Ord)
 
+newtype StaticId = StaticId Int
+  deriving (Eq, Ord)
+
 newtype Term = Term Int
   deriving (Eq)
 
@@ -35,6 +38,8 @@ data RHS
   | -- Functions
     RLoadFn FnId
   | RParameter Int
+  | -- Statics
+    RLoadStatic StaticId
   | -- Misc
     RBuiltin Text
   | RBox T.TypeExpr Term
@@ -49,7 +54,15 @@ data Control = Halt | Ret Term | Jump BlockId | JumpIf Term BlockId BlockId
 data SSA = SSA {ty :: T.TypeExpr, term :: Term, rhs :: RHS, span :: Span}
   deriving (Eq)
 
-data Block = Block {phis :: [Phi], instructions :: [SSA], control :: Control, predecessors :: [BlockId]}
+data SetStatic = SetStatic {label :: Label, static :: StaticId, term :: Term, span :: Span}
+  deriving (Eq)
+
+data Instruction
+  = SSAInst SSA
+  | SetStaticInst SetStatic
+  deriving (Eq)
+
+data Block = Block {phis :: [Phi], instructions :: [Instruction], control :: Control, predecessors :: [BlockId]}
   deriving (Eq)
 
 mkBlock :: Block
@@ -70,6 +83,9 @@ class ShowWithSource a where
 instance Show BlockId where
   show (BlockId n) = printf "__%d" n
 
+instance Show StaticId where
+  show (StaticId n) = printf "_static%d" n
+
 instance Show Term where
   show (Term n) = printf "_%d" n
 
@@ -83,6 +99,7 @@ instance Show RHS where
   show (RCall fn args) = printf "call %s (%s)" (show fn) (intercalate ", " $ map show args)
   show (RLoadFn id) = printf "loadfn %s" (show id)
   show (RParameter idx) = printf "param %s" (show idx)
+  show (RLoadStatic static) = printf "loadstatic %s" (show static)
   show (RBuiltin name) = Text.unpack name
   show (RBox ty term) = printf "box %s : %s" (show term) (show ty)
 
@@ -104,17 +121,21 @@ instance Show Control where
   show (Jump id) = printf "jump %s" (show id)
   show (JumpIf term id1 id2) = printf "jump if %s to %s else %s" (show term) (show id1) (show id2)
 
-instance Show SSA where
-  show SSA {ty, term, rhs} = printf "%s: %s = %s" (show term) (show ty) (show rhs)
+instance Show Instruction where
+  show (SSAInst SSA {ty, term, rhs}) = printf "%s: %s = %s" (show term) (show ty) (show rhs)
+  show (SetStaticInst SetStatic {static, term}) = printf "setstatic %s <- %s" (show static) (show term)
 
-instance ShowWithSource SSA where
-  showWithSource source ssa@SSA {span} = printf "%s// %s" left' (Text.takeWhile (/= '\n') $ fst $ getLineForSpan source span)
+instance ShowWithSource Instruction where
+  showWithSource source inst = case inst of
+    SSAInst (SSA {span}) -> print span
+    SetStaticInst (SetStatic {span}) -> print span
     where
-      left = show ssa
+      left = show inst
       leftLen = length left
       padTo = 40
       padAmount = max 0 (padTo - leftLen)
       left' = left ++ replicate padAmount ' '
+      print span = printf "%s// %s" left' (Text.takeWhile (/= '\n') $ fst $ getLineForSpan source span)
 
 instance Show Block where
   show (Block phis insts control _) = concatMap (printf "    %s\n" . show) phis ++ concatMap (printf "    %s\n" . show) insts ++ printf "    %s\n" (show control)

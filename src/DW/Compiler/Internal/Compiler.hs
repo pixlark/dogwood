@@ -258,7 +258,7 @@ emit ty rhs span = do
   let ssa = SSA {ty, term, rhs, span}
   activeBlock <- gets activeBlock
   modifyBlock activeBlock $ \block@Block {instructions} -> do
-    return block {instructions = instructions ++ [ssa]}
+    return block {instructions = instructions ++ [SSAInst ssa]}
 
   -- update the users map (if we reference any terms on our RHS)
   let usesTerms = nub $ case rhs of
@@ -267,7 +267,7 @@ emit ty rhs span = do
         RCall fn args -> fn : args
         _ -> []
   unless (null usesTerms) $ do
-    forM_ usesTerms $ \usesTerm -> addUser usesTerm (SSAUser (InstReference term activeBlock))
+    forM_ usesTerms $ \usesTerm -> addUser usesTerm (SSAUser (SSAReference term activeBlock))
 
   return term
 

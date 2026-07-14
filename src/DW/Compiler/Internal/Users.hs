@@ -71,13 +71,30 @@ replaceTermInUser ref (ifTerm, withTerm) compiler = compiler & activeFnLens %~ m
         % singleElementICEL (\(Phi {term = t}) -> term == t)
         % phiOperandsL
         %~ map (second replace)
-    modify (SSAUser (InstReference {term, inBlock})) fnDef =
+    modify (SSAUser (SSAReference {term, inBlock})) fnDef =
+      -- TODO: this works, but I'd rather a version that actually ICEs
+      --       if there's no such instruction
       fnDef
         & blockLens inBlock
         % instructionsL
-        % singleElementICEL (\(SSA {term = t}) -> term == t)
-        % ssaRhsL
-        %~ replaceRHS
+        % mapped
+        %~ replaceSSA
+      where
+        replaceSSA (SSAInst ssa@(SSA {term = t}))
+          | t == term =
+              SSAInst (ssa {rhs = replaceRHS ssa.rhs})
+        replaceSSA i = i
+    modify (SetStaticUser (SetStaticReference {label, inBlock})) fnDef =
+      fnDef
+        & blockLens inBlock
+        % instructionsL
+        % mapped
+        %~ replaceSetStatic
+      where
+        replaceSetStatic (SetStaticInst sst@(SetStatic {label = l, term}))
+          | l == label =
+              SetStaticInst (sst {term = replace term})
+        replaceSetStatic i = i
     modify (ControlUser (ControlReference {inBlock})) fnDef =
       fnDef
         & blockLens inBlock

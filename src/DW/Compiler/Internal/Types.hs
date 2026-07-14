@@ -61,7 +61,10 @@ newtype VarId = VarId Int
 data PhiReference = PhiReference {term :: Term, inBlock :: BlockId}
   deriving (Show, Eq)
 
-data InstReference = InstReference {term :: Term, inBlock :: BlockId}
+data SSAReference = SSAReference {term :: Term, inBlock :: BlockId}
+  deriving (Show, Eq)
+
+data SetStaticReference = SetStaticReference {label :: Label, inBlock :: BlockId}
   deriving (Show, Eq)
 
 newtype ControlReference = ControlReference {inBlock :: BlockId}
@@ -69,7 +72,8 @@ newtype ControlReference = ControlReference {inBlock :: BlockId}
 
 data UserReference
   = PhiUser PhiReference
-  | SSAUser InstReference
+  | SSAUser SSAReference
+  | SetStaticUser SetStaticReference
   | ControlUser ControlReference
   deriving (Show, Eq)
 
