@@ -166,7 +166,9 @@ emitRHS (RLoadFn (FnId fnId)) = do
 emitRHS (RParameter idx) = do
   emit "_arg"
   emit $ Text.show idx
-emitRHS (RLoadStatic static) = undefined
+emitRHS (RLoadStatic (StaticId staticId)) = do
+  emit "_static_"
+  emit $ Text.show staticId
 emitRHS (RBuiltin name) = do
   emit name
 emitRHS (RBox TypeExpr {valueExpr = ty} term) = do
@@ -225,7 +227,12 @@ emitFn (FnDef ty blocks) = do
           emit " = "
           emitRHS rhs
           emit ";\n"
-        SetStaticInst (SetStatic {}) -> undefined
+        SetStaticInst (SetStatic {static = (StaticId static), term}) -> do
+          emit "  _static_"
+          emit $ Text.show static
+          emit " = "
+          emit $ Text.show term
+          emit ";\n"
 
     -- then we fill out any phis that we are reponsible for
     let nextBlocks = case control of
@@ -270,8 +277,17 @@ emitFn (FnDef ty blocks) = do
   -- generate the return block
   emit "__ret:\n  return _retValue;\n"
 
+emitStatic :: (Emit :> es) => StaticId -> Eff es ()
+emitStatic (StaticId n) = do emit "_static_"; emit (Text.show n)
+
+emitStaticInitializer :: (Emit :> es) => StaticInitializer -> Eff es ()
+emitStaticInitializer SIVoid = emit "0"
+emitStaticInitializer (SIInt n) = emit $ Text.show n
+emitStaticInitializer (SIBool b) = emit $ if b then "true" else "false"
+emitStaticInitializer (SIFn (FnId n)) = do emit "_function_"; emit $ Text.show n
+
 emitC :: (Emit :> es, Errors Err :> es) => Program -> Eff es ()
-emitC (Program fns) = do
+emitC (Program {fnMap, statics, entry = (Just (FnId entryId))}) = do
   emit
     [text|
       #include <stdlib.h>
@@ -282,11 +298,20 @@ emitC (Program fns) = do
       #include <runtime.h>
     |]
   emit "\n\n"
-  forM_ (HashMap.toList fns) $ \(id, def) -> do
+  forM_ (HashMap.toList fnMap) $ \(id, def) -> do
     emitFnHeader id def
     emit ";\n"
   emit "\n"
-  forM_ (HashMap.toList fns) $ \(id, def) -> do
+
+  forM_ statics $ \(StaticVariable {staticId, ty, initializer}) -> do
+    emit "static "
+    emitType (do emit " "; emitStatic staticId) ty
+    emit " = "
+    emitStaticInitializer initializer
+    emit ";\n"
+  emit "\n"
+
+  forM_ (HashMap.toList fnMap) $ \(id, def) -> do
     emitFnHeader id def
     emit "\n{\n"
     emitFn def
@@ -295,10 +320,16 @@ emitC (Program fns) = do
   emit
     [text|
       int main() {
-        _function_0();
+    |]
+  emit "\n  _function_"
+  emit $ Text.show entryId
+  emit "();\n  "
+  emit
+    [text|
         return 0;
       }
     |]
+  emit "\n"
   where
     emitFnHeader (FnId id) fn@(FnDef ty _) = do
       (params, ret) <- case ty of
@@ -313,6 +344,7 @@ emitC (Program fns) = do
           Just (TST ty _, n) -> do
             emitType (do emit " _arg"; emit $ Text.show n) ty
         emit ")"
+emitC _ = throwSpan (Span 0 1) NoEntryPointDefined
 
 runEmitC :: (HasCallStack, Errors Err :> es) => Program -> Eff es Text
 runEmitC = runEmit . emitC

@@ -16,13 +16,11 @@ import GHC.Generics
 deriving instance Generic FnDef
 
 makeLenses ''Compiler
+makeLensesWithPrefix "program" ''Program
 makeLenses ''Block
 makeLensesWithPrefix "phi" ''Phi
 makePrisms ''Instruction
 makeLensesWithPrefix "ssa" ''SSA
-
-programIso :: Iso' Program (HashMap FnId FnDef)
-programIso = coerced
 
 fnsL :: Lens' FnDef [(BlockId, Block)]
 fnsL = gposition @2

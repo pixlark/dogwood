@@ -26,7 +26,7 @@ module DW.Error
     tryErr,
     throwErrs,
     Errors,
-    InternalCompilerError,
+    InternalCompilerError (..),
     throwICE,
     unwrapICE,
   )

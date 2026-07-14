@@ -14,6 +14,7 @@ import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
 import DW.TypedAST
 import DW.Util (stripCallStacks)
+
 import Data.Bifunctor (Bifunctor (first))
 import Data.Text (unpack)
 import NeatInterpolation
@@ -47,19 +48,19 @@ testCompile source = do
     -- Pass 4: Lowering
     let loweredAST = LowerPass.runLowerPass ast
     -- Pass 5: Typechecking
-    typedAST@(TST (TopLevel tlStmts) _) <- runErrorAsErrors $ Typechecker.runTypechecker loweredAST
+    typedAST <- runErrorAsErrors $ Typechecker.runTypechecker loweredAST
     -- Pass 6: Loop validation
     LoopPass.runLoopPass typedAST
 
-    let reducedStmt = case tlStmts of
-          [TST (TLet {name = (TST "main" _), value = (TST (Lambda {body = (TST body span)}) _)}) _] -> TST (ExprStmt (TST body span) True) span
-          _ -> undefined
+    -- let reducedStmt = case tlStmts of
+    --       [TST (TLet {name = (TST "main" _), value = (TST (Lambda {body = (TST body span)}) _)}) _] -> TST (ExprStmt (TST body span) True) span
+    --       _ -> undefined
     -- Pass 7: Compile to IR
-    Compiler.runCompiler reducedStmt
+    Compiler.runCompiler typedAST
   return $ first (concatMap $ unpack . displayError source) (stripCallStacks result)
 
 getPhis :: Program -> [Phi]
-getPhis (Program fns) = concatMap (\(_, block) -> block.phis) (concatMap (\(FnDef _ blocks) -> blocks) fns)
+getPhis (Program {fnMap}) = concatMap (\(_, block) -> block.phis) (concatMap (\(FnDef _ blocks) -> blocks) fnMap)
 
 -- | Check if a phi has all operands pointing to the same term (trivial)
 isTrivialPhi :: Phi -> Bool

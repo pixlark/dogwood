@@ -71,11 +71,15 @@ mkBlock = Block [] [] Halt []
 data FnDef = FnDef T.TypeExpr [(BlockId, Block)]
   deriving (Eq, Show)
 
-newtype Program = Program (HashMap FnId FnDef)
-  deriving (Eq)
+data StaticInitializer = SIVoid | SIInt Int | SIBool Bool | SIFn FnId
+  deriving (Show, Eq)
 
-fnMap :: Program -> HashMap FnId FnDef
-fnMap (Program fnMap) = fnMap
+-- | Refers to a top-level variable in the original source code
+data StaticVariable = StaticVariable {staticId :: StaticId, ty :: T.TypeExpr, initializer :: StaticInitializer}
+  deriving (Show, Eq)
+
+data Program = Program {fnMap :: HashMap FnId FnDef, statics :: [StaticVariable], entry :: Maybe FnId}
+  deriving (Eq)
 
 class ShowWithSource a where
   showWithSource :: Text -> a -> String
@@ -144,7 +148,7 @@ instance ShowWithSource Block where
   showWithSource source (Block phis insts control _) = concatMap (printf "    %s\n" . showWithSource source) phis ++ concatMap (printf "    %s\n" . showWithSource source) insts ++ printf "    %s\n" (show control)
 
 instance Show Program where
-  show (Program blocks) =
+  show (Program {fnMap = blocks}) =
     concatMap
       (uncurry showFnDef)
       (HashMap.toList blocks)
@@ -155,7 +159,7 @@ instance Show Program where
         printf "  %s%s:\n%s" (show id) (if null block.predecessors then "" :: String else printf "[%s]" $ intercalate ", " $ map show block.predecessors) (show block)
 
 instance ShowWithSource Program where
-  showWithSource source (Program blocks) =
+  showWithSource source (Program {fnMap = blocks}) =
     concatMap
       (uncurry showFnDef)
       (HashMap.toList blocks)

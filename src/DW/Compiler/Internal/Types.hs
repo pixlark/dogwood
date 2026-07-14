@@ -10,6 +10,7 @@ import DW.TypedAST
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
 import Data.Hashable
+import Data.Text (Text)
 import Data.Text.Format
 import Data.Text.Lazy qualified
 
@@ -23,10 +24,17 @@ data Compiler = Compiler
     blockCounter :: Int,
     varCounter :: Int,
     fnCounter :: Int,
+    staticCounter :: Int,
     program :: Program,
     activeFn :: FnId,
     activeBlock :: BlockId,
     scopes :: LexicalScopes AbstractVariable,
+    -- | Each entry in this map represents a static variable. Eventually, these will all end up
+    -- | in `Program`, but at first when we're compiling, we don't actually know what value the
+    -- | statics will be initialized to. Instead we do a first pass that "binds" all the statics
+    -- | and their types in this map, and then as we go through the full compile phase, the statics
+    -- | get consolidated into `Program` as their initializers are determined.
+    statics :: HashMap Text (StaticId, TypeExpr),
     -- | Each entry in this map represents the SSA term associated with a particular AST variable
     -- | in a particular block. these get used to fill out phi functions.
     -- | Equivalent of `currentDef` in the Braun construction.

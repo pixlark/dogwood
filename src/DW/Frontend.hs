@@ -9,7 +9,7 @@ import DW.Compiler.Internal qualified as Compiler
 import DW.Config (ConfigData (..), LogLevel (..))
 import DW.ConstExprPass qualified as ConstExprPass
 import DW.EmitC qualified as EmitC
-import DW.Error (InternalCompilerError, displayError)
+import DW.Error (InternalCompilerError (..), displayError)
 import DW.Error.Internal.ErrorsEffect (abortIfAnyErrors, runErrorAsErrors, runErrors, runErrorsNoCallStack)
 import DW.LSP qualified as LSP
 import DW.Logging (Logger, noOpLogger, runLog, scribe, standardLoggerWithIgnoredFunctions)
@@ -61,7 +61,7 @@ run cfg = catchICE $ do
       return $ LowerPass.runLowerPass ast
 
     -- Pass 5: Typechecking
-    typedAST@(TST (TopLevel tlStmts) _) <- region "Typechecking AST..." do
+    typedAST <- region "Typechecking AST..." do
       Typechecker.runTypechecker loweredAST
 
     -- Pass 6: Loop validation
@@ -75,16 +75,16 @@ run cfg = catchICE $ do
     abortIfAnyErrors
 
     -- Pass 7: Compile to IR
-    -- program <- region "Compiling to IR..." do
-    --   Compiler.runCompiler undefined
+    program <- region "Compiling to IR..." do
+      Compiler.runCompiler typedAST
 
     -- stopgap
-    let reducedStmt = case tlStmts of
-          [TST (TLet {name = (TST "main" _), value = (TST (Lambda {body = (TST body span)}) _)}) _] -> TST (ExprStmt (TST body span) True) span
-          _ -> undefined
+    -- let reducedStmt = case tlStmts of
+    --       [TST (TLet {name = (TST "main" _), value = (TST (Lambda {body = (TST body span)}) _)}) _] -> TST (ExprStmt (TST body span) True) span
+    --       _ -> undefined
 
     -- Pass 7: Compile to IR
-    program <- Compiler.runCompiler reducedStmt
+    -- program <- Compiler.runCompiler reducedStmt
 
     abortIfAnyErrors
 
@@ -118,7 +118,8 @@ run cfg = catchICE $ do
     catchICE f =
       catch
         f
-        ( \(_ :: InternalCompilerError) -> do
+        ( \((InternalCompilerError cs) :: InternalCompilerError) -> do
+            putStrLn $ prettyCallStack cs
             putStrLn ""
             putStrLn "===== INTERNAL COMPILER ERROR ====="
             putStrLn " Please leave a bug report with a"

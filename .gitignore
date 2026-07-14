@@ -5,6 +5,7 @@ generated.c
 test*.pr
 .testdata/
 .gdb_history
+.vscode/
 
 # https://github.com/github/gitignore/blob/main/Haskell.gitignore
 dist

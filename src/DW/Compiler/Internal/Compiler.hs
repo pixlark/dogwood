@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module DW.Compiler.Internal.Compiler where
@@ -9,6 +10,7 @@ import DW.Compiler.Internal.Lenses
 import DW.Compiler.Internal.Types
 import DW.Compiler.Internal.Users
 import DW.IR
+import DW.Lens
 import DW.LexicalScopes
 import DW.Logging qualified as Logging
 import DW.TypedAST
@@ -29,11 +31,13 @@ mkCompiler =
       termCounter = 0,
       blockCounter = 1,
       varCounter = 0,
-      fnCounter = 1,
-      program = Program $ HashMap.fromList [(FnId 0, FnDef mkMainFnType [(BlockId 0, mkBlock)])],
+      fnCounter = 0,
+      staticCounter = 0,
+      program = Program {fnMap = HashMap.empty, statics = [], entry = Nothing},
       activeFn = FnId 0,
       activeBlock = BlockId 0,
       scopes = mkScopes,
+      statics = HashMap.empty,
       variablesPerBlock = HashMap.empty,
       incompletePhis = HashMap.empty,
       userMap = mkUserMap,
@@ -52,6 +56,14 @@ mkLabel = do
       compiler' = compiler {labelCounter = compiler.labelCounter + 1}
   put compiler'
   return label
+
+mkStaticId :: (State Compiler :> es) => Eff es StaticId
+mkStaticId = do
+  compiler <- get
+  let static = StaticId compiler.staticCounter
+      compiler' = compiler {staticCounter = compiler.staticCounter + 1}
+  put compiler'
+  return static
 
 mkTerm :: (State Compiler :> es) => Eff es Term
 mkTerm = do
@@ -102,6 +114,34 @@ spanForVariable varId = do
   return var.span
 
 --
+-- Static handling
+--
+
+bindStaticVariable :: (HasCallStack, State Compiler :> es) => Text -> TypeExpr -> Eff es StaticId
+bindStaticVariable name ty = do
+  do
+    compiler <- get
+    when (isJust $ HashMap.lookup name compiler.statics) throwICE
+  id <- mkStaticId
+  modify (\c -> c {statics = HashMap.insert name (id, ty) c.statics} :: Compiler)
+  return id
+
+lookupStaticVariable :: (HasCallStack, State Compiler :> es) => Text -> Eff es (Maybe (StaticId, TypeExpr))
+lookupStaticVariable name = do
+  compiler <- get
+  return $ HashMap.lookup name compiler.statics
+
+initializeStaticVariable :: (HasCallStack, State Compiler :> es) => StaticId -> StaticInitializer -> Eff es ()
+initializeStaticVariable staticId initializer = do
+  compiler <- get
+  let staticList = HashMap.toList compiler.statics
+      (_, (_, ty)) = staticList `getSingleElement` (\(_, (id, _)) -> id == staticId) `orElse` throwICE
+      staticVars = compiler.program.statics
+  when (any (\var -> var.staticId == staticId) staticVars) throwICE
+  let staticVars' = staticVars ++ [StaticVariable {staticId, ty, initializer}]
+  put (compiler & programL % programStaticsL .~ staticVars')
+
+--
 -- Function manipulation
 --
 
@@ -122,7 +162,7 @@ modifyFunction id f = do
   compiler <- get
   fn <- getFunction id
   fn' <- f fn
-  modify (\c -> c {program = Program (HashMap.insert id fn' (fnMap compiler.program))})
+  modify (\c -> c {program = compiler.program {fnMap = HashMap.insert id fn' compiler.program.fnMap}})
 
 modifyCurrentFunction :: (HasCallStack, State Compiler :> es) => (FnDef -> Eff es FnDef) -> Eff es ()
 modifyCurrentFunction f = do
@@ -134,8 +174,8 @@ allocateFunction ty = do
   fnId <- mkFnId
   let fnDef = FnDef ty [(BlockId 0, mkBlock)]
   modify
-    ( \c@Compiler {program = Program fns} ->
-        c {program = Program $ HashMap.insert fnId fnDef fns}
+    ( \c@Compiler {program = program@Program {fnMap}} ->
+        c {program = program {fnMap = HashMap.insert fnId fnDef fnMap}}
     )
   return fnId
 
@@ -252,7 +292,7 @@ switchToBlock id = do
   compiler <- get
   put compiler {activeBlock = id}
 
-emit :: (HasCallStack, State Compiler :> es, Log :> es) => TypeExpr -> RHS -> Span -> Eff es Term
+emit :: (HasCallStack, State Compiler :> es) => TypeExpr -> RHS -> Span -> Eff es Term
 emit ty rhs span = do
   term <- mkTerm
   let ssa = SSA {ty, term, rhs, span}
@@ -270,6 +310,17 @@ emit ty rhs span = do
     forM_ usesTerms $ \usesTerm -> addUser usesTerm (SSAUser (SSAReference term activeBlock))
 
   return term
+
+emitSetStatic :: (HasCallStack, State Compiler :> es) => StaticId -> Term -> Span -> Eff es ()
+emitSetStatic static term span = do
+  label <- mkLabel
+  let setStatic = SetStatic {label, static, term, span}
+  activeBlock <- gets activeBlock
+  modifyBlock activeBlock $ \block@Block {instructions} -> do
+    return block {instructions = instructions ++ [SetStaticInst setStatic]}
+
+  -- update the users map
+  addUser term (SetStaticUser (SetStaticReference label activeBlock))
 
 --
 -- Sealing

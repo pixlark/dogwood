@@ -5,7 +5,6 @@
 
 module DW.LSP where
 
-import Control.Monad (join)
 import DW.AST (AST (..))
 import DW.AST qualified as A
 import DW.AST.Visit qualified as AV
@@ -15,6 +14,8 @@ import DW.TypedAST (TST (..))
 import DW.TypedAST qualified as T
 import DW.TypedAST.Visit qualified as TV
 import DW.Util (safeHead, (<$$>))
+
+import Control.Monad (join)
 import Data.Aeson qualified as J
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -40,7 +41,11 @@ typeOfVariableAtSpan :: TST T.TopLevel -> Span -> Maybe T.TypeExpr
 typeOfVariableAtSpan topLevel span = runPureEff $ execState Nothing $ TV.runTopLevelVisitor visitor topLevel
   where
     visitor :: (State (Maybe T.TypeExpr) :> es) => TV.Visitor (Eff es)
-    visitor = TV.defaultVisitor {TV.onStmt, TV.onExpr, TV.onLValue}
+    visitor = TV.defaultVisitor {TV.onStmt, TV.onExpr, TV.onLValue, TV.onTopLevelStmt}
+    onTopLevelStmt (T.TST (T.TLet {ty = T.TST ty _, name = T.TST _ nSpan}) _) recurse = do
+      when (span == nSpan) do
+        put $ Just ty
+      recurse
     onStmt (T.TST (T.Let {type_ = T.TST ty _, name = T.TST _ nSpan}) _) recurse = do
       when (span == nSpan) do
         put $ Just ty
@@ -60,10 +65,14 @@ variableAtPosition :: AST A.TopLevel -> Int -> Maybe (AST Text)
 variableAtPosition topLevel pos = runPureEff $ execState Nothing $ AV.runTopLevelVisitor visitor topLevel
   where
     visitor :: (State (Maybe (AST Text)) :> es) => AV.Visitor (Eff es)
-    visitor = AV.defaultVisitor {AV.onStmt, AV.onExpr, AV.onLValue}
+    visitor = AV.defaultVisitor {AV.onStmt, AV.onExpr, AV.onLValue, AV.onTopLevelStmt}
+    onTopLevelStmt (A.AST (A.TLet {name = name@(A.AST _ span)}) _) recurse = do
+      traceShow (pos, span) $ when (pos `inSpan` span) do
+        put $ Just name
+      recurse
     onStmt (A.AST (A.Let {name = name@(A.AST _ span)}) _) recurse = do
       when (pos `inSpan` span) do
-        traceShow (A.spanOf name) put $ Just name
+        put $ Just name
       recurse
     onStmt _ recurse = recurse
     onExpr (A.AST (A.Variable name) span) recurse = do

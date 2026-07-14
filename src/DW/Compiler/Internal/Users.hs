@@ -42,7 +42,7 @@ replaceTermInUser :: UserReference -> (Term, Term) -> Compiler -> Compiler
 replaceTermInUser ref (ifTerm, withTerm) compiler = compiler & activeFnLens %~ modify ref
   where
     -- grab the active function
-    activeFnLens = programL % programIso % at compiler.activeFn % unwrapICEL
+    activeFnLens = programL % programFnMapL % at compiler.activeFn % unwrapICEL
     -- grab the block with the given ID (or internal compiler error)
     blockLens id = fnsL % alist % at id % unwrapICEL
 

@@ -3,7 +3,6 @@
 
 module DW.Typechecker.Internal where
 
-import Control.Monad (join)
 import DW.AST (SyntaxTree (..))
 import DW.Common
 import DW.Error (markSpan)
@@ -14,6 +13,8 @@ import DW.LoweredAST qualified as L
 import DW.TypedAST (TST (..), typeOf)
 import DW.TypedAST qualified as T
 import DW.Util
+
+import Control.Monad (join)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Text qualified as Text
@@ -128,9 +129,9 @@ doesNotUnify :: T.TypeExpr -> T.TypeExpr -> Bool
 doesNotUnify t1 t2 = not (t1 `unifies` t2)
 
 typecheckBody ::
-  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
-  LST L.Body ->
-  Eff es (TST T.Body)
+  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
+  => LST L.Body
+  -> Eff es (TST T.Body)
 typecheckBody (LST (L.Body stmts) span) = withRegion "Entering scope..." do
   -- each body opens a new lexical scope
   pushScope
@@ -165,9 +166,9 @@ potentiallyBox (T.TypeExpr {valueExpr = T.Any}) e = do
 potentiallyBox _ e = return e
 
 typecheckExpr ::
-  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
-  LST L.Expr ->
-  Eff es (TST T.Expr)
+  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
+  => LST L.Expr
+  -> Eff es (TST T.Expr)
 typecheckExpr (LST L.UndefinedLit span) = do
   scribe "Encountered undefined value - boxing it"
   return $ TST (T.Boxed T.mkUndefined T.UndefinedLit) span
@@ -286,9 +287,9 @@ typecheckLValue (LST (L.LVariable name) span) = do
   return $ TST (T.LVariable ty name) span
 
 typecheckStmt ::
-  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
-  LST L.Stmt ->
-  Eff es (TST T.Stmt)
+  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
+  => LST L.Stmt
+  -> Eff es (TST T.Stmt)
 typecheckStmt (LST (L.Let {name, type_, value}) span) = do
   tValue <- typecheckExpr value
 
@@ -339,10 +340,10 @@ typecheckStmt (LST (L.Loop body) span) = do
   return $ TST (T.Loop tBody) span
 
 typecheckTopLevelStmtWithoutRecursing ::
-  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
-  LST L.TopLevelStmt ->
-  Eff es (TST Text, TST T.TypeExpr)
-typecheckTopLevelStmtWithoutRecursing (LST (L.TLet {name, ty, value}) span) = do
+  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
+  => LST L.TopLevelStmt
+  -> Eff es (TST Text, TST T.TypeExpr)
+typecheckTopLevelStmtWithoutRecursing (LST (L.TLet {name, ty, value}) _) = do
   valueTy <- case node value of
     L.VoidLit -> return T.mkVoid
     L.IntLit _ -> return T.mkInt
@@ -375,18 +376,18 @@ typecheckTopLevelStmtWithoutRecursing (LST (L.TLet {name, ty, value}) span) = do
   return (convertLST name, boundTy)
 
 typecheckTopLevelStmtRecursively ::
-  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
-  LST L.TopLevelStmt ->
-  (TST Text, TST T.TypeExpr) ->
-  Eff es (TST T.TopLevelStmt)
+  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
+  => LST L.TopLevelStmt
+  -> (TST Text, TST T.TypeExpr)
+  -> Eff es (TST T.TopLevelStmt)
 typecheckTopLevelStmtRecursively (LST (L.TLet {value}) span) (name, ty) = do
   tValue <- typecheckExpr value
   return $ TST (T.TLet {name, ty, value = tValue}) span
 
 typecheckTopLevel ::
-  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es) =>
-  LST L.TopLevel ->
-  Eff es (TST T.TopLevel)
+  (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
+  => LST L.TopLevel
+  -> Eff es (TST T.TopLevel)
 typecheckTopLevel (LST (L.TopLevel stmts) span) = do
   -- Before recursing into the bodies of any functions, we first go through all the top-level
   -- bindings. This way the user can define mutually recursive functions rather than being restricted
@@ -399,7 +400,7 @@ typecheckTopLevel (LST (L.TopLevel stmts) span) = do
   return $ TST (T.TopLevel tStmts) span
 
 runTypechecker ::
-  (HasCallStack, Errors Err :> es, Log :> es) =>
-  LST L.TopLevel ->
-  Eff es (TST T.TopLevel)
+  (HasCallStack, Errors Err :> es, Log :> es)
+  => LST L.TopLevel
+  -> Eff es (TST T.TopLevel)
 runTypechecker = evalState mkTypechecker . typecheckTopLevel

@@ -5,8 +5,10 @@ module DW.Compiler.Internal where
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (scribe)
 import DW.Compiler.Internal.Compiler
+import DW.Compiler.Internal.Lenses
 import DW.Compiler.Internal.Types
 import DW.IR
+import DW.Lens
 import DW.LexicalScopes
 import DW.Typechecker (unifies)
 import DW.TypedAST
@@ -33,6 +35,37 @@ compileBody (Body ty stmts) span = do
 
   return term
 
+compileLambda ::
+  (HasCallStack, State Compiler :> es, Log :> es)
+  => TypeExpr -> [(TST TypeExpr, TST Text)] -> TST Expr -> Span -> Eff es FnId
+compileLambda ty params body span = do
+  withRegion "Saving compiler state to compile new function..." do
+    (fnId, savedCompiler) <- saveCompilerAndResetForNewFn ty
+
+    forM_ (params `zip` [0 ..]) $ \((TST ty _, name), i) -> do
+      varId <- mkVarId
+      scribe $ format "Binding parameter {} ({})" (Shown name, Shown varId)
+      bindNewVariable (node name) $ AbstractVariable {varId, ty, span = spanOf name}
+      blockId <- gets activeBlock
+
+      term <- emit ty (RParameter i) span
+      modify (\c -> c {variablesPerBlock = HashMap.insert (varId, blockId) term c.variablesPerBlock})
+      scribe $ format "Parameter loaded into term {}" (Only (Shown term))
+
+    scribe $ format "Compiling new function ({})" (Only (Shown fnId))
+    resultTerm <- compileExpr body
+    setControl (Ret resultTerm)
+
+    scribe "Performing seal check..."
+    (FnDef _ blocks) <- getCurrentFunction
+    forM_ blocks $ \(blockId, _) -> do
+      sealed <- isSealed blockId
+      unless sealed throwICE
+
+    scribe "Restoring compiler state"
+    restoreSavedCompilerAfterFnCompile savedCompiler
+    return fnId
+
 -- | Compile the expression into the current program. Returns term of the local SSA form that contains
 -- | the final value of the expression.
 compileExpr :: (HasCallStack, State Compiler :> es, Log :> es) => TST Expr -> Eff es Term
@@ -40,11 +73,16 @@ compileExpr (TST UndefinedLit span) = emit mkAny RUndefined span
 compileExpr (TST VoidLit span) = emit mkVoid RVoid span
 compileExpr (TST (BoolLit b) span) = emit mkBool (RBool b) span
 compileExpr (TST (IntLit n) span) = emit mkInt (RInt n) span
-compileExpr (TST (Variable _ name) _) = do
-  AbstractVariable {varId} <- lookupVariable name <&> unwrapICE
-  scribe $ format "Looking up variable {} ({})" (name, Shown varId)
-  activeBlock <- gets activeBlock
-  determineTermInBlock varId activeBlock
+compileExpr (TST (Variable _ name) span) = do
+  maybeVar <- lookupVariable name
+  case maybeVar of
+    Just (AbstractVariable {varId}) -> do
+      scribe $ format "Looking up variable {} ({})" (name, Shown varId)
+      activeBlock <- gets activeBlock
+      determineTermInBlock varId activeBlock
+    Nothing -> do
+      (static, ty) <- lookupStaticVariable name <&> unwrapICE
+      emit ty (RLoadStatic static) span
 compileExpr (TST (BinaryOperator ty op l r) span) = do
   lTerm <- compileExpr l
   rTerm <- compileExpr r
@@ -119,26 +157,7 @@ compileExpr (TST (Boxed ty value) span) = do
   inner <- compileExpr (TST value span)
   emit mkAny (RBox ty inner) span
 compileExpr (TST (Lambda {ty, params, body}) span) = do
-  fnId <- withRegion "Saving compiler state to compile new function..." do
-    (fnId, savedCompiler) <- saveCompilerAndResetForNewFn ty
-
-    forM_ (params `zip` [0 ..]) $ \((TST ty _, name), i) -> do
-      varId <- mkVarId
-      scribe $ format "Binding parameter {} ({})" (Shown name, Shown varId)
-      bindNewVariable (node name) $ AbstractVariable {varId, ty, span = spanOf name}
-      blockId <- gets activeBlock
-
-      term <- emit ty (RParameter i) span
-      modify (\c -> c {variablesPerBlock = HashMap.insert (varId, blockId) term c.variablesPerBlock})
-      scribe $ format "Parameter loaded into term {}" (Only (Shown term))
-
-    scribe $ format "Compiling new function ({})" (Only (Shown fnId))
-    resultTerm <- compileExpr body
-    setControl (Ret resultTerm)
-
-    scribe "Restoring compiler state"
-    restoreSavedCompilerAfterFnCompile savedCompiler
-    return fnId
+  fnId <- compileLambda ty params body span
 
   emit ty (RLoadFn fnId) span
 
@@ -155,14 +174,20 @@ compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do
   bindNewVariable name $ AbstractVariable {varId, ty, span}
   modify (\c -> c {variablesPerBlock = HashMap.insert (varId, blockId) valTerm c.variablesPerBlock})
   return Nothing
-compileStmt (TST (Assign (TST (LVariable _ name) _) value) _) = do
+compileStmt (TST (Assign (TST (LVariable _ name) _) value) span) = do
   valTerm <- compileExpr value
-  AbstractVariable {varId} <- lookupVariable name <&> unwrapICE
-  compiler <- get
-  scribe $ format "Encountered variable assignment to {} ({}) in block {}" (name, Shown varId, Shown compiler.activeBlock)
-  let variablesPerBlock' = HashMap.insert (varId, compiler.activeBlock) valTerm compiler.variablesPerBlock
-  put compiler {variablesPerBlock = variablesPerBlock'}
-  return Nothing
+  maybeVar <- lookupVariable name
+  case maybeVar of
+    Just (AbstractVariable {varId}) -> do
+      compiler <- get
+      scribe $ format "Encountered variable assignment to {} ({}) in block {}" (name, Shown varId, Shown compiler.activeBlock)
+      let variablesPerBlock' = HashMap.insert (varId, compiler.activeBlock) valTerm compiler.variablesPerBlock
+      put compiler {variablesPerBlock = variablesPerBlock'}
+      return Nothing
+    Nothing -> do
+      (static, _) <- lookupStaticVariable name <&> unwrapICE
+      emitSetStatic static valTerm span
+      return Nothing
 compileStmt (TST (ExprStmt expr semicolon) _) = do
   term <- compileExpr expr
   if semicolon then return Nothing else return (Just term)
@@ -215,26 +240,42 @@ compileStmt (TST Break _) = withRegion "Compiling break statement..." do
       switchToBlock nextBlock
   return Nothing
 
-compileTopLevel :: (HasCallStack, State Compiler :> es, Log :> es) => TST TopLevel -> Eff es ()
-compileTopLevel = undefined
+compileTopLevelValue :: (HasCallStack, State Compiler :> es, Log :> es) => TST Expr -> Eff es StaticInitializer
+compileTopLevelValue (TST VoidLit _) = return SIVoid
+compileTopLevelValue (TST (IntLit n) _) = return (SIInt n)
+compileTopLevelValue (TST (BoolLit b) _) = return (SIBool b)
+compileTopLevelValue (TST (Lambda {ty, params, body}) span) = do
+  fnId <- compileLambda ty params body span
+  return (SIFn fnId)
+compileTopLevelValue _ = throwICE -- ConstExprPass should prevent this from ever happening
 
-compileProgram :: (HasCallStack, State Compiler :> es, Log :> es) => TST Stmt -> Eff es ()
-compileProgram stmt = withRegion "Compiling program..." do
-  -- compileTopLevel topLevel
-  _ <- compileStmt stmt
+compileTopLevelStmt :: (HasCallStack, State Compiler :> es, Log :> es) => TST TopLevelStmt -> StaticId -> Eff es ()
+compileTopLevelStmt (TST (TLet {name = (TST name _), value}) _) staticId = do
+  initializer <- compileTopLevelValue value
+  initializeStaticVariable staticId initializer
+
+  -- if this defines a function named main, then mark that as our entry point
+  when (name == "main") do
+    case initializer of
+      SIFn fnId -> modify (programL % programEntryL ?~ fnId)
+      _ -> return ()
+
+compileTopLevel :: (HasCallStack, State Compiler :> es, Log :> es) => TST TopLevel -> Eff es ()
+compileTopLevel (TST (TopLevel tStmts) _) = do
+  ids <- forM tStmts $ \tStmt -> do
+    case tStmt of
+      (TST (TLet {name = (TST name _), ty = (TST ty _)}) _) -> do
+        bindStaticVariable name ty
+  forM_ (tStmts `zip` ids) $ \(tStmt, id) -> do
+    compileTopLevelStmt tStmt id
+
+compileProgram :: (HasCallStack, State Compiler :> es, Log :> es) => TST TopLevel -> Eff es ()
+compileProgram topLevel = withRegion "Compiling program..." do
+  compileTopLevel topLevel
   program <- gets program
   scribe $ format "Program:\n\n{}" (Only (Shown program))
 
-compileAndCheck :: (HasCallStack, State Compiler :> es, Log :> es) => TST Stmt -> Eff es ()
-compileAndCheck stmt = do
-  compileProgram stmt
-  (Program fns) <- gets program
-  forM_ (HashMap.toList fns) $ \(_, FnDef _ blocks) -> do
-    forM_ blocks $ \(id, _) -> do
-      seal <- isSealed id
-      unless seal throwICE
-
-runCompiler :: (HasCallStack, Log :> es) => TST Stmt -> Eff es Program
+runCompiler :: (HasCallStack, Log :> es) => TST TopLevel -> Eff es Program
 runCompiler topLevel = do
-  compiler <- execState mkCompiler $ compileAndCheck topLevel
+  compiler <- execState mkCompiler $ compileProgram topLevel
   return compiler.program

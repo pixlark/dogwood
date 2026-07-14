@@ -7,8 +7,7 @@ data Span = Span Int Int
   deriving (Eq, Show)
 
 data ErrorKind
-  = -- = InternalCompilerError
-    UnrecognizedCharacter Char
+  = UnrecognizedCharacter Char
   | ExpectedKeyword Text
   | ExpectedGlyph Text
   | ExpectedSymbol
@@ -26,13 +25,13 @@ data ErrorKind
   | TopLevelBoxedType
   | NonConstTopLevelExpression
   | MultipleDefinitionsOfTLVariable Text
+  | NoEntryPointDefined
   deriving (Eq)
 
 data Err = Err ErrorKind Span
   deriving (Eq, Show)
 
 instance Show ErrorKind where
-  -- show InternalCompilerError = "Internal compiler error!"
   show (UnrecognizedCharacter c) = printf "Unrecognized character %c" c
   show (ExpectedKeyword keyword) = printf "Expected keyword %s" keyword
   show (ExpectedGlyph glyph) = printf "Expected glyph %s" glyph
@@ -51,3 +50,4 @@ instance Show ErrorKind where
   show TopLevelBoxedType = printf "Top-level variables cannot have type 'any'"
   show NonConstTopLevelExpression = printf "Top-level expressions must be constant"
   show (MultipleDefinitionsOfTLVariable name) = printf "Found multiple definitions of %s" name
+  show NoEntryPointDefined = printf "No 'main' function was defined"

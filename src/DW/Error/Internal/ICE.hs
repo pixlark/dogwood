@@ -1,13 +1,15 @@
-module DW.Error.Internal.ICE (InternalCompilerError, throwICE, unwrapICE) where
+module DW.Error.Internal.ICE (InternalCompilerError (..), throwICE, unwrapICE) where
 
 import Control.Exception (Exception, throw)
+import GHC.Stack (CallStack, HasCallStack, callStack)
 
-data InternalCompilerError = InternalCompilerError
+newtype InternalCompilerError = InternalCompilerError CallStack
   deriving (Show)
 
-throwICE = throw InternalCompilerError
+throwICE :: (HasCallStack) => a
+throwICE = throw (InternalCompilerError callStack)
 
-unwrapICE :: Maybe a -> a
+unwrapICE :: (HasCallStack) => Maybe a -> a
 unwrapICE (Just x) = x
 unwrapICE Nothing = throwICE
 
