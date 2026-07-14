@@ -1,19 +1,26 @@
 let main = fn() {
-    let print: fn(any) -> void = builtin print;
+    fib(20);
+};
 
-    let a: int = 0;
-    let b: int = 1;
-    let n: int = 20;
+let fib = fn(n: int) -> int {
+    let print = builtin print;
+
+    let a = 0;
+    let b = 1;
+
     loop {
         if n == 0 {
             break;
         }
 
         print(a);
-        let tmp: int = a;
+
+        let tmp = a;
         a = b;
         b = tmp + b;
 
         n = n - 1;
     }
+
+    a
 };

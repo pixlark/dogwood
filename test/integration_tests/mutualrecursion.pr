@@ -1,0 +1,13 @@
+let main = fn() {
+    let print = builtin print;
+    print(is_even(10));
+    print(is_even(11));
+};
+
+let is_even = fn(x: int) -> bool:
+    if x == 0
+        true else is_odd(x - 1);
+
+let is_odd = fn(x: int) -> bool:
+    if x == 0
+        false else is_even(x - 1);

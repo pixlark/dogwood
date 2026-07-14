@@ -4,6 +4,7 @@ import DW.Common
 import DW.Config (ConfigData (..), LogLevel (..))
 import DW.Frontend qualified as Frontend
 import DW.Util (orElse)
+
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import System.Directory (createDirectoryIfMissing, doesFileExist)
@@ -59,3 +60,9 @@ spec = do
       void $ integrationTest "basicfn.pr"
     it "can define and use a more complex function" do
       void $ integrationTest "complexfn.pr"
+    it "can define and modify global variables" do
+      void $ integrationTest "toplevelvalues.pr"
+    it "can use mututally recursive functions" do
+      void $ integrationTest "mutualrecursion.pr"
+    it "can define and use a higher-order function" do
+      void $ integrationTest "higherorderfn.pr"

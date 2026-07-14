@@ -1,0 +1,8 @@
+let main = fn() {
+    let print = builtin print;
+    let f = fn(x: int) -> bool: x == 12;
+    print(apply(f, 5));
+    print(apply(f, 12));
+};
+
+let apply = fn(f: fn(int) -> bool, x: int) -> bool: f(x);

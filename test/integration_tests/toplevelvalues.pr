@@ -1,0 +1,14 @@
+let foo = 5;
+let bar = 7;
+
+let add = fn(x: int, y: int) -> int: x + y;
+let sub = fn(x: int, y: int) -> int: x - y;
+
+let main = fn() {
+    let print = builtin print;
+    foo = sub(foo, add(foo, bar));
+    if foo < 0 {
+        foo = -foo;
+    }
+    print(add(foo, bar));
+};
