@@ -5,6 +5,7 @@
 module DW.Compiler.Internal.Compiler where
 
 import DW.Common hiding (scribe)
+import DW.Compiler.Internal.Lenses
 import DW.Compiler.Internal.Types
 import DW.Compiler.Internal.Users
 import DW.IR
@@ -279,6 +280,8 @@ isSealed blockId = do
   sealed <- gets sealed
   return $ blockId `elem` sealed
 
+-- | Mark the given block as sealed.
+-- If it contains any incomplete phi instructions, they are recursively filled out.
 markSealed :: (HasCallStack, State Compiler :> es, Log :> es) => BlockId -> Eff es ()
 markSealed blockId = withRegion (format "Marking {} as sealed" (Only (Shown blockId))) do
   -- go back and fill in any incomplete phi instructions
@@ -297,7 +300,7 @@ markSealed blockId = withRegion (format "Marking {} as sealed" (Only (Shown bloc
 --
 
 -- | Provide the `Term` that will contain the value of the given variable in the given block.
--- | Equivalent to `currentDef` in the Braun construction.
+-- Equivalent to `currentDef` in the Braun construction.
 setVariableTermInBlock :: (HasCallStack, State Compiler :> es) => VarId -> BlockId -> Term -> Eff es ()
 setVariableTermInBlock varId blockId term = do
   vars <- gets variablesPerBlock
@@ -306,9 +309,9 @@ setVariableTermInBlock varId blockId term = do
   modify (\c -> c {variablesPerBlock = HashMap.insert (varId, blockId) term vars})
 
 -- | For the given variable and block, determine the `Term` that will contain the
--- | value of that variable.
--- | This will generate phi instructions as necessary.
--- | Equivalent to `readVariable` in the Braun construction.
+-- value of that variable.
+-- This will generate phi instructions as necessary.
+-- Equivalent to `readVariable` in the Braun construction.
 determineTermInBlock :: (HasCallStack, State Compiler :> es, Log :> es) => VarId -> BlockId -> Eff es Term
 determineTermInBlock varId blockId = do
   variables <- gets variablesPerBlock
@@ -360,6 +363,9 @@ determineTermInBlockRec varId blockId = do
 -- Phi handling
 --
 
+-- | Emit an incomplete phi to the given block.
+-- Returns an `IncompletePhi` reference, which the caller is expected to use
+-- eventually to fill out the phi.
 addEmptyPhi ::
   (HasCallStack, State Compiler :> es)
   => BlockId
@@ -375,6 +381,7 @@ addEmptyPhi blockId varId span = do
   let incompletePhi = IncompletePhi (PhiReference term blockId) varId
   return incompletePhi
 
+-- | Emit a phi to the given block.
 addCompletePhi ::
   (HasCallStack, State Compiler :> es)
   => BlockId
@@ -435,6 +442,9 @@ recursivelySetPhiOperands (IncompletePhi phiRef@(PhiReference _ inBlock) forVari
 data PhiReduction = PRUnreachable | PRNoReduce | PRReduceTo Term
   deriving (Show)
 
+-- | Given a reference to a phi instruction, determine whether it's actually useful
+-- for differentiating predecessor paths.
+-- If not, then remove the phi entirely.
 tryRemoveTrivialPhi ::
   (HasCallStack, State Compiler :> es, Log :> es)
   => PhiReference -> Eff es Term
