@@ -443,18 +443,6 @@ recursivelySetPhiOperands (IncompletePhi phiRef@(PhiReference _ inBlock) forVari
 data PhiReduction = PRUnreachable | PRNoReduce | PRReduceTo Term
   deriving (Show)
 
-replaceTermInRHS :: Term -> Term -> RHS -> RHS
-replaceTermInRHS from to (RBinOp op left right) = RBinOp op left' right'
-  where
-    left' = if from == left then to else left
-    right' = if from == right then to else right
-replaceTermInRHS from to (RUnaryOp op term) = RUnaryOp op (if from == term then to else term)
-replaceTermInRHS from to (RCall fn args) = RCall fn' args'
-  where
-    fn' = if from == fn then to else fn
-    args' = map (\a -> if from == a then to else a) args
-replaceTermInRHS _ _ rhs = rhs
-
 tryRemoveTrivialPhi ::
   (HasCallStack, State Compiler :> es, Log :> es)
   => PhiReference -> Eff es Term
@@ -479,10 +467,7 @@ tryRemoveTrivialPhi phiRef = do
       -- for each place that uses this phi's value, rewrite them to use the original value instead
       forM_ users' $ \user -> do
         scribe $ format "rewriting user: {}" (Only (Shown user))
-        case user of
-          PhiUser (PhiReference userTerm blockId) -> replacePhiUser blockId userTerm phi.term reduceTo
-          SSAUser (InstReference userTerm blockId) -> replaceSSAUser blockId userTerm phi.term reduceTo
-          ControlUser (ControlReference blockId) -> replaceControlUser blockId phi.term reduceTo
+        modify $ replaceTermInUser user (phi.term, reduceTo)
         -- update the user map too
         addUser reduceTo user
 
@@ -508,33 +493,6 @@ tryRemoveTrivialPhi phiRef = do
           _ -> return ()
 
       return reduceTo
-  where
-    replacePhiUser :: (State Compiler :> es) => BlockId -> Term -> Term -> Term -> Eff es ()
-    replacePhiUser blockId userTerm replaceTerm withTerm = do
-      block <- getBlock blockId
-      let userPhi = block.phis `getSingleElement` (\p -> p.term == userTerm) & unwrapICE
-      let userPhi' = userPhi {operands = map (\(id, term) -> (id, if term == replaceTerm then withTerm else term)) userPhi.operands}
-      let phis' = modifyElementBy block.phis (\p -> p.term == userTerm) (const userPhi') & unwrapICE
-      modifyBlock blockId $ \block -> do
-        return block {phis = phis'}
-    replaceSSAUser :: (State Compiler :> es) => BlockId -> Term -> Term -> Term -> Eff es ()
-    replaceSSAUser blockId userTerm replaceTerm withTerm = do
-      block <- getBlock blockId
-      let userSSA = block.instructions `getSingleElement` (\s -> s.term == userTerm) & unwrapICE
-      let userSSA' = userSSA {rhs = replaceTermInRHS replaceTerm withTerm userSSA.rhs}
-      let instructions' = modifyElementBy block.instructions (\s -> s.term == userTerm) (const userSSA') & unwrapICE
-      modifyBlock blockId $ \block -> do
-        return block {instructions = instructions'}
-    replaceControlUser :: (State Compiler :> es) => BlockId -> Term -> Term -> Eff es ()
-    replaceControlUser blockId replaceTerm withTerm = do
-      block <- getBlock blockId
-      control' <- case block.control of
-        Halt -> throwICE
-        Ret term -> return $ Ret $ if term == replaceTerm then withTerm else term
-        Jump _ -> throwICE
-        JumpIf term t1 t2 -> return $ JumpIf (if term == replaceTerm then withTerm else term) t1 t2
-      modifyBlock blockId $ \block -> do
-        return block {control = control'}
 
 --
 -- Scribe override

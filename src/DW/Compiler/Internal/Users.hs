@@ -1,19 +1,21 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module DW.Compiler.Internal.Users where
 
 import DW.Common
 import DW.Compiler.Internal.Types
-import DW.IR (BlockId, Phi (..), Term)
+import DW.IR
+import DW.Lens
 import DW.Util
 
+import Data.Bifunctor (second)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
+import GHC.Generics (Generic)
 
 mkUserMap :: UserMap
 mkUserMap = HashMap.empty
@@ -43,56 +45,61 @@ removeAllUsers term = do
   let userMap' = HashMap.delete term userMap
   modify (setUserMap userMap')
 
--- replaceTerm :: (Term, Term) -> Term -> Term
--- replaceTerm (ifTerm, withTerm) term = if ifTerm == term then withTerm else term
+deriving instance Generic FnDef
 
--- replaceUser :: (State Compiler :> es) => UserReference -> (Term, Term) -> Eff es ()
--- replaceUser user replacement = case user of
---   (PhiUser (PhiReference {term, inBlock})) -> undefined
---   (SSAUser (InstReference {term, inBlock})) -> undefined
---   (ControlUser (ControlReference {inBlock})) -> undefined
---   where
---     replace = replaceTerm replacement
+makeLenses ''Compiler
+makeLenses ''Block
+makeLensesWithPrefix "phi" ''Phi
+makeLensesWithPrefix "ssa" ''SSA
 
--- class DereferenceUser e u a | u -> a, u -> e where
---   dereferenceUser :: (e :> es) => u -> (a -> Eff es a) -> Eff es ()
+programIso :: Iso' Program (HashMap FnId FnDef)
+programIso = coerced
 
--- class User a where
---   replaceUser :: a -> (Term, Term) -> a
+fnsL :: Lens' FnDef [(BlockId, Block)]
+fnsL = gposition @2
 
--- class DereferenceUser m a | a -> m where
---   dereferenceUser :: (Monad m) => UserReference -> m (a -> m a)
+replaceTermInUser :: UserReference -> (Term, Term) -> Compiler -> Compiler
+replaceTermInUser ref (ifTerm, withTerm) compiler = compiler & activeFnLens %~ modify ref
+  where
+    -- grab the active function
+    activeFnLens = programL % programIso % at compiler.activeFn % unwrapICEL
+    -- grab the block with the given ID (or internal compiler error)
+    blockLens id = fnsL % alist % at id % unwrapICEL
 
--- replaceTerm :: Term -> (Term, Term) -> Term
--- replaceTerm term (ifTerm, withTerm) = if term == ifTerm then withTerm else term
+    replace term = if term == ifTerm then withTerm else term
 
--- runReplacement :: (DereferenceUser m a, User a, Monad m) => UserReference -> (Term, Term) -> m a
--- runReplacement ref repl = do
---   modifier <- dereferenceUser ref
+    -- TODO: biplate?
+    replaceRHS :: RHS -> RHS
+    replaceRHS (RBinOp t l r) = RBinOp t (replace l) (replace r)
+    replaceRHS (RUnaryOp t v) = RUnaryOp t (replace v)
+    replaceRHS (RCall t ts) = RCall (replace t) (map replace ts)
+    replaceRHS (RBox t v) = RBox t (replace v)
+    replaceRHS rhs = rhs
 
---   _
+    -- TODO: also maybe biplatable?
+    replaceControl :: Control -> Control
+    replaceControl Halt = Halt
+    replaceControl (Jump b) = Jump b
+    replaceControl (JumpIf v t1 t2) = JumpIf (replace v) t1 t2
+    replaceControl (Ret v) = Ret v
 
--- a function to replace within a user
--- replaceUser :: a -> (Term, Term) -> a
--- replaceUser = undefined
-
--- dereferenceUser :: (State s :> es, HasUserMap s) => UserReference -> Eff es a
--- dereferenceUser = undefined
-
--- inplaceReplaceUser :: (State s :> es, HasUserMap s) => UserReference -> (Term, Term) -> Eff es ()
--- inplaceReplaceUser = undefined
-
--- data UserLens a = UserLens (a -> m a)
-
--- class DereferenceUser a where
---   dereferenceUser :: UserReference -> a
-
--- class ReplaceUser a where
---   replaceUser :: a -> (Term, Term) -> a
-
--- instance ReplaceUser Phi where
---   replaceUser :: Phi -> (Term, Term) -> Phi
---   replaceUser phi@Phi {operands} = undefined
-
--- dereference :: (ReplaceUser r) => UserReference -> r
--- dereference = undefined
+    modify :: UserReference -> FnDef -> FnDef
+    modify (PhiUser (PhiReference {term, inBlock})) fnDef =
+      fnDef
+        & blockLens inBlock
+        % phisL
+        % singleElementICEL (\(Phi {term = t}) -> term == t)
+        % phiOperandsL
+        %~ map (second replace)
+    modify (SSAUser (InstReference {term, inBlock})) fnDef =
+      fnDef
+        & blockLens inBlock
+        % instructionsL
+        % singleElementICEL (\(SSA {term = t}) -> term == t)
+        % ssaRhsL
+        %~ replaceRHS
+    modify (ControlUser (ControlReference {inBlock})) fnDef =
+      fnDef
+        & blockLens inBlock
+        % controlL
+        %~ replaceControl

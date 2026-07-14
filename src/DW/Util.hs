@@ -1,6 +1,7 @@
 module DW.Util
   ( eitherFromMaybe,
     orElse,
+    orLeft,
     safeHead,
     safeLast,
     zoomState,
@@ -33,6 +34,10 @@ eitherFromMaybe e Nothing = Left e
 
 orElse :: Maybe a -> a -> a
 orElse = flip fromMaybe
+
+orLeft :: e -> Maybe a -> Either e a
+orLeft _ (Just x) = Right x
+orLeft e Nothing = Left e
 
 safeHead :: [a] -> Maybe a
 safeHead [] = Nothing

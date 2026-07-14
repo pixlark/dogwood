@@ -130,7 +130,7 @@ library dogwood-core
             DW.TypedAST.Visit,
         DW.IR,
         -- Utility
-        DW.Common, DW.Util, DW.LexicalScopes,
+        DW.Common, DW.Util, DW.LexicalScopes, DW.Lens,
         -- Logging
         DW.Logging,
         -- Error handling
@@ -160,6 +160,7 @@ library dogwood-core
                       aeson,
                       containers,
                       sorted-list,
+                      optics,
 
     -- Directories containing source files.
     hs-source-dirs:   src
