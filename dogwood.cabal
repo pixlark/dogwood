@@ -143,6 +143,8 @@ library dogwood-core
             DW.Error.Internal.ErrorsEffect,
         -- Language server
         DW.LSP,
+        -- Misc
+        DW.UnifyTest.Internal,
 
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.18.3.0,
@@ -189,6 +191,7 @@ test-suite dogwood-tests
         EmitCSpec,
         IntegrationSpec,
         TestUtil,
+        UnifyTestSpec,
     build-depends:    base ^>=4.18.3.0,
                       text ^>=2.1,
                       mtl,

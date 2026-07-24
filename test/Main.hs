@@ -12,6 +12,7 @@ import LowerPassSpec qualified
 import ParserSpec qualified
 import Test.Hspec
 import TypecheckerSpec qualified
+import UnifyTestSpec qualified
 
 main :: IO ()
 main = hspec $ do
@@ -24,3 +25,4 @@ main = hspec $ do
   CompilerSpec.spec
   EmitCSpec.spec
   IntegrationSpec.spec
+  UnifyTestSpec.spec

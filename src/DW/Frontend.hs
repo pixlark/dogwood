@@ -78,14 +78,6 @@ run cfg = catchICE $ do
     program <- region "Compiling to IR..." do
       Compiler.runCompiler typedAST
 
-    -- stopgap
-    -- let reducedStmt = case tlStmts of
-    --       [TST (TLet {name = (TST "main" _), value = (TST (Lambda {body = (TST body span)}) _)}) _] -> TST (ExprStmt (TST body span) True) span
-    --       _ -> undefined
-
-    -- Pass 7: Compile to IR
-    -- program <- Compiler.runCompiler reducedStmt
-
     abortIfAnyErrors
 
     -- Pass 8: Generate C

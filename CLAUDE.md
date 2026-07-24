@@ -18,7 +18,9 @@ This project is a compiler for a new programming language, codenamed *dogwood*. 
 
 There is a separate CLAUDE.md for each of these packages located in their respective directories.
 
-There is also the `runtime` directory, which contains the runtime implementation for the language (in C). There is a CLAUDE.md for this directory as well.
+The `runtime` directory contains the runtime implementation for the language (in C). There is a CLAUDE.md for this directory as well.
+
+Finally, the `code-extension` directory implements a simple VSCode extension for dogwood language support.
 
 ### Building and testing
 
