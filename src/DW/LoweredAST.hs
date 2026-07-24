@@ -20,7 +20,7 @@ instance SyntaxTree LST where
 instance Functor LST where
   fmap f (LST x span) = LST (f x) span
 
-data ValueTypeExpr = Any | Void | Bool | Int | NamespacedIdentifier [Text] | Function [LST TypeExpr] (LST TypeExpr)
+data ValueTypeExpr = Any | Void | Bool | Int | Function [LST TypeExpr] (LST TypeExpr)
   deriving (Eq)
 
 data TypeExpr = TypeExpr {reference :: Bool, valueExpr :: ValueTypeExpr}
@@ -98,7 +98,6 @@ instance Show ValueTypeExpr where
   show Void = "void"
   show Bool = "bool"
   show Int = "int"
-  show (NamespacedIdentifier parts) = T.unpack $ T.intercalate "::" parts
   show (Function params ret) = execWriter do
     tell "fn("
     tell $ T.unpack $ T.intercalate ", " $ map T.show params

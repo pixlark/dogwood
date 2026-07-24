@@ -26,7 +26,7 @@ instance SyntaxTree TST where
   node (TST x _) = x
   spanOf (TST _ s) = s
 
-data ValueTypeExpr = Any | Void | Bool | Int | NamespacedIdentifier [Text] | Function [TST TypeExpr] (TST TypeExpr)
+data ValueTypeExpr = Any | Void | Bool | Int | Function [TST TypeExpr] (TST TypeExpr)
   deriving (Eq)
 
 data TypeExpr = TypeExpr {reference :: Bool, valueExpr :: ValueTypeExpr}
@@ -125,7 +125,6 @@ instance Show ValueTypeExpr where
   show Void = "void"
   show Bool = "bool"
   show Int = "int"
-  show (NamespacedIdentifier parts) = T.unpack $ T.intercalate "::" parts
   show (Function params ret) = execWriter do
     tell "fn("
     tell $ T.unpack $ T.intercalate ", " $ map T.show params

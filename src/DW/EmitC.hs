@@ -22,7 +22,6 @@ emitValueType name Any = do emit "Box"; name
 emitValueType name Void = do emit "uint8_t"; name -- for now
 emitValueType name Bool = do emit "bool"; name
 emitValueType name Int = do emit "int64_t"; name
-emitValueType _ (NamespacedIdentifier _) = undefined
 -- this is tremendously nasty, and that's just because C is evil and decided on the worst
 -- possible syntax for function pointers. blame Dennis (RIP)
 emitValueType name fn@(Function _ _) = do
@@ -76,7 +75,6 @@ emitZeroValue (TypeExpr {valueExpr}) = emitZeroValue' valueExpr
     emitZeroValue' Void = emit "0"
     emitZeroValue' Bool = emit "false"
     emitZeroValue' Int = emit "0"
-    emitZeroValue' (NamespacedIdentifier _) = undefined
     emitZeroValue' (Function _ _) = emit "NULL"
 
 emitOperator :: Operator -> Text
@@ -100,7 +98,6 @@ emitRuntimeTypeInfo Any = emit "make_type_any()"
 emitRuntimeTypeInfo Void = emit "make_type_void()"
 emitRuntimeTypeInfo Bool = emit "make_type_bool()"
 emitRuntimeTypeInfo Int = emit "make_type_int()"
-emitRuntimeTypeInfo (NamespacedIdentifier _) = undefined
 emitRuntimeTypeInfo (Function args (TST TypeExpr {valueExpr = ret} _)) = do
   preamble do
     emit "  Type _function_type;\n"

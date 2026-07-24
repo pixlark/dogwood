@@ -55,7 +55,6 @@ convertValueTypeExpr L.Any = T.Any
 convertValueTypeExpr L.Void = T.Void
 convertValueTypeExpr L.Bool = T.Bool
 convertValueTypeExpr L.Int = T.Int
-convertValueTypeExpr (L.NamespacedIdentifier parts) = T.NamespacedIdentifier parts
 convertValueTypeExpr (L.Function params ret) = T.Function (map convertWrap params) (convertWrap ret)
   where
     convertWrap (LST typeExpr span) = TST (convertTypeExpr typeExpr) span

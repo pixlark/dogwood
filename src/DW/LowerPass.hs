@@ -16,7 +16,7 @@ lowerValueTypeExpr AST.Any = L.Any
 lowerValueTypeExpr AST.Void = L.Void
 lowerValueTypeExpr AST.Bool = L.Bool
 lowerValueTypeExpr AST.Int = L.Int
-lowerValueTypeExpr (AST.NamespacedIdentifier parts) = L.NamespacedIdentifier parts
+lowerValueTypeExpr (AST.NamespacedIdentifier parts) = undefined
 lowerValueTypeExpr (AST.Function params ret) =
   L.Function (map lowerTypeExpr params) (lowerTypeExpr ret)
 
