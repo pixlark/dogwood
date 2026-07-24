@@ -124,7 +124,7 @@ runStmtVisitor v stmt@(AST (Loop body) _) =
     runBodyVisitor v body
 
 runTopLevelStmtVisitor :: (Monad m) => Visitor m -> AST TopLevelStmt -> m ()
-runTopLevelStmtVisitor v tls@(AST (TLet {ty, value}) span) = do
+runTopLevelStmtVisitor v tls@(AST (TLet {ty, value}) _) = do
   onTopLevelStmt v tls do
     forM_ ty $ runTypeExprVisitor v
     runExprVisitor v value

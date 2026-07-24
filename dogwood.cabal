@@ -51,8 +51,13 @@ extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
 common warnings
-    ghc-options: -Wall -Wno-missing-signatures -Wno-name-shadowing
-
+    ghc-options: -Wall
+                 -Wno-missing-signatures
+                 -Wno-name-shadowing
+                 -Wno-unused-imports
+                 -- ^ this flag should get removed every once in a while to clean up the imports
+                 --   however, having it on all the time adds so much warning noise
+                 -Wno-ambiguous-fields
 common extensions
     default-extensions:
         -- Pretty uncontroversial syntax extensions

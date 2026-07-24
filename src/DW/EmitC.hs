@@ -104,7 +104,7 @@ emitRuntimeTypeInfo Void = emit "make_type_void()"
 emitRuntimeTypeInfo Bool = emit "make_type_bool()"
 emitRuntimeTypeInfo Int = emit "make_type_int()"
 emitRuntimeTypeInfo (NamespacedIdentifier _) = undefined
-emitRuntimeTypeInfo (Function args ty@(TST TypeExpr {valueExpr = ret} _)) = do
+emitRuntimeTypeInfo (Function args (TST TypeExpr {valueExpr = ret} _)) = do
   preamble do
     emit "  Type _function_type;\n"
     emit "  {\n"
@@ -331,7 +331,7 @@ emitC (Program {fnMap, statics, entry = (Just (FnId entryId))}) = do
     |]
   emit "\n"
   where
-    emitFnHeader (FnId id) fn@(FnDef ty _) = do
+    emitFnHeader (FnId id) (FnDef ty _) = do
       (params, ret) <- case ty of
         TypeExpr {valueExpr = Function params ret} -> return (params, ret)
         _ -> throwICE
@@ -339,7 +339,7 @@ emitC (Program {fnMap, statics, entry = (Just (FnId entryId))}) = do
         emit " _function_"
         emit $ Text.show id
         emit "("
-        forM_ (intersperse Nothing (Just <$> params `zip` [0 ..])) $ \case
+        forM_ (intersperse Nothing (Just <$> params `zip` [0 :: Int ..])) $ \case
           Nothing -> emit ", "
           Just (TST ty _, n) -> do
             emitType (do emit " _arg"; emit $ Text.show n) ty
