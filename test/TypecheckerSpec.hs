@@ -10,6 +10,7 @@ import DW.LowerPass qualified as LowerPass
 import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
 import DW.Util (stripCallStacks)
+
 import Data.Text (show)
 import Data.Text qualified as Text
 import NeatInterpolation
@@ -44,13 +45,6 @@ spec = do
 
       (show <$$> testTypecheck "let main = fn() { let x: int = 5 != 2; };")
         `shouldSatisfyM` isErrorKind (TypeMismatch "int" "bool")
-
-    it "typechecks undefined expressions" do
-      (show <$$> testTypecheck "let main = fn() { let x: int = undefined; };")
-        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: int = undefined;\n} : void;\n"
-
-      (show <$$> testTypecheck "let main = fn() { let x: bool = undefined; };")
-        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: bool = undefined;\n} : void;\n"
 
     it "typechecks body expressions" do
       (show <$$> testTypecheck "let main = fn() { {}; };")
@@ -88,23 +82,17 @@ spec = do
       (show <$$> testTypecheck "let main = fn() { let x = 5; let y = x; };")
         `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: int = 5;\nlet y: int = (x : int);\n} : void;\n"
 
-      (show <$$> testTypecheck "let main = fn() { let x = undefined; };")
-        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: any = undefined;\n} : void;\n"
-
-      (show <$$> testTypecheck "let main = fn() { let x: int = undefined; };")
-        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: int = undefined;\n} : void;\n"
-
     it "typechecks function calls" do
       (show <$$> testTypecheck "let main = fn() { let x: int = 5; x(15, 16); };")
         `shouldSatisfyM` isErrorKind (CallingNonFunction "int")
 
-      (show <$$> testTypecheck "let main = fn() { let f: fn(int, int) -> bool = undefined; let y = f(5, 6); };")
-        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet f: fn(int, int) -> bool = undefined;\nlet y: bool = (f(5, 6) : bool);\n} : void;\n"
+      (show <$$> testTypecheck "let main = fn() { let f = fn(a: int, b: int) -> bool: true; let y = f(5, 6); };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet f: fn(int, int) -> bool = fn(a: int, b: int) -> bool: true;\nlet y: bool = (f(5, 6) : bool);\n} : void;\n"
 
-      (show <$$> testTypecheck "let main = fn() { let f: fn(int, int) -> bool = undefined; f(true, 6); };")
+      (show <$$> testTypecheck "let main = fn() { let f = fn(a: int, b: int) -> bool: true; f(true, 6); };")
         `shouldSatisfyM` isErrorKind (TypeMismatch "int" "bool")
 
-      (show <$$> testTypecheck "let main = fn() { let f: fn(int, int) -> void = undefined; f(1); };")
+      (show <$$> testTypecheck "let main = fn() { let f = fn(a: int, b: int) -> void {}; f(1); };")
         `shouldSatisfyM` isErrorKind (WrongArgumentCount 2 1)
 
     it "typechecks if expressions" do

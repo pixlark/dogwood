@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-cd runtime && make
+cd runtime && make && ./tests

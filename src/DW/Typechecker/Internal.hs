@@ -169,9 +169,6 @@ typecheckExpr ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
   => LST L.Expr
   -> Eff es (TST T.Expr)
-typecheckExpr (LST L.UndefinedLit span) = do
-  scribe "Encountered undefined value - boxing it"
-  return $ TST (T.Boxed T.mkUndefined T.UndefinedLit) span
 typecheckExpr (LST L.VoidLit span) = return $ TST T.VoidLit span
 typecheckExpr (LST (L.BoolLit b) span) = return $ TST (T.BoolLit b) span
 typecheckExpr (LST (L.IntLit n) span) = return $ TST (T.IntLit n) span

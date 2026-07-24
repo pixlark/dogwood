@@ -13,7 +13,6 @@ visitor = defaultVisitor {onTopLevelStmt}
         Just ty@(AST TypeExpr {valueExpr = Any} _) -> markSpan (spanOf ty) TopLevelBoxedType
         _ -> return ()
       case node value of
-        UndefinedLit -> markSpan (spanOf value) TopLevelBoxedType
         VoidLit -> return ()
         IntLit _ -> return ()
         BoolLit _ -> return ()

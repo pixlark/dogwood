@@ -1,9 +1,10 @@
 module DW.LowerPass (runLowerPass) where
 
-import Control.Monad (forM)
 import DW.AST qualified as AST
 import DW.LoweredAST qualified as L
 import DW.Util
+
+import Control.Monad (forM)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 
@@ -54,7 +55,6 @@ lowerExpr (AST.AST (AST.IfChain ((condition, body) :| rest) elseBody) span) =
     elseIfChain' = AST.AST (AST.IfChain (NE.fromList rest) elseBody) span
     elseBody' = lowerExpr elseIfChain'
 lowerExpr ast = lowerAST ast $ \case
-  AST.UndefinedLit -> L.UndefinedLit
   AST.VoidLit -> L.VoidLit
   AST.BoolLit b -> L.BoolLit b
   AST.IntLit n -> L.IntLit n

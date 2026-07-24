@@ -6,6 +6,7 @@ import DW.Common
 import DW.Error.Internal.ErrorsEffect (throwErrsWithCallStacks)
 import DW.Lexer.Internal (Lexer, Token (..), TokenKind (..), makeLexer, nextToken)
 import DW.Util (ifM, whenM, (<$$>))
+
 import Data.List.NonEmpty (NonEmpty (..), (<|))
 import Data.List.NonEmpty qualified as NE
 
@@ -188,7 +189,6 @@ parseAtom :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST
 parseAtom = produceSpannedAST $ do
   current <- gets current
   case current.kind of
-    Keyword "undefined" -> do advance; returnWrap A.UndefinedLit
     Keyword "void" -> do advance; returnWrap A.VoidLit
     Keyword "true" -> do advance; returnWrap (A.BoolLit True)
     Keyword "false" -> do advance; returnWrap (A.BoolLit False)
@@ -245,10 +245,10 @@ parseUnary = produceSpannedAST $ do
 
 {- HLINT ignore "Use <$>" -}
 parseBinary ::
-  (State Parser :> es, Errors Err :> es) =>
-  Eff es (AST A.Expr) ->
-  [(TokenKind, AST A.Expr -> AST A.Expr -> A.Expr)] ->
-  Eff es (AST A.Expr)
+  (State Parser :> es, Errors Err :> es)
+  => Eff es (AST A.Expr)
+  -> [(TokenKind, AST A.Expr -> AST A.Expr -> A.Expr)]
+  -> Eff es (AST A.Expr)
 parseBinary nextParser operators = produceSpannedAST $ do
   left <- nextParser
   current <- gets current
@@ -520,10 +520,10 @@ parseTopLevel = produceSpannedAST do
           parseTopLevel' (acc ++ [stmt])
 
 runParser ::
-  (HasCallStack, Errors Err :> es) =>
-  Text ->
-  Eff (State Parser : es) a ->
-  Eff es a
+  (HasCallStack, Errors Err :> es)
+  => Text
+  -> Eff (State Parser : es) a
+  -> Eff es a
 runParser source f = do
   let lexer = makeLexer source
   let parser = makeParser lexer

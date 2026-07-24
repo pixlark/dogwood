@@ -2,9 +2,10 @@
 
 module DW.LoweredAST where
 
-import Control.Monad.Writer
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (Writer, execWriter, tell)
+
+import Control.Monad.Writer
 import Data.List (intersperse)
 import Data.Text qualified as T
 
@@ -43,8 +44,7 @@ data Operator
   deriving (Eq)
 
 data Expr
-  = UndefinedLit
-  | VoidLit
+  = VoidLit
   | BoolLit Bool
   | IntLit Int
   | Variable Text
@@ -125,7 +125,6 @@ instance Show Operator where
   show Modulo = "%"
 
 instance Show Expr where
-  show UndefinedLit = "undefined"
   show VoidLit = "void"
   show (BoolLit b) = if b then "true" else "false"
   show (IntLit n) = show n

@@ -52,8 +52,6 @@ spec = do
     it "can box and print function pointers" do
       (stdout, _) <- integrationTest "boxedfn.pr"
       stdout `shouldSatisfy` Text.isPrefixOf "fn(any) -> void"
-    it "crashes when evaluating undefined" do
-      void $ integrationTest "evaluateundefined.pr"
     it "handles variable shadowing" do
       void $ integrationTest "variableshadowing.pr"
     it "can define and use a basic function" do

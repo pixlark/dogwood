@@ -13,7 +13,6 @@ size_t debug_get_allocation_count();
 
 typedef enum {
     TYPE_ANY,
-    TYPE_UNDEFINED,
     TYPE_VOID,
     TYPE_BOOL,
     TYPE_INT,
@@ -32,7 +31,6 @@ typedef struct {
 } Box;
 
 Type make_type_any();
-Type make_type_undefined();
 Type make_type_void();
 Type make_type_bool();
 Type make_type_int();

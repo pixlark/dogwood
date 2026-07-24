@@ -69,7 +69,6 @@ compileLambda ty params body span = do
 -- | Compile the expression into the current program. Returns term of the local SSA form that contains
 -- | the final value of the expression.
 compileExpr :: (HasCallStack, State Compiler :> es, Log :> es) => TST Expr -> Eff es Term
-compileExpr (TST UndefinedLit span) = emit mkAny RUndefined span
 compileExpr (TST VoidLit span) = emit mkVoid RVoid span
 compileExpr (TST (BoolLit b) span) = emit mkBool (RBool b) span
 compileExpr (TST (IntLit n) span) = emit mkInt (RInt n) span
@@ -165,9 +164,7 @@ compileStmt :: (HasCallStack, State Compiler :> es, Log :> es) => TST Stmt -> Ef
 compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do
   -- special case for undefined
   -- this should get torn out eventually
-  valTerm <- case value of
-    (TST UndefinedLit span) -> emit ty RUndefined span
-    _ -> do compileExpr value
+  valTerm <- compileExpr value
   varId <- mkVarId
   blockId <- gets activeBlock
   scribe $ format "Binding new variable {} ({}) in block {}" (name, Shown varId, Shown blockId)

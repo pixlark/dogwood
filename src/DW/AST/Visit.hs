@@ -64,7 +64,6 @@ runBodyVisitor v body@(AST (Body stmts) _) =
     forM_ stmts (runStmtVisitor v)
 
 runExprVisitor :: (Monad m) => Visitor m -> AST Expr -> m ()
-runExprVisitor v expr@(AST UndefinedLit _) = onExpr v expr (return ())
 runExprVisitor v expr@(AST VoidLit _) = onExpr v expr (return ())
 runExprVisitor v expr@(AST (BoolLit _) _) = onExpr v expr (return ())
 runExprVisitor v expr@(AST (IntLit _) _) = onExpr v expr (return ())

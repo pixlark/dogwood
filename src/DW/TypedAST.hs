@@ -1,8 +1,9 @@
 module DW.TypedAST where
 
-import Control.Monad.Trans.Writer (execWriter, tell)
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (Writer, execWriter, tell)
+
+import Control.Monad.Trans.Writer (execWriter, tell)
 import Data.List (intersperse)
 import Data.Text qualified as T
 
@@ -25,7 +26,7 @@ instance SyntaxTree TST where
   node (TST x _) = x
   spanOf (TST _ s) = s
 
-data ValueTypeExpr = Any | Undefined | Void | Bool | Int | NamespacedIdentifier [Text] | Function [TST TypeExpr] (TST TypeExpr)
+data ValueTypeExpr = Any | Void | Bool | Int | NamespacedIdentifier [Text] | Function [TST TypeExpr] (TST TypeExpr)
   deriving (Eq)
 
 data TypeExpr = TypeExpr {reference :: Bool, valueExpr :: ValueTypeExpr}
@@ -49,8 +50,7 @@ data Operator
   deriving (Eq)
 
 data Expr
-  = UndefinedLit
-  | VoidLit
+  = VoidLit
   | BoolLit Bool
   | IntLit Int
   | Variable TypeExpr Text
@@ -73,8 +73,6 @@ makeReferenceExpr valueExpr = TypeExpr {reference = True, valueExpr}
 
 mkAny = makeValueExpr Any
 
-mkUndefined = makeValueExpr Undefined
-
 mkVoid = makeValueExpr Void
 
 mkBool = makeValueExpr Bool
@@ -82,7 +80,6 @@ mkBool = makeValueExpr Bool
 mkInt = makeValueExpr Int
 
 typeOf :: Expr -> TypeExpr
-typeOf UndefinedLit = makeValueExpr Any
 typeOf VoidLit = makeValueExpr Void
 typeOf (BoolLit _) = makeValueExpr Bool
 typeOf (IntLit _) = makeValueExpr Int
@@ -125,7 +122,6 @@ instance (Show a) => Show (TST a) where
 
 instance Show ValueTypeExpr where
   show Any = "any"
-  show Undefined = "undefined"
   show Void = "void"
   show Bool = "bool"
   show Int = "int"
@@ -156,7 +152,6 @@ instance Show Operator where
   show Modulo = "%"
 
 instance Show Expr where
-  show UndefinedLit = "undefined"
   show VoidLit = "void"
   show (BoolLit b) = if b then "true" else "false"
   show (IntLit n) = show n

@@ -287,15 +287,6 @@ Type make_type_any()
     return type;
 }
 
-Type make_type_undefined()
-{
-    Type type;
-    type.tag = TYPE_UNDEFINED;
-    type.inner_count = 0;
-    type.inner = NULL;
-    return type;
-}
-
 Type make_type_void()
 {
     Type type;
@@ -343,9 +334,6 @@ Box box_value(void *value, Type type)
     case TYPE_ANY:
         fprintf(stderr, "Internal runtime error: Tried to box a value of type 'any'\n");
         abort();
-    case TYPE_UNDEFINED:
-        fprintf(stderr, "Internal runtime error: Tried to box a value of type 'undefined'\n");
-        abort();
     case TYPE_VOID:
         box.value = malloc(sizeof(uint8_t));
         *((uint8_t *)box.value) = *((uint8_t *)value);
@@ -372,9 +360,6 @@ void print_type(Type type)
     switch (type.tag) {
     case TYPE_ANY:
         printf("any");
-        break;
-    case TYPE_UNDEFINED:
-        printf("undefined");
         break;
     case TYPE_VOID:
         printf("void");
@@ -404,9 +389,6 @@ uint8_t builtin_print(Box box)
     switch (box.type.tag) {
     case TYPE_ANY:
         fprintf(stderr, "Internal runtime error: Tried to unbox a value of type 'any'\n");
-        abort();
-    case TYPE_UNDEFINED:
-        fprintf(stderr, "Internal runtime error: Tried to unbox a value of type 'undefined'\n");
         abort();
     case TYPE_VOID:
         printf("void\n");

@@ -19,7 +19,6 @@ import NeatInterpolation
 
 emitValueType :: forall es. (Emit :> es) => Eff es () -> ValueTypeExpr -> Eff es ()
 emitValueType name Any = do emit "Box"; name
-emitValueType name Undefined = do emit "uint8_t"; name -- for now
 emitValueType name Void = do emit "uint8_t"; name -- for now
 emitValueType name Bool = do emit "bool"; name
 emitValueType name Int = do emit "int64_t"; name
@@ -74,7 +73,6 @@ emitZeroValue (TypeExpr {valueExpr}) = emitZeroValue' valueExpr
   where
     emitZeroValue' :: (Emit :> es) => ValueTypeExpr -> Eff es ()
     emitZeroValue' Any = emit "{0}"
-    emitZeroValue' Undefined = emit "0"
     emitZeroValue' Void = emit "0"
     emitZeroValue' Bool = emit "false"
     emitZeroValue' Int = emit "0"
@@ -99,7 +97,6 @@ emitOperator Modulo = "%"
 
 emitRuntimeTypeInfo :: (Emit :> es) => ValueTypeExpr -> Eff es ()
 emitRuntimeTypeInfo Any = emit "make_type_any()"
-emitRuntimeTypeInfo Undefined = emit "make_type_undefined()"
 emitRuntimeTypeInfo Void = emit "make_type_void()"
 emitRuntimeTypeInfo Bool = emit "make_type_bool()"
 emitRuntimeTypeInfo Int = emit "make_type_int()"
@@ -137,10 +134,6 @@ emitRuntimeTypeInfo (Function args (TST TypeExpr {valueExpr = ret} _)) = do
   emit "_function_type"
 
 emitRHS :: (Emit :> es) => RHS -> Eff es ()
-emitRHS RUndefined = do
-  abort
-  emit "  fprintf(stderr, \"ERROR: evaluated 'undefined'\\n\");\n"
-  emit "  exit(1)"
 emitRHS RVoid = emit "0"
 emitRHS (RInt n) = emit $ Text.show n
 emitRHS (RBool b) = emit if b then "true" else "false"

@@ -26,8 +26,7 @@ newtype FnId = FnId Int
 
 data RHS
   = -- Literals
-    RUndefined
-  | RVoid
+    RVoid
   | RInt Int
   | RBool Bool
   | -- Operators
@@ -94,7 +93,6 @@ instance Show Term where
   show (Term n) = printf "_%d" n
 
 instance Show RHS where
-  show RUndefined = "undefined"
   show RVoid = "void"
   show (RInt n) = show n
   show (RBool b) = if b then "true" else "false"

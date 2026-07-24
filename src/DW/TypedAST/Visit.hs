@@ -65,7 +65,6 @@ runBodyVisitor v body@(TST (Body typeExpr stmts) span_) =
     forM_ stmts (runStmtVisitor v)
 
 runExprVisitor :: (Monad m) => Visitor m -> TST Expr -> m ()
-runExprVisitor v expr@(TST UndefinedLit _) = onExpr v expr (return ())
 runExprVisitor v expr@(TST VoidLit _) = onExpr v expr (return ())
 runExprVisitor v expr@(TST (BoolLit _) _) = onExpr v expr (return ())
 runExprVisitor v expr@(TST (IntLit _) _) = onExpr v expr (return ())
