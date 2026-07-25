@@ -193,6 +193,7 @@ test-suite dogwood-tests
         LexerSpec,
         ParserSpec,
         LowerPassSpec,
+        NameResolutionSpec,
         TypecheckerSpec,
         LoopPassSpec,
         CompilerSpec,

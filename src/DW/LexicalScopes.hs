@@ -56,7 +56,7 @@ variableExists name = isJust <$> lookupVariable name
 isBoundInThisScope :: (State s :> es, HasLexicalScopes a s) => Text -> Eff es Bool
 isBoundInThisScope name = do
   scopes <- gets getScopes
-  let scope = NE.last scopes
+  let scope = NE.head scopes
   {- HLINT ignore -}
   return $ not $ null $ filter (\(n, _) -> n == name) scope
 
@@ -94,4 +94,4 @@ mkScopes :: LexicalScopes a
 mkScopes = NE.fromList [[]]
 
 rootScope :: LexicalScopes a -> LexicalScopes a
-rootScope l = NE.head l :| []
+rootScope l = NE.last l :| []

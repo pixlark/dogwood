@@ -9,6 +9,7 @@ import IntegrationSpec qualified
 import LexerSpec qualified
 import LoopPassSpec qualified
 import LowerPassSpec qualified
+import NameResolutionSpec qualified
 import ParserSpec qualified
 import Test.Hspec
 import TypecheckerSpec qualified
@@ -20,6 +21,7 @@ main = hspec $ do
   LexerSpec.spec
   ParserSpec.spec
   LowerPassSpec.spec
+  NameResolutionSpec.spec
   TypecheckerSpec.spec
   LoopPassSpec.spec
   CompilerSpec.spec
