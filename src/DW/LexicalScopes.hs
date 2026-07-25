@@ -2,10 +2,23 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
-module DW.LexicalScopes (LexicalScopes, HasLexicalScopes (..), lookupVariable, lookupByValue, variableExists, bindNewVariable, pushScope, popScope, mkScopes) where
+module DW.LexicalScopes
+  ( LexicalScopes,
+    HasLexicalScopes (..),
+    lookupVariable,
+    lookupByValue,
+    variableExists,
+    bindNewVariable,
+    pushScope,
+    popScope,
+    mkScopes,
+    rootScope,
+    isBoundInThisScope,
+  ) where
+
+import DW.Common
 
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
-import DW.Common
 import Data.List.NonEmpty (NonEmpty ((:|)), (<|))
 import Data.List.NonEmpty qualified as NE
 
@@ -40,6 +53,13 @@ lookupByValue predicate (scope :| rest) =
 variableExists :: (State s :> es, HasLexicalScopes a s) => Text -> Eff es Bool
 variableExists name = isJust <$> lookupVariable name
 
+isBoundInThisScope :: (State s :> es, HasLexicalScopes a s) => Text -> Eff es Bool
+isBoundInThisScope name = do
+  scopes <- gets getScopes
+  let scope = NE.last scopes
+  {- HLINT ignore -}
+  return $ not $ null $ filter (\(n, _) -> n == name) scope
+
 bindNewVariable :: (State s :> es, HasLexicalScopes a s) => Text -> a -> Eff es ()
 bindNewVariable name val = do
   scopes <- gets getScopes
@@ -72,3 +92,6 @@ popScope = do
 
 mkScopes :: LexicalScopes a
 mkScopes = NE.fromList [[]]
+
+rootScope :: LexicalScopes a -> LexicalScopes a
+rootScope l = NE.head l :| []

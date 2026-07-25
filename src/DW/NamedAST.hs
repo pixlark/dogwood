@@ -1,24 +1,25 @@
-module DW.LoweredAST where
+module DW.NamedAST where
 
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (Writer, execWriter, tell)
+import DW.NameResolutionPass.Names
 
 import Control.Monad.Writer
 import Data.List (intersperse)
 import Data.Text qualified as T
 
-data LST a = LST a Span
+data NST a = NST a Span
   deriving
     (Eq)
 
-instance SyntaxTree LST where
-  node (LST x _) = x
-  spanOf (LST _ s) = s
+instance SyntaxTree NST where
+  node (NST x _) = x
+  spanOf (NST _ s) = s
 
-instance Functor LST where
-  fmap f (LST x span) = LST (f x) span
+instance Functor NST where
+  fmap f (NST x span) = NST (f x) span
 
-data ValueTypeExpr = Any | Void | Bool | Int | Function [LST TypeExpr] (LST TypeExpr)
+data ValueTypeExpr = Any | Void | Bool | Int | Function [NST TypeExpr] (NST TypeExpr)
   deriving (Eq)
 
 data TypeExpr = TypeExpr {reference :: Bool, valueExpr :: ValueTypeExpr}
@@ -45,34 +46,34 @@ data Expr
   = VoidLit
   | BoolLit Bool
   | IntLit Int
-  | Variable Text
-  | BinaryOperator Operator (LST Expr) (LST Expr)
-  | UnaryOperator Operator (LST Expr)
-  | FunctionCall {function :: LST Expr, arguments :: [LST Expr]}
+  | Variable VarName
+  | BinaryOperator Operator (NST Expr) (NST Expr)
+  | UnaryOperator Operator (NST Expr)
+  | FunctionCall {function :: NST Expr, arguments :: [NST Expr]}
   | ExprBody Body
-  | IfThen (LST Expr) (LST Expr) (LST Expr)
+  | IfThen (NST Expr) (NST Expr) (NST Expr)
   | Builtin Text
-  | Lambda {params :: [(LST TypeExpr, LST Text)], returnType :: LST TypeExpr, body :: LST Expr}
+  | Lambda {params :: [(NST TypeExpr, NST VarName)], returnType :: NST TypeExpr, body :: NST Expr}
   deriving (Eq)
 
-newtype LValue = LVariable T.Text
+newtype LValue = LVariable VarName
   deriving (Eq)
 
-newtype Body = Body [LST Stmt]
+newtype Body = Body [NST Stmt]
   deriving (Eq)
 
 data Stmt
-  = Let {name :: LST T.Text, type_ :: Maybe (LST TypeExpr), value :: LST Expr}
-  | Assign {lvalue :: LST LValue, value :: LST Expr}
-  | ExprStmt {value :: LST Expr, semicolon :: Bool}
-  | Return (Maybe (LST Expr))
+  = Let {name :: NST VarName, type_ :: Maybe (NST TypeExpr), value :: NST Expr}
+  | Assign {lvalue :: NST LValue, value :: NST Expr}
+  | ExprStmt {value :: NST Expr, semicolon :: Bool}
+  | Return (Maybe (NST Expr))
   | Break
-  | Loop (LST Body)
+  | Loop (NST Body)
   deriving (Eq)
 
-data TopLevelStmt = TLet {name :: LST T.Text, ty :: Maybe (LST TypeExpr), value :: LST Expr}
+data TopLevelStmt = TLet {name :: NST VarName, ty :: Maybe (NST TypeExpr), value :: NST Expr}
 
-newtype TopLevel = TopLevel [LST TopLevelStmt]
+newtype TopLevel = TopLevel [NST TopLevelStmt]
 
 makeValueExpr :: ValueTypeExpr -> TypeExpr
 makeValueExpr valueExpr = TypeExpr {reference = False, valueExpr}
@@ -88,8 +89,8 @@ mkBool = makeValueExpr Bool
 
 mkInt = makeValueExpr Int
 
-instance (Show a) => Show (LST a) where
-  show (LST value _) = show value
+instance (Show a) => Show (NST a) where
+  show (NST value _) = show value
 
 instance Show ValueTypeExpr where
   show Any = "any"
@@ -129,7 +130,7 @@ instance Show Expr where
   show (UnaryOperator op e) = printf "(%s%s)" (show op) (show e)
   show (FunctionCall {function, arguments}) = execWriter $ do
     case function of
-      (LST (Variable name) _) -> tell $ T.unpack name
+      (NST (Variable name) _) -> tell $ show name
       _ -> tell $ printf "(%s)" (show function)
     tell "("
     forM_ (take (length arguments - 1) arguments) $ \arg -> do
@@ -137,7 +138,7 @@ instance Show Expr where
       tell ", "
     tell $ show $ last arguments
     tell ")"
-  show (Variable sym) = T.unpack sym
+  show (Variable sym) = show sym
   show (ExprBody body) = show body
   show (IfThen condition body elseBody) = execWriter $ do
     tell "if "
@@ -153,7 +154,7 @@ instance Show Expr where
       case m of
         Nothing -> tell ", "
         Just (ty, name) -> do
-          tell $ T.unpack $ node name
+          tell $ show $ node name
           tell ": "
           tell $ show ty
     tell ") -> "
@@ -164,7 +165,7 @@ instance Show Expr where
     tell $ show body
 
 instance Show LValue where
-  show (LVariable name) = T.unpack name
+  show (LVariable name) = show name
 
 instance Show Body where
   show (Body stmts) = execWriter $ do
@@ -175,9 +176,9 @@ instance Show Body where
     tell "}"
 
 instance Show Stmt where
-  show (Let {name = (LST name _), type_, value}) = case type_ of
-    Just type_ -> printf "let %s: %s = %s;" (T.unpack name) (show type_) (show value)
-    Nothing -> printf "let %s = %s;" (T.unpack name) (show value)
+  show (Let {name = (NST name _), type_, value}) = case type_ of
+    Just type_ -> printf "let %s: %s = %s;" (show name) (show type_) (show value)
+    Nothing -> printf "let %s = %s;" (show name) (show value)
   show (Assign {lvalue, value}) = printf "%s = %s;" (show lvalue) (show value)
   show (ExprStmt {value, semicolon = True}) = printf "%s;" (show value)
   show (ExprStmt {value, semicolon = False}) = printf "%s" (show value)
@@ -187,9 +188,9 @@ instance Show Stmt where
   show (Loop body) = printf "loop %s" (show body)
 
 instance Show TopLevelStmt where
-  show (TLet {name = (LST name _), ty, value}) = case ty of
-    Just ty -> printf "let %s: %s = %s;" (T.unpack name) (show ty) (show value)
-    Nothing -> printf "let %s = %s;" (T.unpack name) (show value)
+  show (TLet {name = (NST name _), ty, value}) = case ty of
+    Just ty -> printf "let %s: %s = %s;" (show name) (show ty) (show value)
+    Nothing -> printf "let %s = %s;" (show name) (show value)
 
 instance Show TopLevel where
   show (TopLevel stmts) = execWriter $ do

@@ -25,6 +25,7 @@ data ErrorKind
   | TopLevelBoxedType
   | NonConstTopLevelExpression
   | MultipleDefinitionsOfTLVariable Text
+  | DuplicateParameterNames Text
   | NoEntryPointDefined
   deriving (Eq)
 
@@ -51,3 +52,4 @@ instance Show ErrorKind where
   show NonConstTopLevelExpression = printf "Top-level expressions must be constant"
   show (MultipleDefinitionsOfTLVariable name) = printf "Found multiple definitions of %s" name
   show NoEntryPointDefined = printf "No 'main' function was defined"
+  show (DuplicateParameterNames name) = printf "Duplicate parameter names: %s and %s" name name
