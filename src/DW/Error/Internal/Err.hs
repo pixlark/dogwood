@@ -27,6 +27,9 @@ data ErrorKind
   | MultipleDefinitionsOfTLVariable Text
   | DuplicateParameterNames Text
   | NoEntryPointDefined
+  | CannotAllocateReference
+  | NonConstructibleType
+  | WrongConstructorCount {expectedCount :: Int, gotCount :: Int}
   deriving (Eq)
 
 data Err = Err ErrorKind Span
@@ -53,3 +56,6 @@ instance Show ErrorKind where
   show (MultipleDefinitionsOfTLVariable name) = printf "Found multiple definitions of %s" name
   show NoEntryPointDefined = printf "No 'main' function was defined"
   show (DuplicateParameterNames name) = printf "Duplicate parameter names: %s and %s" name name
+  show CannotAllocateReference = printf "Cannot allocate reference type (only constructible value types can be allocated)"
+  show NonConstructibleType = printf "Type is not constructible (cannot be allocated with 'new')"
+  show (WrongConstructorCount expected got) = printf "Type constructor expects %d arguments (got %d)" expected got

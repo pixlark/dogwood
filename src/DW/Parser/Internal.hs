@@ -194,6 +194,7 @@ parseAtom = produceSpannedAST $ do
     Keyword "false" -> do advance; returnWrap (A.BoolLit False)
     IntLiteral n -> do advance; returnWrap (A.IntLit n)
     Symbol sym -> do advance; returnWrap (A.Variable sym)
+    Keyword "new" -> parseNewExpr >>= returnDirect
     Keyword "if" -> parseIfExpr >>= returnDirect
     Keyword "fn" -> parseLambda >>= returnDirect
     Glyph "(" -> do
@@ -313,6 +314,33 @@ parseBinaryOr =
     parseBinaryAnd
     [ (Glyph "||", A.BinaryOperator A.Or)
     ]
+
+parseNewExpr :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
+parseNewExpr = produceSpannedAST $ do
+  expectKeyword "new"
+  ty <- parseTypeExpr
+  cur <- gets current
+  args <- case cur.kind of
+    Glyph "(" -> do
+      advance
+      args <-
+        parseSeparatedSequence
+          ( SeparatorConfig
+              { trailing = True,
+                separator = Glyph ",",
+                consume = do
+                  cur <- gets current
+                  if cur.kind == Glyph ")"
+                    then return Nothing
+                    else do
+                      expr <- parseExpr
+                      return $ Just expr
+              }
+          )
+      expectGlyph ")"
+      return args
+    _ -> return []
+  returnWrap $ A.NewOperator ty args
 
 parseIfExpr :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (AST A.Expr)
 parseIfExpr = produceSpannedAST $ do

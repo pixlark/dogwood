@@ -99,6 +99,12 @@ isPrimitive T.TypeExpr {valueExpr = T.Bool} = True
 isPrimitive T.TypeExpr {valueExpr = T.Int} = True
 isPrimitive _ = False
 
+primitiveConstructors :: T.ValueTypeExpr -> Maybe [T.TypeExpr]
+primitiveConstructors T.Void = Just []
+primitiveConstructors T.Int = Just [T.mkInt]
+primitiveConstructors T.Bool = Just [T.mkBool]
+primitiveConstructors _ = Nothing
+
 operatorSupportsType :: T.Operator -> T.TypeExpr -> Bool
 operatorSupportsType _ (T.TypeExpr {valueExpr = T.Any}) = True
 operatorSupportsType op ty =
@@ -246,6 +252,26 @@ typecheckExpr (NST (N.Lambda {params, returnType, body}) span) = do
   let lambdaTy = T.makeValueExpr $ T.Function (map fst params') returnType'
 
   return $ TST (T.Lambda lambdaTy params' returnType' body') span
+typecheckExpr (NST (N.NewOperator (NST ty tySpan) args) span) = do
+  ty <-
+    if ty.reference
+      then do markSpan tySpan CannotAllocateReference; return ty {N.reference = False}
+      else return ty
+  let tTy = convertTypeExpr ty
+  let constructor = primitiveConstructors tTy.valueExpr
+  case constructor of
+    Nothing -> do
+      markSpan tySpan NonConstructibleType
+      return $ TST (T.NewOperator (TST T.mkAny tySpan) []) span
+    Just expectedArgs -> do
+      when (length args /= length expectedArgs) do
+        markSpan span (WrongConstructorCount (length expectedArgs) (length args))
+      tArgs <- forM (args `zip` expectedArgs) $ \(arg, ty) -> do
+        tArg <- typecheckExpr arg
+        when (typeOf (node tArg) `doesNotUnify` ty) do
+          markSpan tySpan $ typeMismatch ty (typeOf (node tArg))
+        return tArg
+      return $ TST (T.NewOperator (TST tTy tySpan) tArgs) span
 
 typeMismatch :: T.TypeExpr -> T.TypeExpr -> ErrorKind
 typeMismatch expected got = TypeMismatch {expectedType = Text.show expected, gotType = Text.show got}

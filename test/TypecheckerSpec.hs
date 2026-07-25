@@ -207,3 +207,20 @@ spec = do
               } : void;
             |]
       (show <$$> testTypecheck source) `shouldReturn` Right (expected `Text.append` "\n")
+
+    it "typechecks new operator" do
+      -- Allocating an int with correct constructor argument
+      (show <$$> testTypecheck "let main = fn() { let x = new int(5); };")
+        `shouldReturn` Right "let main: fn() -> void = fn() -> void {\nlet x: &int = new int(5);\n} : void;\n"
+
+      -- Cannot allocate a reference type
+      (show <$$> testTypecheck "let main = fn() { let x = new &int(5); };")
+        `shouldSatisfyM` isErrorKind CannotAllocateReference
+
+      -- Cannot allocate non-constructible type (function)
+      (show <$$> testTypecheck "let main = fn() { let x = new fn() -> void; };")
+        `shouldSatisfyM` isErrorKind NonConstructibleType
+
+      -- Wrong constructor argument count
+      (show <$$> testTypecheck "let main = fn() { let x = new int(5, 6); };")
+        `shouldSatisfyM` isErrorKind (WrongConstructorCount 1 2)

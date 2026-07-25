@@ -100,6 +100,11 @@ runExprVisitor v expr@(AST (Lambda {params, returnType, body}) _) = do
     forM_ returnType $ \returnType -> do
       runTypeExprVisitor v returnType
     runExprVisitor v body
+runExprVisitor v expr@(AST (NewOperator ty args) _) = do
+  onExpr v expr do
+    runTypeExprVisitor v ty
+    forM_ args $ \arg -> do
+      runExprVisitor v arg
 
 runStmtVisitor :: (Monad m) => Visitor m -> AST Stmt -> m ()
 runStmtVisitor v stmt@(AST (Let _ type_ value) _) =

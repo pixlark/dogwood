@@ -147,10 +147,11 @@ compileExpr (TST (Builtin ty bName) span) = do
 compileExpr (TST (Boxed ty value) span) = do
   inner <- compileExpr (TST value span)
   emit mkAny (RBox ty inner) span
-compileExpr (TST (Lambda {ty, params, body}) span) = do
+compileExpr (TST (Lambda ty params _ body) span) = do
   fnId <- compileLambda ty params body span
 
   emit ty (RLoadFn fnId) span
+compileExpr (TST (NewOperator ty args) span) = undefined
 
 compileStmt :: (HasCallStack, State Compiler :> es, Log :> es) => TST Stmt -> Eff es (Maybe Term)
 compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do
@@ -232,7 +233,7 @@ compileTopLevelValue :: (HasCallStack, State Compiler :> es, Log :> es) => TST E
 compileTopLevelValue (TST VoidLit _) = return SIVoid
 compileTopLevelValue (TST (IntLit n) _) = return (SIInt n)
 compileTopLevelValue (TST (BoolLit b) _) = return (SIBool b)
-compileTopLevelValue (TST (Lambda {ty, params, body}) span) = do
+compileTopLevelValue (TST (Lambda ty params _ body) span) = do
   fnId <- compileLambda ty params body span
   return (SIFn fnId)
 compileTopLevelValue _ = throwICE -- ConstExprPass should prevent this from ever happening

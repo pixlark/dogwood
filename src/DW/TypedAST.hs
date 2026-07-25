@@ -59,11 +59,11 @@ data Expr
   | UnaryOperator TypeExpr Operator (TST Expr)
   | FunctionCall {type_ :: TypeExpr, function :: TST Expr, arguments :: [TST Expr]}
   | ExprBody Body
-  | -- | IfChain TypeExpr (NE.NonEmpty (TST Expr, TST Expr)) (Maybe (TST Expr))
-    IfThen TypeExpr (TST Expr) (TST Expr) (TST Expr)
+  | IfThen TypeExpr (TST Expr) (TST Expr) (TST Expr)
   | Builtin TypeExpr Text
   | Boxed TypeExpr Expr
-  | Lambda {ty :: TypeExpr, params :: [(TST TypeExpr, TST VarName)], returnType :: TST TypeExpr, body :: TST Expr}
+  | Lambda {lambdaTy :: TypeExpr, params :: [(TST TypeExpr, TST VarName)], returnType :: TST TypeExpr, body :: TST Expr}
+  | NewOperator {newTy :: TST TypeExpr, arguments :: [TST Expr]}
   deriving (Eq)
 
 makeValueExpr :: ValueTypeExpr -> TypeExpr
@@ -95,6 +95,10 @@ typeOf (Builtin t _) = t
 -- the Any type), but rather the type of the interior, boxed expression
 typeOf (Boxed _ _) = mkAny
 typeOf (Lambda t _ _ _) = t
+-- The new operator is annotated with the _value_ type that it allocates, but the expression
+-- actually _evaluates_ to a reference type. This should be verified by the typechecking phase.
+typeOf (NewOperator (TST (TypeExpr {reference = False, valueExpr}) _) _) = TypeExpr {reference = True, valueExpr}
+typeOf (NewOperator _ _) = throwICE
 
 data LValue = LVariable TypeExpr VarName
   deriving (Eq)
@@ -196,6 +200,16 @@ instance Show Expr where
       ExprBody _ -> tell " "
       _ -> tell ": "
     tell $ show body
+  show (NewOperator ty args) = execWriter $ do
+    tell "new "
+    tell $ show ty
+    unless (null args) do
+      tell "("
+      forM_ (intersperse Nothing $ Just <$> args) $ \arg -> do
+        case arg of
+          Just arg -> tell $ show arg
+          Nothing -> tell ", "
+      tell ")"
 
 instance Show LValue where
   show (LVariable _ name) = T.unpack $ getVarText name

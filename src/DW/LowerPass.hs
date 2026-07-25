@@ -76,6 +76,7 @@ lowerExpr ast = lowerAST ast $ \case
             `orElse` L.LST L.mkVoid (AST.spanOf ast),
         body = lowerExpr body
       }
+  AST.NewOperator ty args -> L.NewOperator (lowerTypeExpr ty) (lowerExpr <$> args)
 
 lowerLValue :: AST.AST AST.LValue -> L.LST L.LValue
 lowerLValue ast = lowerAST ast $ \(AST.LVariable name) -> L.LVariable name

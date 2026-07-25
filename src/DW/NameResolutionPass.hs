@@ -160,6 +160,10 @@ resolveExpr (LST (L.Lambda {params, returnType, body}) span) = do
   modify (\n -> n {variables = savedVars})
 
   return $ NST (N.Lambda nParams nReturnType nBody) span
+resolveExpr (LST (L.NewOperator ty args) span) = do
+  nTy <- resolveType ty
+  nArgs <- resolveExpr `traverse` args
+  return $ NST (N.NewOperator nTy nArgs) span
 
 resolveTopLevel ::
   (State NameResolver :> es, Errors Err :> es)

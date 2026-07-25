@@ -64,6 +64,8 @@ run cfg = catchICE $ do
     namedAST <- region "Performing name resolution..." do
       NameResolutionPass.runNameResolution loweredAST
 
+    abortIfAnyErrors
+
     -- Pass 6: Typechecking
     typedAST <- region "Typechecking AST..." do
       Typechecker.runTypechecker namedAST

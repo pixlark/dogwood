@@ -53,6 +53,7 @@ data Expr
   | IfThen (LST Expr) (LST Expr) (LST Expr)
   | Builtin Text
   | Lambda {params :: [(LST TypeExpr, LST Text)], returnType :: LST TypeExpr, body :: LST Expr}
+  | NewOperator {ty :: LST TypeExpr, arguments :: [LST Expr]}
   deriving (Eq)
 
 newtype LValue = LVariable T.Text
@@ -162,6 +163,16 @@ instance Show Expr where
       ExprBody _ -> tell " "
       _ -> tell ": "
     tell $ show body
+  show (NewOperator ty args) = execWriter $ do
+    tell "new "
+    tell $ show ty
+    unless (null args) do
+      tell "("
+      forM_ (intersperse Nothing $ Just <$> args) $ \arg -> do
+        case arg of
+          Just arg -> tell $ show arg
+          Nothing -> tell ", "
+      tell ")"
 
 instance Show LValue where
   show (LVariable name) = T.unpack name

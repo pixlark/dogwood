@@ -101,13 +101,18 @@ runExprVisitor v expr@(TST (Boxed typeExpr innerExpr) span) =
   onExpr v expr do
     runTypeExprVisitor v (TST typeExpr span)
     runExprVisitor v (TST innerExpr span)
-runExprVisitor v expr@(TST (Lambda {ty, params, returnType, body}) span) =
+runExprVisitor v expr@(TST (Lambda {lambdaTy, params, returnType, body}) span) =
   onExpr v expr do
-    runTypeExprVisitor v (TST ty span)
+    runTypeExprVisitor v (TST lambdaTy span)
     forM_ params $ \(ty, _) -> do
       runTypeExprVisitor v ty
     runTypeExprVisitor v returnType
     runExprVisitor v body
+runExprVisitor v expr@(TST (NewOperator ty args) _) = do
+  onExpr v expr do
+    runTypeExprVisitor v ty
+    forM_ args $ \arg -> do
+      runExprVisitor v arg
 
 runStmtVisitor :: (Monad m) => Visitor m -> TST Stmt -> m ()
 runStmtVisitor v stmt@(TST (Let _ type_ value) _) =

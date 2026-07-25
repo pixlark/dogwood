@@ -3,6 +3,7 @@
 module DW.AST where
 
 import DW.Common hiding (Writer, execWriter, tell)
+import DW.Util (ifM_)
 
 import Control.Monad.Writer
 import Data.List (intercalate, intersperse)
@@ -66,6 +67,7 @@ data Expr
   | IfChain (NE.NonEmpty (AST Expr, AST Expr)) (Maybe (AST Expr))
   | Builtin Text
   | Lambda {params :: [(AST TypeExpr, AST Text)], returnType :: Maybe (AST TypeExpr), body :: AST Expr}
+  | NewOperator {ty :: AST TypeExpr, arguments :: [AST Expr]}
   deriving (Eq)
 
 newtype LValue = LVariable T.Text
@@ -184,6 +186,16 @@ instance Show Expr where
       ExprBody _ -> tell " "
       _ -> tell ": "
     tell $ show body
+  show (NewOperator ty args) = execWriter $ do
+    tell "new "
+    tell $ show ty
+    unless (null args) do
+      tell "("
+      forM_ (intersperse Nothing $ Just <$> args) $ \arg -> do
+        case arg of
+          Just arg -> tell $ show arg
+          Nothing -> tell ", "
+      tell ")"
 
 instance Show LValue where
   show (LVariable name) = T.unpack name
