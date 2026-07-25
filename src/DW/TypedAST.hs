@@ -2,6 +2,7 @@ module DW.TypedAST where
 
 import DW.AST (SyntaxTree (..))
 import DW.Common hiding (Writer, execWriter, tell)
+import DW.NameResolutionPass.Names
 
 import Control.Monad.Trans.Writer (execWriter, tell)
 import Data.List (intersperse)
@@ -53,7 +54,7 @@ data Expr
   = VoidLit
   | BoolLit Bool
   | IntLit Int
-  | Variable TypeExpr Text
+  | Variable TypeExpr VarName
   | BinaryOperator TypeExpr Operator (TST Expr) (TST Expr)
   | UnaryOperator TypeExpr Operator (TST Expr)
   | FunctionCall {type_ :: TypeExpr, function :: TST Expr, arguments :: [TST Expr]}
@@ -62,7 +63,7 @@ data Expr
     IfThen TypeExpr (TST Expr) (TST Expr) (TST Expr)
   | Builtin TypeExpr Text
   | Boxed TypeExpr Expr
-  | Lambda {ty :: TypeExpr, params :: [(TST TypeExpr, TST Text)], returnType :: TST TypeExpr, body :: TST Expr}
+  | Lambda {ty :: TypeExpr, params :: [(TST TypeExpr, TST VarName)], returnType :: TST TypeExpr, body :: TST Expr}
   deriving (Eq)
 
 makeValueExpr :: ValueTypeExpr -> TypeExpr
@@ -95,14 +96,14 @@ typeOf (Builtin t _) = t
 typeOf (Boxed _ _) = mkAny
 typeOf (Lambda t _ _ _) = t
 
-data LValue = LVariable TypeExpr T.Text
+data LValue = LVariable TypeExpr VarName
   deriving (Eq)
 
 data Body = Body TypeExpr [TST Stmt]
   deriving (Eq)
 
 data Stmt
-  = Let {name :: TST T.Text, type_ :: TST TypeExpr, value :: TST Expr}
+  = Let {name :: TST VarName, type_ :: TST TypeExpr, value :: TST Expr}
   | Assign {lvalue :: TST LValue, value :: TST Expr}
   | ExprStmt {value :: TST Expr, semicolon :: Bool}
   | Return (Maybe (TST Expr))
@@ -110,7 +111,7 @@ data Stmt
   | Loop (TST Body)
   deriving (Eq)
 
-data TopLevelStmt = TLet {name :: TST T.Text, ty :: TST TypeExpr, value :: TST Expr}
+data TopLevelStmt = TLet {name :: TST VarName, ty :: TST TypeExpr, value :: TST Expr}
 
 newtype TopLevel = TopLevel [TST TopLevelStmt]
 
@@ -159,7 +160,7 @@ instance Show Expr where
   show (FunctionCall {type_, function, arguments}) = execWriter $ do
     tell "("
     case function of
-      (TST (Variable _ name) _) -> tell $ T.unpack name
+      (TST (Variable _ name) _) -> tell $ T.unpack $ getVarText name
       _ -> tell $ printf "(%s)" (show function)
     tell "("
     forM_ (take (length arguments - 1) arguments) $ \arg -> do
@@ -167,7 +168,7 @@ instance Show Expr where
       tell ", "
     tell $ show $ last arguments
     tell $ printf ") : %s)" (show type_)
-  show (Variable t sym) = printf "(%s : %s)" sym (show t)
+  show (Variable t sym) = printf "(%s : %s)" (show sym) (show t)
   show (ExprBody body) = show body
   show (IfThen ty condition body elseBody) = execWriter $ do
     tell "(if "
@@ -186,7 +187,7 @@ instance Show Expr where
       case m of
         Nothing -> tell ", "
         Just (ty, name) -> do
-          tell $ T.unpack $ node name
+          tell $ T.unpack $ getVarText $ node name
           tell ": "
           tell $ show ty
     tell ") -> "
@@ -197,7 +198,7 @@ instance Show Expr where
     tell $ show body
 
 instance Show LValue where
-  show (LVariable _ name) = T.unpack name
+  show (LVariable _ name) = T.unpack $ getVarText name
 
 instance Show Body where
   show (Body t stmts) = execWriter $ do
@@ -208,7 +209,7 @@ instance Show Body where
     tell $ printf "} : %s" (show t)
 
 instance Show Stmt where
-  show (Let {name = (TST name _), type_, value}) = printf "let %s: %s = %s;" (T.unpack name) (show type_) (show value)
+  show (Let {name = (TST name _), type_, value}) = printf "let %s: %s = %s;" (T.unpack $ getVarText name) (show type_) (show value)
   show (Assign {lvalue, value}) = printf "%s = %s;" (show lvalue) (show value)
   show (ExprStmt {value, semicolon = True}) = printf "%s;" (show value)
   show (ExprStmt {value, semicolon = False}) = printf "%s" (show value)
@@ -218,7 +219,7 @@ instance Show Stmt where
   show (Loop body) = printf "loop %s" (show body)
 
 instance Show TopLevelStmt where
-  show (TLet {name = (TST name _), ty, value}) = printf "let %s: %s = %s;" (T.unpack name) (show ty) (show value)
+  show (TLet {name = (TST name _), ty, value}) = printf "let %s: %s = %s;" (T.unpack $ getVarText name) (show ty) (show value)
 
 instance Show TopLevel where
   show (TopLevel stmts) = execWriter $ do

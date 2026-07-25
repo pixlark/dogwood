@@ -5,6 +5,7 @@ module DW.Compiler.Internal.Types where
 import DW.Error
 import DW.IR
 import DW.LexicalScopes
+import DW.NameResolutionPass.Names
 import DW.TypedAST
 
 import Data.HashMap.Strict (HashMap)
@@ -22,23 +23,22 @@ data Compiler = Compiler
   { labelCounter :: Int,
     termCounter :: Int,
     blockCounter :: Int,
-    varCounter :: Int,
     fnCounter :: Int,
     staticCounter :: Int,
     program :: Program,
     activeFn :: FnId,
     activeBlock :: BlockId,
-    scopes :: LexicalScopes AbstractVariable,
+    variables :: HashMap VarName AbstractVariable,
     -- | Each entry in this map represents a static variable. Eventually, these will all end up
     -- | in `Program`, but at first when we're compiling, we don't actually know what value the
     -- | statics will be initialized to. Instead we do a first pass that "binds" all the statics
     -- | and their types in this map, and then as we go through the full compile phase, the statics
     -- | get consolidated into `Program` as their initializers are determined.
-    statics :: HashMap Text (StaticId, TypeExpr),
+    statics :: HashMap VarName (StaticId, TypeExpr),
     -- | Each entry in this map represents the SSA term associated with a particular AST variable
     -- | in a particular block. these get used to fill out phi functions.
     -- | Equivalent of `currentDef` in the Braun construction.
-    variablesPerBlock :: HashMap (VarId, BlockId) Term,
+    variablesPerBlock :: HashMap (VarName, BlockId) Term,
     -- | When generating code, sometimes we reach a point where we can't be sure what `Term` refers
     -- | to a given variable. In those instances, we generate an empty phi instruction, and mark it
     -- | in this map so that we can come back to it later when that block is sealed.
@@ -56,15 +56,12 @@ data Compiler = Compiler
   deriving (Show, Eq)
 
 -- | Refers to a unique variable in the original source code
-data AbstractVariable = AbstractVariable {varId :: VarId, ty :: TypeExpr, span :: Span}
+data AbstractVariable = AbstractVariable {name :: VarName, ty :: TypeExpr, span :: Span}
   deriving (Show, Eq)
 
 -- | Points to a phi instruction that hasn't been filled out yet
-data IncompletePhi = IncompletePhi {reference :: PhiReference, forVariable :: VarId}
+data IncompletePhi = IncompletePhi {reference :: PhiReference, forVariable :: VarName}
   deriving (Eq)
-
-newtype VarId = VarId Int
-  deriving (Show, Eq)
 
 data PhiReference = PhiReference {term :: Term, inBlock :: BlockId}
   deriving (Show, Eq)
@@ -100,10 +97,6 @@ class HasUserMap s where
 ------ INSTANCES ------
 -----------------------
 
-instance Hashable VarId where
-  hash (VarId id) = hash id
-  hashWithSalt salt (VarId id) = hashWithSalt salt id
-
 instance Show IncompletePhi where
   show (IncompletePhi {reference = PhiReference term inBlock, forVariable}) =
     Data.Text.Lazy.unpack $ format "φ({} for {} in {})" (Shown term, Shown forVariable, Shown inBlock)
@@ -111,7 +104,3 @@ instance Show IncompletePhi where
 instance HasUserMap Compiler where
   getUserMap = userMap
   setUserMap userMap c = c {userMap}
-
-instance HasLexicalScopes AbstractVariable Compiler where
-  getScopes = scopes
-  setScopes scopes c = c {scopes}

@@ -10,6 +10,7 @@ import DW.IR
 import DW.Logging (noOpLogger, runLog)
 import DW.LoopPass qualified as LoopPass
 import DW.LowerPass qualified as LowerPass
+import DW.NameResolutionPass qualified as NameResolutionPass
 import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
 import DW.TypedAST
@@ -47,15 +48,13 @@ testCompile source = do
     ConstExprPass.runConstExprPass ast
     -- Pass 4: Lowering
     let loweredAST = LowerPass.runLowerPass ast
-    -- Pass 5: Typechecking
-    typedAST <- runErrorAsErrors $ Typechecker.runTypechecker loweredAST
-    -- Pass 6: Loop validation
+    -- Pass 5: Lowering
+    namedAST <- NameResolutionPass.runNameResolution loweredAST
+    -- Pass 6: Typechecking
+    typedAST <- runErrorAsErrors $ Typechecker.runTypechecker namedAST
+    -- Pass 7: Loop validation
     LoopPass.runLoopPass typedAST
-
-    -- let reducedStmt = case tlStmts of
-    --       [TST (TLet {name = (TST "main" _), value = (TST (Lambda {body = (TST body span)}) _)}) _] -> TST (ExprStmt (TST body span) True) span
-    --       _ -> undefined
-    -- Pass 7: Compile to IR
+    -- Pass 8: Compile to IR
     Compiler.runCompiler typedAST
   return $ first (concatMap $ unpack . displayError source) (stripCallStacks result)
 

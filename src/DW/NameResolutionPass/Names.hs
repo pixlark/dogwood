@@ -1,3 +1,5 @@
+{-# LANGUAGE NoFieldSelectors #-}
+
 module DW.NameResolutionPass.Names where
 
 import DW.Common
@@ -18,3 +20,9 @@ instance Eq VarName where
 instance Hashable VarName where
   hash VarName {id} = hash id
   hashWithSalt salt VarName {id} = hashWithSalt salt id
+
+getVarText :: VarName -> Text
+getVarText VarName {text} = text
+
+getVarId :: VarName -> Int
+getVarId VarName {id} = id

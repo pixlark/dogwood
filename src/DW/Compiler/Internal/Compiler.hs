@@ -11,8 +11,8 @@ import DW.Compiler.Internal.Types
 import DW.Compiler.Internal.Users
 import DW.IR
 import DW.Lens
-import DW.LexicalScopes
 import DW.Logging qualified as Logging
+import DW.NameResolutionPass.Names
 import DW.TypedAST
 import DW.Util
 
@@ -30,13 +30,12 @@ mkCompiler =
     { labelCounter = 0,
       termCounter = 0,
       blockCounter = 1,
-      varCounter = 0,
       fnCounter = 0,
       staticCounter = 0,
       program = Program {fnMap = HashMap.empty, statics = [], entry = Nothing},
       activeFn = FnId 0,
       activeBlock = BlockId 0,
-      scopes = mkScopes,
+      variables = HashMap.empty,
       statics = HashMap.empty,
       variablesPerBlock = HashMap.empty,
       incompletePhis = HashMap.empty,
@@ -81,14 +80,6 @@ mkBlockId = do
   put compiler'
   return blockId
 
-mkVarId :: (State Compiler :> es) => Eff es VarId
-mkVarId = do
-  compiler <- get
-  let varId = VarId compiler.varCounter
-      compiler' = compiler {varCounter = compiler.varCounter + 1}
-  put compiler'
-  return varId
-
 mkFnId :: (State Compiler :> es) => Eff es FnId
 mkFnId = do
   compiler <- get
@@ -98,26 +89,33 @@ mkFnId = do
   return fnId
 
 --
--- Scope handling
+-- Variable handling
 --
 
-lookupVariableById ::
-  (HasCallStack, State s :> es, HasLexicalScopes AbstractVariable s)
-  => VarId -> Eff es AbstractVariable
-lookupVariableById id = do
-  scopes <- gets getScopes
-  lookupByValue (\v -> v.varId == id) scopes <&> unwrapICE
+bindNewVariable ::
+  (HasCallStack, State Compiler :> es)
+  => VarName -> AbstractVariable -> Eff es ()
+bindNewVariable name var = do
+  variables <- gets variables
+  when (isJust $ HashMap.lookup name variables) throwICE
+  modify (\c -> c {variables = HashMap.insert name var variables})
 
-spanForVariable :: (HasCallStack, State Compiler :> es) => VarId -> Eff es Span
+lookupVariable ::
+  (HasCallStack, State Compiler :> es)
+  => VarName -> Eff es (Maybe AbstractVariable)
+lookupVariable name =
+  HashMap.lookup name <$> gets variables
+
+spanForVariable :: (HasCallStack, State Compiler :> es) => VarName -> Eff es Span
 spanForVariable varId = do
-  var <- lookupVariableById varId
+  var <- lookupVariable varId <&> unwrapICE
   return var.span
 
 --
 -- Static handling
 --
 
-bindStaticVariable :: (HasCallStack, State Compiler :> es) => Text -> TypeExpr -> Eff es StaticId
+bindStaticVariable :: (HasCallStack, State Compiler :> es) => VarName -> TypeExpr -> Eff es StaticId
 bindStaticVariable name ty = do
   do
     compiler <- get
@@ -126,7 +124,7 @@ bindStaticVariable name ty = do
   modify (\c -> c {statics = HashMap.insert name (id, ty) c.statics} :: Compiler)
   return id
 
-lookupStaticVariable :: (HasCallStack, State Compiler :> es) => Text -> Eff es (Maybe (StaticId, TypeExpr))
+lookupStaticVariable :: (HasCallStack, State Compiler :> es) => VarName -> Eff es (Maybe (StaticId, TypeExpr))
 lookupStaticVariable name = do
   compiler <- get
   return $ HashMap.lookup name compiler.statics
@@ -195,7 +193,7 @@ saveCompilerAndResetForNewFn ty = do
             blockCounter = 1,
             activeFn = fnId,
             activeBlock = BlockId 0,
-            scopes = mkScopes,
+            variables = HashMap.empty,
             variablesPerBlock = HashMap.empty,
             incompletePhis = HashMap.empty,
             userMap = HashMap.empty,
@@ -216,7 +214,7 @@ restoreSavedCompilerAfterFnCompile saved = do
             blockCounter = saved.blockCounter,
             activeFn = saved.activeFn,
             activeBlock = saved.activeBlock,
-            scopes = saved.scopes,
+            variables = saved.variables,
             variablesPerBlock = saved.variablesPerBlock,
             incompletePhis = saved.incompletePhis,
             userMap = saved.userMap,
@@ -352,7 +350,7 @@ markSealed blockId = withRegion (format "Marking {} as sealed" (Only (Shown bloc
 
 -- | Provide the `Term` that will contain the value of the given variable in the given block.
 -- Equivalent to `currentDef` in the Braun construction.
-setVariableTermInBlock :: (HasCallStack, State Compiler :> es) => VarId -> BlockId -> Term -> Eff es ()
+setVariableTermInBlock :: (HasCallStack, State Compiler :> es) => VarName -> BlockId -> Term -> Eff es ()
 setVariableTermInBlock varId blockId term = do
   vars <- gets variablesPerBlock
   -- We allow overwrites, in case a phi reduction happens
@@ -363,7 +361,7 @@ setVariableTermInBlock varId blockId term = do
 -- value of that variable.
 -- This will generate phi instructions as necessary.
 -- Equivalent to `readVariable` in the Braun construction.
-determineTermInBlock :: (HasCallStack, State Compiler :> es, Log :> es) => VarId -> BlockId -> Eff es Term
+determineTermInBlock :: (HasCallStack, State Compiler :> es, Log :> es) => VarName -> BlockId -> Eff es Term
 determineTermInBlock varId blockId = do
   variables <- gets variablesPerBlock
   case HashMap.lookup (varId, blockId) variables of
@@ -373,7 +371,7 @@ determineTermInBlock varId blockId = do
     -- global value numbering
     Nothing -> determineTermInBlockRec varId blockId
 
-determineTermInBlockRec :: (HasCallStack, State Compiler :> es, Log :> es) => VarId -> BlockId -> Eff es Term
+determineTermInBlockRec :: (HasCallStack, State Compiler :> es, Log :> es) => VarName -> BlockId -> Eff es Term
 determineTermInBlockRec varId blockId = do
   blockIsSealed <- isSealed blockId
   Block {predecessors} <- getBlock blockId
@@ -419,12 +417,9 @@ determineTermInBlockRec varId blockId = do
 -- eventually to fill out the phi.
 addEmptyPhi ::
   (HasCallStack, State Compiler :> es)
-  => BlockId
-  -> VarId
-  -> Span
-  -> Eff es IncompletePhi
+  => BlockId -> VarName -> Span -> Eff es IncompletePhi
 addEmptyPhi blockId varId span = do
-  AbstractVariable {ty} <- lookupVariableById varId
+  AbstractVariable {ty} <- lookupVariable varId <&> unwrapICE
   term <- mkTerm
   let phi = Phi {ty, term, operands = [], span}
   modifyBlock blockId $ \block -> do
@@ -435,11 +430,7 @@ addEmptyPhi blockId varId span = do
 -- | Emit a phi to the given block.
 addCompletePhi ::
   (HasCallStack, State Compiler :> es)
-  => BlockId
-  -> TypeExpr
-  -> [(BlockId, Term)]
-  -> Span
-  -> Eff es Term
+  => BlockId -> TypeExpr -> [(BlockId, Term)] -> Span -> Eff es Term
 addCompletePhi blockId ty operands span = do
   term <- mkTerm
   let phi = Phi {ty, term, operands, span}

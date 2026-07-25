@@ -15,6 +15,7 @@ import DW.LSP qualified as LSP
 import DW.Logging (Logger, noOpLogger, runLog, scribe, standardLoggerWithIgnoredFunctions)
 import DW.LoopPass qualified as LoopPass
 import DW.LowerPass qualified as LowerPass
+import DW.NameResolutionPass qualified as NameResolutionPass
 import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
 import DW.TypedAST
@@ -60,11 +61,14 @@ run cfg = catchICE $ do
     loweredAST <- region "Lowering AST..." do
       return $ LowerPass.runLowerPass ast
 
-    -- Pass 5: Typechecking
-    typedAST <- region "Typechecking AST..." do
-      Typechecker.runTypechecker loweredAST
+    namedAST <- region "Performing name resolution..." do
+      NameResolutionPass.runNameResolution loweredAST
 
-    -- Pass 6: Loop validation
+    -- Pass 6: Typechecking
+    typedAST <- region "Typechecking AST..." do
+      Typechecker.runTypechecker namedAST
+
+    -- Pass 7: Loop validation
     region "Validating loops..." do
       LoopPass.runLoopPass typedAST
 
@@ -74,17 +78,17 @@ run cfg = catchICE $ do
     -- a bunch of internal compiler errors).
     abortIfAnyErrors
 
-    -- Pass 7: Compile to IR
+    -- Pass 8: Compile to IR
     program <- region "Compiling to IR..." do
       Compiler.runCompiler typedAST
 
     abortIfAnyErrors
 
-    -- Pass 8: Generate C
+    -- Pass 9: Generate C
     generatedC <- region "Generating C..." do
       EmitC.runEmitC program
 
-    -- Pass 9: Compile C with clang
+    -- Pass 10: Compile C with clang
     executableName <- region "Compiling with clang..." do
       Clang.compileExecutable generatedC
 
@@ -141,10 +145,13 @@ lsp cfg = do
       -- Pass 4: Lowering
       let loweredAST = LowerPass.runLowerPass ast
 
-      -- Pass 5: Typechecking
-      typedAST <- Typechecker.runTypechecker loweredAST
+      -- Pass 5: Name resolution
+      namedAST <- NameResolutionPass.runNameResolution loweredAST
 
-      -- Pass 6: Loop validation
+      -- Pass 6: Typechecking
+      typedAST <- Typechecker.runTypechecker namedAST
+
+      -- Pass 7: Loop validation
       LoopPass.runLoopPass typedAST
 
       return (source, ast, typedAST)

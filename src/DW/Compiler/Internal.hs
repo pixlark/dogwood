@@ -9,7 +9,7 @@ import DW.Compiler.Internal.Lenses
 import DW.Compiler.Internal.Types
 import DW.IR
 import DW.Lens
-import DW.LexicalScopes
+import DW.NameResolutionPass.Names
 import DW.Typechecker (unifies)
 import DW.TypedAST
 import DW.Util
@@ -19,9 +19,6 @@ import Data.HashMap.Strict qualified as HashMap
 
 compileBody :: (HasCallStack, State Compiler :> es, Log :> es) => Body -> Span -> Eff es Term
 compileBody (Body ty stmts) span = do
-  -- each body opens a new lexical scope
-  pushScope
-
   results <- forM stmts compileStmt
   let result = join $ safeLast results
   term <- case result of
@@ -29,27 +26,22 @@ compileBody (Body ty stmts) span = do
       emit mkVoid RVoid span
     Nothing -> throwICE
     Just term -> return term
-
-  -- close the lexical scope
-  popScope <&> unwrapICE
-
   return term
 
 compileLambda ::
   (HasCallStack, State Compiler :> es, Log :> es)
-  => TypeExpr -> [(TST TypeExpr, TST Text)] -> TST Expr -> Span -> Eff es FnId
+  => TypeExpr -> [(TST TypeExpr, TST VarName)] -> TST Expr -> Span -> Eff es FnId
 compileLambda ty params body span = do
   withRegion "Saving compiler state to compile new function..." do
     (fnId, savedCompiler) <- saveCompilerAndResetForNewFn ty
 
     forM_ (params `zip` [0 ..]) $ \((TST ty _, name), i) -> do
-      varId <- mkVarId
-      scribe $ format "Binding parameter {} ({})" (Shown name, Shown varId)
-      bindNewVariable (node name) $ AbstractVariable {varId, ty, span = spanOf name}
+      scribe $ format "Binding parameter {} ({})" (Shown name, Shown (getVarId <$> name))
+      bindNewVariable (node name) $ AbstractVariable {name = node name, ty, span = spanOf name}
       blockId <- gets activeBlock
 
       term <- emit ty (RParameter i) span
-      modify (\c -> c {variablesPerBlock = HashMap.insert (varId, blockId) term c.variablesPerBlock})
+      modify (\c -> c {variablesPerBlock = HashMap.insert (node name, blockId) term c.variablesPerBlock})
       scribe $ format "Parameter loaded into term {}" (Only (Shown term))
 
     scribe $ format "Compiling new function ({})" (Only (Shown fnId))
@@ -75,10 +67,10 @@ compileExpr (TST (IntLit n) span) = emit mkInt (RInt n) span
 compileExpr (TST (Variable _ name) span) = do
   maybeVar <- lookupVariable name
   case maybeVar of
-    Just (AbstractVariable {varId}) -> do
-      scribe $ format "Looking up variable {} ({})" (name, Shown varId)
+    Just (AbstractVariable {name}) -> do
+      scribe $ format "Looking up variable {} ({})" (Shown name, Shown (getVarId name))
       activeBlock <- gets activeBlock
-      determineTermInBlock varId activeBlock
+      determineTermInBlock name activeBlock
     Nothing -> do
       (static, ty) <- lookupStaticVariable name <&> unwrapICE
       emit ty (RLoadStatic static) span
@@ -165,20 +157,19 @@ compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do
   -- special case for undefined
   -- this should get torn out eventually
   valTerm <- compileExpr value
-  varId <- mkVarId
   blockId <- gets activeBlock
-  scribe $ format "Binding new variable {} ({}) in block {}" (name, Shown varId, Shown blockId)
-  bindNewVariable name $ AbstractVariable {varId, ty, span}
-  modify (\c -> c {variablesPerBlock = HashMap.insert (varId, blockId) valTerm c.variablesPerBlock})
+  scribe $ format "Binding new variable {} ({}) in block {}" (Shown name, getVarId name, Shown blockId)
+  bindNewVariable name $ AbstractVariable {name, ty, span}
+  modify (\c -> c {variablesPerBlock = HashMap.insert (name, blockId) valTerm c.variablesPerBlock})
   return Nothing
 compileStmt (TST (Assign (TST (LVariable _ name) _) value) span) = do
   valTerm <- compileExpr value
   maybeVar <- lookupVariable name
   case maybeVar of
-    Just (AbstractVariable {varId}) -> do
+    Just (AbstractVariable {name}) -> do
       compiler <- get
-      scribe $ format "Encountered variable assignment to {} ({}) in block {}" (name, Shown varId, Shown compiler.activeBlock)
-      let variablesPerBlock' = HashMap.insert (varId, compiler.activeBlock) valTerm compiler.variablesPerBlock
+      scribe $ format "Encountered variable assignment to {} ({}) in block {}" (Shown name, Shown (getVarId name), Shown compiler.activeBlock)
+      let variablesPerBlock' = HashMap.insert (name, compiler.activeBlock) valTerm compiler.variablesPerBlock
       put compiler {variablesPerBlock = variablesPerBlock'}
       return Nothing
     Nothing -> do
@@ -252,7 +243,7 @@ compileTopLevelStmt (TST (TLet {name = (TST name _), value}) _) staticId = do
   initializeStaticVariable staticId initializer
 
   -- if this defines a function named main, then mark that as our entry point
-  when (name == "main") do
+  when (getVarText name == "main") do
     case initializer of
       SIFn fnId -> modify (programL % programEntryL ?~ fnId)
       _ -> return ()

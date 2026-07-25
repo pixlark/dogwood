@@ -183,5 +183,5 @@ resolveTopLevel (LST (L.TopLevel stmts) span) = do
     return $ NST (N.TLet (N.NST name textSpan) nTy nValue) span
   return $ NST (N.TopLevel nStmts) span
 
-runNameResolution :: LST L.TopLevel -> Result (NST N.TopLevel)
-runNameResolution = runPureEff . runErrorsNoCallStack . evalState mkNameResolver . resolveTopLevel
+runNameResolution :: (Errors Err :> es) => LST L.TopLevel -> Eff es (NST N.TopLevel)
+runNameResolution = evalState mkNameResolver . resolveTopLevel

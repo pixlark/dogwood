@@ -16,12 +16,14 @@ import NeatInterpolation
 import Test.Hspec
 import TestUtil
 
-testNameResolution source = do
-  parserResult <- runEff $ runLog noOpLogger $ stripCallStacks <$> runErrors do
-    ast <- Parser.runParser source Parser.parseTopLevel
-    ConstExprPass.runConstExprPass ast
-    return $ LowerPass.runLowerPass ast
-  return $ parserResult >>= NameResolutionPass.runNameResolution
+testNameResolution source =
+  runEff $
+    runLog noOpLogger $
+      stripCallStacks <$> runErrors do
+        ast <- Parser.runParser source Parser.parseTopLevel
+        ConstExprPass.runConstExprPass ast
+        let lst = LowerPass.runLowerPass ast
+        NameResolutionPass.runNameResolution lst
 
 (<$$>) = fmap . fmap
 

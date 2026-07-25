@@ -8,9 +8,11 @@ import DW.Error
 import DW.Logging (noOpLogger, runLog)
 import DW.LoopPass qualified as LoopPass
 import DW.LowerPass qualified as LowerPass
+import DW.NameResolutionPass qualified as NameResolutionPass
 import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
 import DW.Util (stripCallStacks)
+
 import Test.Hspec
 import Prelude hiding (show)
 
@@ -21,9 +23,11 @@ testLoopPass source = fmap stripCallStacks $ runEff $ runErrors $ runLog noOpLog
   ConstExprPass.runConstExprPass ast
   -- Pass 4: Lowering
   let loweredAST = LowerPass.runLowerPass ast
-  -- Pass 5: Typechecking
-  typedAST <- Typechecker.runTypechecker loweredAST
-  -- Pass 6: Loop validation
+  -- Pass 5: Name resolution
+  namedAST <- NameResolutionPass.runNameResolution loweredAST
+  -- Pass 6: Typechecking
+  typedAST <- Typechecker.runTypechecker namedAST
+  -- Pass 7: Loop validation
   LoopPass.runLoopPass typedAST
 
 spec = do

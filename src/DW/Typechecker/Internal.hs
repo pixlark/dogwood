@@ -6,10 +6,11 @@ module DW.Typechecker.Internal where
 import DW.AST (SyntaxTree (..))
 import DW.Common
 import DW.Error (markSpan)
-import DW.LexicalScopes hiding (lookupVariable)
-import DW.LexicalScopes qualified as LexicalScopes
-import DW.LoweredAST (LST (..))
-import DW.LoweredAST qualified as L
+-- import DW.LexicalScopes hiding (lookupVariable)
+-- import DW.LexicalScopes qualified as LexicalScopes
+import DW.NameResolutionPass.Names
+import DW.NamedAST (NST (..))
+import DW.NamedAST qualified as N
 import DW.TypedAST (TST (..), typeOf)
 import DW.TypedAST qualified as T
 import DW.Util
@@ -18,65 +19,53 @@ import Control.Monad (join)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Text qualified as Text
+import Effectful.State.Static.Local (modifyM)
 
-data Typechecker = Typechecker
-  { scopes :: LexicalScopes T.TypeExpr,
-    topLevelBindings :: HashMap Text T.TypeExpr
+newtype Typechecker = Typechecker
+  { variables :: HashMap VarName T.TypeExpr
   }
 
-instance HasLexicalScopes T.TypeExpr Typechecker where
-  getScopes = scopes
-  setScopes scopes t = t {scopes}
-
 mkTypechecker :: Typechecker
-mkTypechecker = Typechecker {scopes = mkScopes, topLevelBindings = HashMap.empty}
+mkTypechecker = Typechecker {variables = HashMap.empty}
 
-bindTopLevelVariable :: (State Typechecker :> es, Errors Err :> es) => Text -> T.TypeExpr -> Span -> Eff es ()
-bindTopLevelVariable name ty span = do
-  topLevelBindings <- gets topLevelBindings
-  when (isJust $ HashMap.lookup name topLevelBindings) do
-    markSpan span (MultipleDefinitionsOfTLVariable name)
-  modify (\t -> t {topLevelBindings = HashMap.insert name ty topLevelBindings})
+bindVariable :: (State Typechecker :> es, Errors Err :> es) => VarName -> T.TypeExpr -> Eff es ()
+bindVariable name ty = modifyM $ \c -> do
+  variables <- HashMap.insert name ty <$> gets variables
+  return $ c {variables}
 
-lookupVariable :: (State Typechecker :> es) => Text -> Eff es (Maybe T.TypeExpr)
-lookupVariable name = do
-  maybeLocal <- LexicalScopes.lookupVariable name
-  case maybeLocal of
-    Just local -> return $ Just local
-    Nothing -> do
-      topLevelBindings <- gets topLevelBindings
-      return $ HashMap.lookup name topLevelBindings
+lookupVariable :: (State Typechecker :> es) => VarName -> Eff es (Maybe T.TypeExpr)
+lookupVariable name = HashMap.lookup name <$> gets variables
 
-rewrap :: LST a -> TST a
-rewrap (LST x span) = TST x span
+rewrap :: NST a -> TST a
+rewrap (NST x span) = TST x span
 
-convertValueTypeExpr :: L.ValueTypeExpr -> T.ValueTypeExpr
-convertValueTypeExpr L.Any = T.Any
-convertValueTypeExpr L.Void = T.Void
-convertValueTypeExpr L.Bool = T.Bool
-convertValueTypeExpr L.Int = T.Int
-convertValueTypeExpr (L.Function params ret) = T.Function (map convertWrap params) (convertWrap ret)
+convertValueTypeExpr :: N.ValueTypeExpr -> T.ValueTypeExpr
+convertValueTypeExpr N.Any = T.Any
+convertValueTypeExpr N.Void = T.Void
+convertValueTypeExpr N.Bool = T.Bool
+convertValueTypeExpr N.Int = T.Int
+convertValueTypeExpr (N.Function params ret) = T.Function (map convertWrap params) (convertWrap ret)
   where
-    convertWrap (LST typeExpr span) = TST (convertTypeExpr typeExpr) span
+    convertWrap (NST typeExpr span) = TST (convertTypeExpr typeExpr) span
 
-convertTypeExpr :: L.TypeExpr -> T.TypeExpr
-convertTypeExpr (L.TypeExpr {reference, valueExpr}) = T.TypeExpr {reference, valueExpr = convertValueTypeExpr valueExpr}
+convertTypeExpr :: N.TypeExpr -> T.TypeExpr
+convertTypeExpr (N.TypeExpr {reference, valueExpr}) = T.TypeExpr {reference, valueExpr = convertValueTypeExpr valueExpr}
 
-convertOperator :: L.Operator -> T.Operator
-convertOperator L.Or = T.Or
-convertOperator L.And = T.And
-convertOperator L.Equal = T.Equal
-convertOperator L.NotEqual = T.NotEqual
-convertOperator L.LessThan = T.LessThan
-convertOperator L.LessThanOrEqual = T.LessThanOrEqual
-convertOperator L.GreaterThan = T.GreaterThan
-convertOperator L.GreaterThanOrEqual = T.GreaterThanOrEqual
-convertOperator L.Plus = T.Plus
-convertOperator L.Minus = T.Minus
-convertOperator L.Multiply = T.Multiply
-convertOperator L.Divide = T.Divide
-convertOperator L.Not = T.Not
-convertOperator L.Modulo = T.Modulo
+convertOperator :: N.Operator -> T.Operator
+convertOperator N.Or = T.Or
+convertOperator N.And = T.And
+convertOperator N.Equal = T.Equal
+convertOperator N.NotEqual = T.NotEqual
+convertOperator N.LessThan = T.LessThan
+convertOperator N.LessThanOrEqual = T.LessThanOrEqual
+convertOperator N.GreaterThan = T.GreaterThan
+convertOperator N.GreaterThanOrEqual = T.GreaterThanOrEqual
+convertOperator N.Plus = T.Plus
+convertOperator N.Minus = T.Minus
+convertOperator N.Multiply = T.Multiply
+convertOperator N.Divide = T.Divide
+convertOperator N.Not = T.Not
+convertOperator N.Modulo = T.Modulo
 
 numericOperators :: [T.Operator]
 numericOperators = [T.Plus, T.Minus, T.Multiply, T.Divide, T.Modulo]
@@ -129,12 +118,9 @@ doesNotUnify t1 t2 = not (t1 `unifies` t2)
 
 typecheckBody ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
-  => LST L.Body
+  => NST N.Body
   -> Eff es (TST T.Body)
-typecheckBody (LST (L.Body stmts) span) = withRegion "Entering scope..." do
-  -- each body opens a new lexical scope
-  pushScope
-
+typecheckBody (NST (N.Body stmts) span) = withRegion "Entering scope..." do
   tStmts <- forM stmts $ \stmt -> do
     tStmt <- typecheckStmt stmt
     -- A statement evaluates to the type of its final expression. If the final ExprStmt has a semicolon, then
@@ -145,8 +131,6 @@ typecheckBody (LST (L.Body stmts) span) = withRegion "Entering scope..." do
   let (tStmts', retTypes) = unzip tStmts
       retType = safeLast retTypes `orElse` T.makeValueExpr T.Void
 
-  -- close the lexical scope
-  popScope <&> unwrapICE
   return $ TST (T.Body retType tStmts') span
 
 getBuiltins :: Span -> [(Text, T.TypeExpr)]
@@ -166,15 +150,15 @@ potentiallyBox _ e = return e
 
 typecheckExpr ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
-  => LST L.Expr
+  => NST N.Expr
   -> Eff es (TST T.Expr)
-typecheckExpr (LST L.VoidLit span) = return $ TST T.VoidLit span
-typecheckExpr (LST (L.BoolLit b) span) = return $ TST (T.BoolLit b) span
-typecheckExpr (LST (L.IntLit n) span) = return $ TST (T.IntLit n) span
-typecheckExpr (LST (L.Variable name) span) = do
-  ty <- lookupVariable name `orElseMarkSpanM` (span, UnboundVariable name, T.mkAny)
+typecheckExpr (NST N.VoidLit span) = return $ TST T.VoidLit span
+typecheckExpr (NST (N.BoolLit b) span) = return $ TST (T.BoolLit b) span
+typecheckExpr (NST (N.IntLit n) span) = return $ TST (T.IntLit n) span
+typecheckExpr (NST (N.Variable name) span) = do
+  ty <- lookupVariable name <&> unwrapICE
   return $ TST (T.Variable ty name) span
-typecheckExpr (LST (L.BinaryOperator op l r) span) = do
+typecheckExpr (NST (N.BinaryOperator op l r) span) = do
   tL <- typecheckExpr l
   tR <- typecheckExpr r
   let tyL = typeOf $ node tL
@@ -185,14 +169,14 @@ typecheckExpr (LST (L.BinaryOperator op l r) span) = do
       outputTy = operationOutputs op'
   unless (operatorSupportsType op' operandTy) $ markSpan span (OperatorSupport (Text.show op) (Text.show operandTy))
   return $ TST (T.BinaryOperator outputTy op' tL tR) span
-typecheckExpr (LST (L.UnaryOperator op value) span) = do
+typecheckExpr (NST (N.UnaryOperator op value) span) = do
   tValue <- typecheckExpr value
   let op' = convertOperator op
       operandTy = typeOf (node tValue)
       outputTy = operationOutputs op'
   unless (operatorSupportsType op' operandTy) $ markSpan span (OperatorSupport (Text.show op) (Text.show operandTy))
   return $ TST (T.UnaryOperator outputTy op' tValue) span
-typecheckExpr (LST (L.FunctionCall {function, arguments}) span) = do
+typecheckExpr (NST (N.FunctionCall {function, arguments}) span) = do
   -- Make sure that the thing we're calling is actually a function
   tFunction <- typecheckExpr function
   let ty = typeOf (node tFunction)
@@ -220,10 +204,10 @@ typecheckExpr (LST (L.FunctionCall {function, arguments}) span) = do
     tArg' <- potentiallyBox tyParam `traverse` tArg
     return tArg'
   return $ TST (T.FunctionCall {type_ = node ret, function = tFunction, arguments = tArguments}) span
-typecheckExpr (LST (L.ExprBody body) span) = do
-  tBody <- typecheckBody (LST body span)
+typecheckExpr (NST (N.ExprBody body) span) = do
+  tBody <- typecheckBody (NST body span)
   return $ TST (T.ExprBody (node tBody)) span
-typecheckExpr (LST (L.IfThen condition body elseBody) span) = do
+typecheckExpr (NST (N.IfThen condition body elseBody) span) = do
   tCondition <- typecheckExpr condition
 
   let tyCondition = typeOf (node tCondition)
@@ -239,20 +223,15 @@ typecheckExpr (LST (L.IfThen condition body elseBody) span) = do
     markSpan (spanOf tElseBody) (typeMismatch tyBody tyElseBody)
 
   return $ TST (T.IfThen tyBody tCondition tBody tElseBody) span
-typecheckExpr (LST (L.Builtin name) span) = do
+typecheckExpr (NST (N.Builtin name) span) = do
   let builtins = getBuiltins span
   ty <- lookup name builtins `orElseMarkSpan` (span, InvalidBuiltinName name, T.mkAny)
   return $ TST (T.Builtin ty name) span
-typecheckExpr (LST (L.Lambda {params, returnType, body}) span) = do
-  -- We don't have closures yet, so while we're typechecking the body, we need to
-  -- have an empty typing environment
-  savedScopes <- gets scopes
-  modify (\t -> t {scopes = mkScopes})
-
+typecheckExpr (NST (N.Lambda {params, returnType, body}) span) = do
   params' <- forM params $ \(ty, name) -> do
     let ty' = rewrap $ convertTypeExpr <$> ty
         name' = rewrap name
-    bindNewVariable (node name) (node ty')
+    bindVariable (node name) (node ty')
     return (ty', name')
 
   let returnType' = rewrap $ convertTypeExpr <$> returnType
@@ -263,9 +242,6 @@ typecheckExpr (LST (L.Lambda {params, returnType, body}) span) = do
   when (node returnType' `doesNotUnify` typeOf (node body')) do
     markSpan (spanOf returnType') $ typeMismatch (typeOf (node body')) (node returnType')
 
-  -- Restore the saved scopes
-  modify (\t -> t {scopes = savedScopes})
-
   -- Calculate a type for the lambda
   let lambdaTy = T.makeValueExpr $ T.Function (map fst params') returnType'
 
@@ -274,24 +250,24 @@ typecheckExpr (LST (L.Lambda {params, returnType, body}) span) = do
 typeMismatch :: T.TypeExpr -> T.TypeExpr -> ErrorKind
 typeMismatch expected got = TypeMismatch {expectedType = Text.show expected, gotType = Text.show got}
 
-convertLST :: LST a -> TST a
-convertLST (LST a span) = TST a span
+convertNST :: NST a -> TST a
+convertNST (NST a span) = TST a span
 
-typecheckLValue :: (State Typechecker :> es, Errors Err :> es) => LST L.LValue -> Eff es (TST T.LValue)
-typecheckLValue (LST (L.LVariable name) span) = do
-  ty <- lookupVariable name `orElseMarkSpanM` (span, UnboundVariable name, T.mkAny)
+typecheckLValue :: (State Typechecker :> es, Errors Err :> es) => NST N.LValue -> Eff es (TST T.LValue)
+typecheckLValue (NST (N.LVariable name) span) = do
+  ty <- lookupVariable name `orElseMarkSpanM` (span, UnboundVariable (getVarText name), T.mkAny)
   return $ TST (T.LVariable ty name) span
 
 typecheckStmt ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
-  => LST L.Stmt
+  => NST N.Stmt
   -> Eff es (TST T.Stmt)
-typecheckStmt (LST (L.Let {name, type_, value}) span) = do
+typecheckStmt (NST (N.Let {name, type_, value}) span) = do
   tValue <- typecheckExpr value
 
   -- If they provided a type annotation, then make sure it's correct
   maybeBoxedTValue <- forM type_ $ \type_ -> do
-    let typeAnnotation = convertLST $ convertTypeExpr <$> type_
+    let typeAnnotation = convertNST $ convertTypeExpr <$> type_
     let expectType = typeOf (node tValue)
     when (node typeAnnotation `doesNotUnify` expectType) do
       markSpan (spanOf value) (typeMismatch (node typeAnnotation) expectType)
@@ -304,13 +280,13 @@ typecheckStmt (LST (L.Let {name, type_, value}) span) = do
   -- If they provided a type annotation, then we take that as canonical.
   -- Otherwise, we use the inferred type.
   -- Generally they'll be the same, but subtyping introduces some subtlety here
-  let boundTy = (convertLST <$> convertTypeExpr <$$> type_) `orElse` (typeOf <$> tValue')
+  let boundTy = (convertNST <$> convertTypeExpr <$$> type_) `orElse` (typeOf <$> tValue')
 
-  scribe $ format "Binding variable {} (type: {})" (node name, Shown type_)
-  bindNewVariable (node name) (node boundTy)
+  scribe $ format "Binding variable {} (type: {})" (Shown (node name), Shown type_)
+  bindVariable (node name) (node boundTy)
 
-  return $ TST (T.Let {name = convertLST name, type_ = boundTy, value = tValue'}) span
-typecheckStmt (LST (L.Assign {lvalue, value}) span) = do
+  return $ TST (T.Let {name = convertNST name, type_ = boundTy, value = tValue'}) span
+typecheckStmt (NST (N.Assign {lvalue, value}) span) = do
   tLValue <- typecheckLValue lvalue
   tValue <- typecheckExpr value
   let (T.LVariable tyL _) = node tLValue
@@ -321,14 +297,14 @@ typecheckStmt (LST (L.Assign {lvalue, value}) span) = do
 
   tValue' <- potentiallyBox tyL `traverse` tValue
   return $ TST (T.Assign tLValue tValue') span
-typecheckStmt (LST (L.ExprStmt value semicolon) span) = do
+typecheckStmt (NST (N.ExprStmt value semicolon) span) = do
   tValue <- typecheckExpr value
   return $ TST (T.ExprStmt tValue semicolon) span
-typecheckStmt (LST (L.Return maybeValue) span) = do
+typecheckStmt (NST (N.Return maybeValue) span) = do
   tMaybeValue <- traverse typecheckExpr maybeValue
   return $ TST (T.Return tMaybeValue) span
-typecheckStmt (LST L.Break span) = return $ TST T.Break span
-typecheckStmt (LST (L.Loop body) span) = do
+typecheckStmt (NST N.Break span) = return $ TST T.Break span
+typecheckStmt (NST (N.Loop body) span) = do
   tBody <- typecheckBody body
   let (T.Body ty _) = node tBody
   when (ty `doesNotUnify` T.makeValueExpr T.Void) do
@@ -337,23 +313,23 @@ typecheckStmt (LST (L.Loop body) span) = do
 
 typecheckTopLevelStmtWithoutRecursing ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
-  => LST L.TopLevelStmt
-  -> Eff es (TST Text, TST T.TypeExpr)
-typecheckTopLevelStmtWithoutRecursing (LST (L.TLet {name, ty, value}) _) = do
+  => NST N.TopLevelStmt
+  -> Eff es (TST VarName, TST T.TypeExpr)
+typecheckTopLevelStmtWithoutRecursing (NST (N.TLet {name, ty, value}) _) = do
   valueTy <- case node value of
-    L.VoidLit -> return T.mkVoid
-    L.IntLit _ -> return T.mkInt
-    L.BoolLit _ -> return T.mkBool
-    L.Lambda {params, returnType} -> do
-      let params' = convertLST . (convertTypeExpr <$>) . fst <$> params
-      let returnType' = convertLST $ convertTypeExpr <$> returnType
+    N.VoidLit -> return T.mkVoid
+    N.IntLit _ -> return T.mkInt
+    N.BoolLit _ -> return T.mkBool
+    N.Lambda {params, returnType} -> do
+      let params' = convertNST . (convertTypeExpr <$>) . fst <$> params
+      let returnType' = convertNST $ convertTypeExpr <$> returnType
       return $ T.TypeExpr {reference = False, valueExpr = T.Function params' returnType'}
     -- This should have been verified by the constexpr pass
     _ -> throwICE
 
   -- If they provided a type annotation, then make sure it's correct
   forM_ ty $ \type_ -> do
-    let typeAnnotation = convertLST $ convertTypeExpr <$> type_
+    let typeAnnotation = convertNST $ convertTypeExpr <$> type_
     when (node typeAnnotation `doesNotUnify` valueTy) do
       markSpan (spanOf value) (typeMismatch (node typeAnnotation) valueTy)
 
@@ -364,27 +340,27 @@ typecheckTopLevelStmtWithoutRecursing (LST (L.TLet {name, ty, value}) _) = do
   -- If they provided a type annotation, then we take that as canonical.
   -- Otherwise, we use the inferred type.
   -- Generally they'll be the same, but subtyping introduces some subtlety here
-  let boundTy = (convertLST <$> convertTypeExpr <$$> ty) `orElse` TST valueTy (spanOf value)
+  let boundTy = (convertNST <$> convertTypeExpr <$$> ty) `orElse` TST valueTy (spanOf value)
 
-  scribe $ format "Binding top-level variable {} (type: {})" (node name, Shown boundTy)
-  bindTopLevelVariable (node name) (node boundTy) (spanOf name)
+  scribe $ format "Binding top-level variable {} (type: {})" (Shown (node name), Shown boundTy)
+  bindVariable (node name) (node boundTy)
 
-  return (convertLST name, boundTy)
+  return (convertNST name, boundTy)
 
 typecheckTopLevelStmtRecursively ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
-  => LST L.TopLevelStmt
-  -> (TST Text, TST T.TypeExpr)
+  => NST N.TopLevelStmt
+  -> (TST VarName, TST T.TypeExpr)
   -> Eff es (TST T.TopLevelStmt)
-typecheckTopLevelStmtRecursively (LST (L.TLet {value}) span) (name, ty) = do
+typecheckTopLevelStmtRecursively (NST (N.TLet {value}) span) (name, ty) = do
   tValue <- typecheckExpr value
   return $ TST (T.TLet {name, ty, value = tValue}) span
 
 typecheckTopLevel ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
-  => LST L.TopLevel
+  => NST N.TopLevel
   -> Eff es (TST T.TopLevel)
-typecheckTopLevel (LST (L.TopLevel stmts) span) = do
+typecheckTopLevel (NST (N.TopLevel stmts) span) = do
   -- Before recursing into the bodies of any functions, we first go through all the top-level
   -- bindings. This way the user can define mutually recursive functions rather than being restricted
   -- to top-to-bottom order.
@@ -397,6 +373,6 @@ typecheckTopLevel (LST (L.TopLevel stmts) span) = do
 
 runTypechecker ::
   (HasCallStack, Errors Err :> es, Log :> es)
-  => LST L.TopLevel
+  => NST N.TopLevel
   -> Eff es (TST T.TopLevel)
 runTypechecker = evalState mkTypechecker . typecheckTopLevel

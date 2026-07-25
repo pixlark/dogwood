@@ -5,8 +5,10 @@ module TypecheckerSpec where
 import DW.Common
 import DW.ConstExprPass qualified as ConstExprPass
 import DW.Error
+import DW.Error.Internal.ErrorsEffect (abortIfAnyErrors)
 import DW.Logging (noOpLogger, runLog)
 import DW.LowerPass qualified as LowerPass
+import DW.NameResolutionPass qualified as NameResolutionPass
 import DW.Parser qualified as Parser
 import DW.Typechecker qualified as Typechecker
 import DW.Util (stripCallStacks)
@@ -21,12 +23,16 @@ import Prelude hiding (show)
 testTypecheck source = fmap stripCallStacks $ runEff $ runErrors $ runLog noOpLogger do
   -- Passes 1 and 2: Lexing and parsing
   ast <- Parser.runParser source Parser.parseTopLevel
+  abortIfAnyErrors
   -- Pass 3: Constexpr checking
   ConstExprPass.runConstExprPass ast
   -- Pass 4: Lowering
   let loweredAST = LowerPass.runLowerPass ast
-  -- Pass 5: Typechecking
-  Typechecker.runTypechecker loweredAST
+  -- Pass 5: Name resolution
+  namedAST <- NameResolutionPass.runNameResolution loweredAST
+  abortIfAnyErrors
+  -- Pass 6: Typechecking
+  Typechecker.runTypechecker namedAST
 
 (<$$>) = fmap . fmap
 
