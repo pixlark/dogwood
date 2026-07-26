@@ -85,20 +85,6 @@ source-repository head
     type:             git
     location:         https://github.com/pixlark/dogwood
 
-executable dogwood
-    import:           warnings, extensions
-    main-is:          Main.hs
-    build-depends:    base                  ^>=4.18,
-                      text                  ^>=2.1,
-                      mtl                   ^>=2.3,
-                      transformers          ^>=0.6,
-                      dogwood-core          ^>=0.1,
-                      neat-interpolation    ^>=0.5,
-                      effectful-core        ^>=2.6,
-                      optparse-applicative  ^>=0.19,
-    hs-source-dirs:   app
-    default-language: Haskell2010
-
 library dogwood-core
     import:           warnings, extensions
     exposed-modules:
@@ -201,3 +187,33 @@ test-suite dogwood-tests
                       text                  ^>=2.1,
     default-language: Haskell2010
     ghc-options:      -fplugin=Effectful.Plugin
+
+executable dogwood
+    import:           warnings, extensions
+    main-is:          Main.hs
+    build-depends:    base                  ^>=4.18,
+                      text                  ^>=2.1,
+                      mtl                   ^>=2.3,
+                      transformers          ^>=0.6,
+                      dogwood-core          ^>=0.1,
+                      neat-interpolation    ^>=0.5,
+                      effectful-core        ^>=2.6,
+                      optparse-applicative  ^>=0.19,
+    hs-source-dirs:   app
+    default-language: Haskell2010
+
+executable dogwood-bench
+    import:           warnings
+    default-extensions:
+        BlockArguments
+        ImportQualifiedPost
+        OverloadedStrings
+    main-is:          Main.hs
+    build-depends:    base                  ^>=4.18,
+                      criterion             ^>=1.6,
+                      deepseq               ^>=1.4,
+                      dogwood-core          ^>=0.1,
+                      filepath              ^>=1.4,
+                      text                  ^>=2.1,
+    hs-source-dirs:   bench
+    default-language: Haskell2010

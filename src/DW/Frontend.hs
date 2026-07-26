@@ -1,10 +1,11 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 
-module DW.Frontend (run, lsp) where
+module DW.Frontend (run, runBench, lsp) where
 
 import DW.AST (node)
 import DW.Clang qualified as Clang
-import DW.Common (HasCallStack, forM_, liftIO, runEff, runError, runErrorNoCallStack, runReader, traceShowId, when, withRegion)
+import DW.Common
 import DW.Compiler.Internal qualified as Compiler
 import DW.Config (ConfigData (..), LogLevel (..))
 import DW.ConstExprPass qualified as ConstExprPass
@@ -22,11 +23,89 @@ import DW.TypedAST
 
 import Control.Exception (catch)
 import Data.Bifunctor (Bifunctor (..))
+import Data.Foldable
+import Data.List (intersperse)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import Data.Text.Lazy qualified as LazyText
 import Effectful.Error.Static (prettyCallStack)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
+
+region :: (HasCallStack, IOE :> es, Log :> es, Reader ConfigData :> es) => String -> Eff es a -> Eff es a
+region msg f = do
+  cfg <- ask
+  case cfg.logLevel of
+    Quiet -> f
+    Default -> do liftIO $ putStrLn msg; f
+    Loud -> withRegion (LazyText.pack msg) f
+
+performLexingThroughCodegen :: (HasCallStack, IOE :> es, Log :> es, Reader ConfigData :> es, Errors Err :> es) => Text -> Eff es Text
+performLexingThroughCodegen source = do
+  -- Passes 1 and 2: Lexing and parsing
+  ast <- region "Lexing and parsing..." do
+    Parser.runParser source Parser.parseTopLevel
+
+  -- If there any any parse errors, we give up on trying to continue.
+  -- This shouldn't be a big deal because they're just syntax errors, easily fixed.
+  abortIfAnyErrors
+
+  -- Pass 3: Constexpr checking
+  region "Checking constant expressions..." do
+    ConstExprPass.runConstExprPass ast
+
+  -- Pass 4: Lowering
+  loweredAST <- region "Lowering AST..." do
+    return $ LowerPass.runLowerPass ast
+
+  namedAST <- region "Performing name resolution..." do
+    NameResolutionPass.runNameResolution loweredAST
+
+  abortIfAnyErrors
+
+  -- Pass 6: Typechecking
+  typedAST <- region "Typechecking AST..." do
+    Typechecker.runTypechecker namedAST
+
+  -- Pass 7: Loop validation
+  region "Validating loops..." do
+    LoopPass.runLoopPass typedAST
+
+  -- At this point if we've accumulated any errors, we have to give up and report them,
+  -- because the later phases rely on invariants being true of the syntax trees that they're
+  -- passed (so we can't just pass them bad data and hope for the best, or the user will get
+  -- a bunch of internal compiler errors).
+  abortIfAnyErrors
+
+  -- Pass 8: Compile to IR
+  program <- region "Compiling to IR..." do
+    Compiler.runCompiler typedAST
+
+  abortIfAnyErrors
+
+  -- Pass 9: Generate C
+  generatedC <- region "Generating C..." do
+    EmitC.runEmitC program
+
+  return generatedC
+
+performClang :: (HasCallStack, IOE :> es, Log :> es, Reader ConfigData :> es) => Text -> Eff es FilePath
+performClang generatedC = do
+  -- Pass 10: Compile C with clang
+  executableName <- region "Compiling with clang..." do
+    Clang.compileExecutable generatedC
+
+  return executableName
+
+runBench :: (HasCallStack) => Text -> IO Text
+runBench source = do
+  let cfg = ConfigData {sourceFile = "-", outputFile = Nothing, logLevel = Quiet}
+
+  result <- runEff $ runLog noOpLogger $ runErrors $ runReader cfg do
+    performLexingThroughCodegen source
+
+  case result of
+    Left errs -> error $ Text.unpack (foldl' Text.append "" $ intersperse "\n" ("compilation failed!\n" : (displayError source . snd <$> errs)))
+    Right generatedC -> return generatedC
 
 run :: (HasCallStack) => ConfigData -> IO ExitCode
 run cfg = catchICE $ do
@@ -39,64 +118,9 @@ run cfg = catchICE $ do
         Default -> putStrLn
         Loud -> runEff . runLog logger . scribe . LazyText.pack
 
-  let region msg f = case cfg.logLevel of
-        Quiet -> f
-        Default -> do liftIO $ putStrLn msg; f
-        Loud -> withRegion (LazyText.pack msg) f
-
   executableName <- runEff $ runLog logger $ runErrors $ runReader cfg $ do
-    -- Passes 1 and 2: Lexing and parsing
-    ast <- region "Lexing and parsing..." do
-      Parser.runParser source Parser.parseTopLevel
-
-    -- If there any any parse errors, we give up on trying to continue.
-    -- This shouldn't be a big deal because they're just syntax errors, easily fixed.
-    abortIfAnyErrors
-
-    -- Pass 3: Constexpr checking
-    region "Checking constant expressions..." do
-      ConstExprPass.runConstExprPass ast
-
-    -- Pass 4: Lowering
-    loweredAST <- region "Lowering AST..." do
-      return $ LowerPass.runLowerPass ast
-
-    namedAST <- region "Performing name resolution..." do
-      NameResolutionPass.runNameResolution loweredAST
-
-    abortIfAnyErrors
-
-    -- Pass 6: Typechecking
-    typedAST <- region "Typechecking AST..." do
-      Typechecker.runTypechecker namedAST
-
-    -- Pass 7: Loop validation
-    region "Validating loops..." do
-      LoopPass.runLoopPass typedAST
-
-    -- At this point if we've accumulated any errors, we have to give up and report them,
-    -- because the later phases rely on invariants being true of the syntax trees that they're
-    -- passed (so we can't just pass them bad data and hope for the best, or the user will get
-    -- a bunch of internal compiler errors).
-    abortIfAnyErrors
-
-    -- Pass 8: Compile to IR
-    program <- region "Compiling to IR..." do
-      Compiler.runCompiler typedAST
-
-    abortIfAnyErrors
-
-    -- Pass 9: Generate C
-    generatedC <- region "Generating C..." do
-      EmitC.runEmitC program
-
-    -- Pass 10: Compile C with clang
-    executableName <- region "Compiling with clang..." do
-      Clang.compileExecutable generatedC
-
-    abortIfAnyErrors
-
-    return executableName
+    generatedC <- performLexingThroughCodegen source
+    performClang generatedC
 
   exitCode <- case executableName of
     Left errs -> do

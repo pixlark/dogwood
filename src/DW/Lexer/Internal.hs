@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+
 module DW.Lexer.Internal where
 
 import DW.Common
@@ -6,37 +8,54 @@ import DW.Util
 import Data.Char
 import Data.List qualified as List
 import Data.Text qualified as T
+import Data.Text.Array qualified as A
+import Data.Text.Internal (Text (..))
+import Data.Text.Unsafe (Iter (..), iter, lengthWord8)
 
-data TokenKind = Eof | Symbol Text | Keyword Text | Glyph Text | IntLiteral Int
+data TokenKind = Eof | Symbol !Text | Keyword !Text | Glyph !Text | IntLiteral !Int
   deriving (Eq, Show)
 
-data Token = Token {kind :: TokenKind, span :: Span}
+data Token = Token {kind :: !TokenKind, span :: !Span}
   deriving (Eq, Show)
 
-data Lexer = Lexer {cursor :: Int, source :: Text}
+data Lexer = Lexer {cursor :: !Int, byteOffset :: !Int, source :: !Text, srcLen :: !Int}
   deriving (Show)
 
+{-# INLINEABLE unsafeCodepointAtByte #-}
+unsafeCodepointAtByte :: Text -> Int -> (Char, Int)
+unsafeCodepointAtByte text byteOffset = (c, len)
+  where
+    Iter c len = iter text byteOffset
+
+{-# INLINEABLE advance #-}
 advance :: (State Lexer :> es) => Eff es ()
 advance = modify advance'
   where
-    advance' lexer = lexer {cursor = lexer.cursor + 1}
+    advance' lexer =
+      if lexer.byteOffset >= lexer.srcLen
+        then lexer
+        else
+          let (_, len) = unsafeCodepointAtByte lexer.source lexer.byteOffset
+           in lexer {byteOffset = lexer.byteOffset + len, cursor = lexer.cursor + 1}
 
+{-# INLINEABLE advanceBy #-}
 advanceBy :: (State Lexer :> es) => Int -> Eff es ()
-advanceBy n = modify $ advanceBy' n
-  where
-    advanceBy' n lexer = lexer {cursor = lexer.cursor + n}
+advanceBy n = forM_ [1 .. n] $ \_ -> do advance
 
+{-# INLINEABLE current #-}
 current :: (State Lexer :> es) => Eff es (Maybe Char)
 current = gets current'
   where
     current' :: Lexer -> Maybe Char
     current' lexer =
-      if lexer.cursor >= T.length lexer.source
+      if lexer.byteOffset >= lexer.srcLen
         then Nothing
-        else Just $ T.head $ T.drop lexer.cursor lexer.source
+        else
+          let (c, _) = unsafeCodepointAtByte lexer.source lexer.byteOffset
+           in Just c
 
 makeLexer :: T.Text -> Lexer
-makeLexer source = Lexer {cursor = 0, source}
+makeLexer source = Lexer {cursor = 0, byteOffset = 0, source, srcLen = lengthWord8 source}
 
 keywords :: [T.Text]
 keywords =
@@ -149,7 +168,7 @@ nextToken = do
                 makeToken length $ IntLiteral $ read $ T.unpack numberString
             | isAlpha c || c == '_' -> do
                 (src, cur) <- gets ((,) <$> source <*> cursor)
-                let symbol = T.takeWhile (\c -> isAlpha c || c == '_') $ T.drop cur src
+                let symbol = T.takeWhile (\c -> isAlpha c || isDigit c || c == '_') $ T.drop cur src
                 let length = T.length symbol
                 advanceBy length
                 if symbol `elem` keywords

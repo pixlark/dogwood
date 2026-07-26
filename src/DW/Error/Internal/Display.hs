@@ -9,6 +9,7 @@ import Data.Text qualified as T
 import Effectful (Eff, runPureEff, (:>))
 import Effectful.Reader.Static (Reader, ask, runReader)
 import Effectful.Writer.Static.Local (Writer, execWriter, tell)
+import GHC.Stack (HasCallStack)
 import Prelude hiding (getLine)
 
 findIndex :: Text -> Int -> Char -> Maybe Int
@@ -44,7 +45,7 @@ getLine source n | n > 1 = getLine (T.drop nextLine source) (n - 1)
     nextLine = ((+ 1) <$> findIndex source 0 '\n') `orElse` T.length source
 getLine _ _ = error "bad line number"
 
-getLineNumber :: Text -> Int -> Int
+getLineNumber :: (HasCallStack) => Text -> Int -> Int
 getLineNumber text start = getLineNumber' text start 1
   where
     getLineNumber' text start acc =
@@ -68,13 +69,13 @@ leftPad to n = padded
     padLength = max 0 (to - digits)
     padded = T.pack (map (const ' ') [1 .. padLength]) `T.append` unpadded
 
-displayError :: Text -> Err -> Text
+displayError :: (HasCallStack) => Text -> Err -> Text
 displayError = displayError' True
 
-displayErrorColorless :: Text -> Err -> Text
+displayErrorColorless :: (HasCallStack) => Text -> Err -> Text
 displayErrorColorless = displayError' False
 
-displayError' :: Bool -> Text -> Err -> Text
+displayError' :: (HasCallStack) => Bool -> Text -> Err -> Text
 displayError' useColor source (Err error span@(Span spanStart _)) = runPureEff $ execWriter $ runReader useColor $ do
   do tell "\n--------------- "; tellRed "ERROR"; tell " ---------------\n\n"
 

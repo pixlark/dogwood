@@ -290,6 +290,7 @@ switchToBlock id = do
   compiler <- get
   put compiler {activeBlock = id}
 
+-- {-# INLINEABLE emit #-}
 emit :: (HasCallStack, State Compiler :> es) => TypeExpr -> RHS -> Span -> Eff es Term
 emit ty rhs span = do
   term <- mkTerm
