@@ -21,7 +21,8 @@ integrationTest sourceFile = do
         ConfigData
           { sourceFile = Text.pack sourcePath,
             outputFile = Just (Text.pack outputFile),
-            logLevel = Quiet
+            logLevel = Quiet,
+            showGeneratedC = False
           }
   exitCode <- Frontend.run cfg
   case exitCode of

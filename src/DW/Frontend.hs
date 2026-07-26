@@ -98,7 +98,7 @@ performClang generatedC = do
 
 runBench :: (HasCallStack) => Text -> IO Text
 runBench source = do
-  let cfg = ConfigData {sourceFile = "-", outputFile = Nothing, logLevel = Quiet}
+  let cfg = ConfigData {sourceFile = "-", outputFile = Nothing, logLevel = Quiet, showGeneratedC = False}
 
   result <- runEff $ runLog noOpLogger $ runErrors $ runReader cfg do
     performLexingThroughCodegen source
@@ -111,29 +111,38 @@ run :: (HasCallStack) => ConfigData -> IO ExitCode
 run cfg = catchICE $ do
   source <- Text.IO.readFile (Text.unpack cfg.sourceFile)
 
-  let logger = if cfg.logLevel == Loud then standardLoggerWithIgnoredFunctions ignoredFunctions else noOpLogger
+  exitCode <-
+    if cfg.showGeneratedC
+      then do
+        generatedC <- runEff $ runLog logger $ runErrors $ runReader cfg do
+          performLexingThroughCodegen source
+        case generatedC of
+          Left errs -> do
+            showErrors source errs
+            return (ExitFailure 1)
+          Right generatedC -> do
+            write $ Text.unpack generatedC
+            return ExitSuccess
+      else do
+        executableName <- runEff $ runLog logger $ runErrors $ runReader cfg do
+          generatedC <- performLexingThroughCodegen source
+          performClang generatedC
 
-  let write = case cfg.logLevel of
-        Quiet -> const $ return ()
-        Default -> putStrLn
-        Loud -> runEff . runLog logger . scribe . LazyText.pack
-
-  executableName <- runEff $ runLog logger $ runErrors $ runReader cfg $ do
-    generatedC <- performLexingThroughCodegen source
-    performClang generatedC
-
-  exitCode <- case executableName of
-    Left errs -> do
-      forM_ errs $ \(callstack, e) -> do
-        when (cfg.logLevel == Loud) $ write (prettyCallStack callstack)
-        write $ Text.unpack $ displayError source e
-      return (ExitFailure 1)
-    Right executableName -> do
-      write $ "Compiled successfully into " ++ executableName
-      return ExitSuccess
+        case executableName of
+          Left errs -> do
+            showErrors source errs
+            return (ExitFailure 1)
+          Right executableName -> do
+            write $ "Compiled successfully into " ++ executableName
+            return ExitSuccess
 
   return exitCode
   where
+    logger = if cfg.logLevel == Loud then standardLoggerWithIgnoredFunctions ignoredFunctions else noOpLogger
+    write = case cfg.logLevel of
+      Quiet -> const $ return ()
+      Default -> putStrLn
+      Loud -> runEff . runLog logger . scribe . LazyText.pack
     -- functions that we want to ignore when marking the current function in the logging framework
     ignoredFunctions = ["markSealed", "potentiallyBox"]
     catchICE :: IO ExitCode -> IO ExitCode
@@ -150,6 +159,11 @@ run cfg = catchICE $ do
             putStrLn ""
             return (ExitFailure 1)
         )
+    showErrors :: Text -> [(CallStack, Err)] -> IO ()
+    showErrors source errs = do
+      forM_ errs $ \(callstack, e) -> do
+        when (cfg.logLevel == Loud) $ write (prettyCallStack callstack)
+        write $ Text.unpack $ displayError source e
 
 lsp :: (HasCallStack) => ConfigData -> IO ExitCode
 lsp cfg = do

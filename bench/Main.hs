@@ -16,7 +16,9 @@ criterionBenchmarks :: (HasCallStack) => IO ()
 criterionBenchmarks =
   defaultMain
     [ mkBench "one thousand bindings and assigns" (return bench1),
-      mkBench "one hundred functions" (do putStrLn $ T.unpack bench2; return bench2)
+      mkBench "one hundred functions" (return bench2),
+      mkBench "one hundred layers of if statements" (return bench3),
+      mkBench "ten functions with of twenty layers of if statements each" (return bench4)
     ]
   where
     bench1 =
@@ -30,6 +32,27 @@ criterionBenchmarks =
               \i -> T.pack $ printf "let fn%d = fn(x: int) -> int { if x == 2 { fn%d(x + 1) } else { fn%d(x - 1) } };" i (i - 1) (i - 1)
           lines' = lines ++ ["let fn0 = fn(x: int) -> int: x;", T.pack $ printf "let main = fn() { let print = builtin print; print(fn%d(10)); };" iters]
        in foldl' T.append "" (map (`T.append` "\n") lines')
+    bench3 =
+      let iters = 100
+          lines = take iters $ flip map [1 :: Int ..] $ \i ->
+            T.pack $ printf "%sif true { %d } else {\n" (T.concat $ const " " `map` [1 .. i]) i
+          lines' = take iters $ flip map [1 :: Int ..] $ \i ->
+            T.pack $ printf "%s}\n" (T.concat $ const " " `map` [1 .. (iters + 1 - i)])
+          lines'' = ["let main = fn() {\nlet x = "] ++ lines ++ ["1337\n"] ++ lines' ++ [";};\n"]
+       in foldl' T.append "" lines''
+    bench4 =
+      let mkFn n =
+            let iters = 20
+                lines = take iters $ flip map [1 :: Int ..] $ \i ->
+                  T.pack $ printf "%sif true { %d } else {\n" (T.concat $ const " " `map` [1 .. i]) i
+                lines' = take iters $ flip map [1 :: Int ..] $ \i ->
+                  T.pack $ printf "%s}\n" (T.concat $ const " " `map` [1 .. (iters + 1 - i)])
+                lines'' = [T.pack $ printf "let f%d = fn() -> int {\n" n] ++ lines ++ ["1337\n"] ++ lines' ++ ["};\n"]
+             in foldl' T.append "" lines''
+          iters = 10
+          lines = take iters $ map mkFn [1 :: Int ..]
+          lines' = "let main = fn() {};\n" : lines
+       in T.concat lines'
 
 mkBench :: String -> IO Text -> Benchmark
 mkBench name io = env io $ \src -> bench name $ nfIO (runBench src)

@@ -10,7 +10,13 @@ import DW.Frontend qualified as Frontend
 import Options.Applicative
 import System.Exit (exitWith)
 
-data BuildOpts = BuildOpts {sourceFile :: Text, outputFile :: Maybe Text, quiet :: Bool, verbose :: Bool}
+data BuildOpts = BuildOpts
+  { sourceFile :: Text,
+    outputFile :: Maybe Text,
+    quiet :: Bool,
+    verbose :: Bool,
+    showGeneratedC :: Bool
+  }
 
 newtype LSPOpts = LSPOpts {sourceFile :: Text}
 
@@ -23,20 +29,22 @@ parseBuild =
     <*> optional (option str (long "output" <> short 'o' <> help "path to compiled executable"))
     <*> switch (long "quiet" <> short 'q' <> help "produce no output")
     <*> switch (long "verbose" <> short 'v' <> help "show detailed logs")
+    <*> switch (long "show-generated-c" <> help "instead of compiling, print the generated C code")
 
 parseLSP :: Parser LSPOpts
 parseLSP = LSPOpts <$> argument str (metavar "SOURCE_FILE" <> help "the source file to watch")
 
 buildOptsToConfig :: BuildOpts -> ConfigData
-buildOptsToConfig (BuildOpts {sourceFile, outputFile, quiet, verbose}) =
+buildOptsToConfig (BuildOpts {sourceFile, outputFile, quiet, verbose, showGeneratedC}) =
   ConfigData
     { sourceFile,
       outputFile,
-      logLevel = if quiet then Quiet else if verbose then Loud else Default
+      logLevel = if quiet then Quiet else if verbose then Loud else Default,
+      showGeneratedC = showGeneratedC
     }
 
 lspOptsToConfig :: LSPOpts -> ConfigData
-lspOptsToConfig (LSPOpts {sourceFile}) = ConfigData {sourceFile, outputFile = Nothing, logLevel = Quiet}
+lspOptsToConfig (LSPOpts {sourceFile}) = ConfigData {sourceFile, outputFile = Nothing, logLevel = Quiet, showGeneratedC = False}
 
 parseCLI :: Parser Command
 parseCLI =
