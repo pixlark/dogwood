@@ -54,6 +54,7 @@ data Expr
   | Builtin Text
   | Lambda {params :: [(LST TypeExpr, LST Text)], returnType :: LST TypeExpr, body :: LST Expr}
   | NewOperator {ty :: LST TypeExpr, arguments :: [LST Expr]}
+  | Dereference (LST Expr)
   deriving (Eq)
 
 newtype LValue = LVariable T.Text
@@ -173,6 +174,7 @@ instance Show Expr where
           Just arg -> tell $ show arg
           Nothing -> tell ", "
       tell ")"
+  show (Dereference expr) = printf "*%s" (show expr)
 
 instance Show LValue where
   show (LVariable name) = T.unpack name

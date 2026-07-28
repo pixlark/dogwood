@@ -17,6 +17,23 @@ import DW.Util
 import Control.Monad (join)
 import Data.HashMap.Strict qualified as HashMap
 
+compilePrimitiveConstructor ::
+  (HasCallStack, State Compiler :> es, Log :> es)
+  => TypeExpr -> [TST Expr] -> Span -> Eff es Term
+compilePrimitiveConstructor ty args span = do
+  when ty.reference throwICE
+  case ty.valueExpr of
+    Void -> do
+      unless (null args) throwICE
+      emit ty RVoid span
+    Int -> do
+      unless (length args == 1) throwICE
+      compileExpr (head args)
+    Bool -> do
+      unless (length args == 1) throwICE
+      compileExpr (head args)
+    _ -> throwICE
+
 compileBody :: (HasCallStack, State Compiler :> es, Log :> es) => Body -> Span -> Eff es Term
 compileBody (Body ty stmts) span = do
   results <- forM stmts compileStmt
@@ -151,12 +168,17 @@ compileExpr (TST (Lambda ty params _ body) span) = do
   fnId <- compileLambda ty params body span
 
   emit ty (RLoadFn fnId) span
-compileExpr (TST (NewOperator ty args) span) = undefined
+compileExpr (TST new@(NewOperator (TST ty _) args) span) = do
+  refTerm <- emit (typeOf new) (RAllocRef ty) span
+  valueTerm <- compilePrimitiveConstructor ty args span
+  emitWriteRef refTerm valueTerm span
+  return refTerm
+compileExpr (TST (Dereference ty value) span) = do
+  valueTerm <- compileExpr value
+  emit ty (RDereference valueTerm) span
 
 compileStmt :: (HasCallStack, State Compiler :> es, Log :> es) => TST Stmt -> Eff es (Maybe Term)
 compileStmt (TST (Let (TST name span) (TST ty _) value) _) = do
-  -- special case for undefined
-  -- this should get torn out eventually
   valTerm <- compileExpr value
   blockId <- gets activeBlock
   scribe $ format "Binding new variable {} ({}) in block {}" (Shown name, getVarId name, Shown blockId)

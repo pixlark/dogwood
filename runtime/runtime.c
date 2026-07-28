@@ -326,6 +326,17 @@ Type make_type_fn(Type ret, size_t arg_count, Type *args)
     return type;
 }
 
+Type make_type_reference(Type inner)
+{
+    Type type;
+    type.tag = TYPE_REFERENCE;
+    type.inner_count = 1;
+    Type *inner_ptr = malloc(sizeof(Type));
+    memcpy(inner_ptr, &inner, sizeof(Type));
+    type.inner = inner_ptr;
+    return type;
+}
+
 Box box_value(void *value, Type type)
 {
     Box box;
@@ -347,6 +358,10 @@ Box box_value(void *value, Type type)
         *((int64_t *)box.value) = *((int64_t *)value);
         break;
     case TYPE_FN:
+        box.value = malloc(sizeof(void*));
+        *((void **)box.value) = *((void **)value);
+        break;
+    case TYPE_REFERENCE:
         box.value = malloc(sizeof(void*));
         *((void **)box.value) = *((void **)value);
         break;
@@ -381,6 +396,11 @@ void print_type(Type type)
         }
         printf(") -> ");
         print_type(type.inner[type.inner_count - 1]);
+        break;
+    case TYPE_REFERENCE:
+        printf("&");
+        print_type(*type.inner);
+        break;
     }
 }
 
@@ -403,6 +423,14 @@ uint8_t builtin_print(Box box)
         print_type(box.type);
         printf(" @ %p\n", *((void **)box.value));
         break;
+    case TYPE_REFERENCE: {
+        printf("&");
+        Type inner_type = *box.type.inner;
+        Box inner_box;
+        inner_box.type = inner_type;
+        inner_box.value = *((void **)box.value);
+        builtin_print(inner_box);
+    } break;
     }
     return 0;
 }

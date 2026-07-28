@@ -53,6 +53,7 @@ data Operator
   | Divide
   | Not
   | Modulo
+  | Dereference
   deriving (Eq)
 
 data Expr
@@ -131,6 +132,7 @@ instance Show Operator where
   show Divide = "/"
   show Not = "!"
   show Modulo = "%"
+  show Dereference = "*"
 
 instance Show Expr where
   show VoidLit = "void"

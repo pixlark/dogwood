@@ -64,6 +64,7 @@ data Expr
   | Boxed TypeExpr Expr
   | Lambda {lambdaTy :: TypeExpr, params :: [(TST TypeExpr, TST VarName)], returnType :: TST TypeExpr, body :: TST Expr}
   | NewOperator {newTy :: TST TypeExpr, arguments :: [TST Expr]}
+  | Dereference {derefTy :: TypeExpr, expr :: TST Expr}
   deriving (Eq)
 
 makeValueExpr :: ValueTypeExpr -> TypeExpr
@@ -80,25 +81,32 @@ mkBool = makeValueExpr Bool
 
 mkInt = makeValueExpr Int
 
-typeOf :: Expr -> TypeExpr
-typeOf VoidLit = makeValueExpr Void
-typeOf (BoolLit _) = makeValueExpr Bool
-typeOf (IntLit _) = makeValueExpr Int
-typeOf (Variable t _) = t
-typeOf (BinaryOperator t _ _ _) = t
-typeOf (UnaryOperator t _ _) = t
-typeOf (FunctionCall {type_}) = type_
-typeOf (ExprBody (Body t _)) = t
-typeOf (IfThen t _ _ _) = t
-typeOf (Builtin t _) = t
--- the type annotation on Boxed isn't the type of the expression (a boxed expression is always of
--- the Any type), but rather the type of the interior, boxed expression
-typeOf (Boxed _ _) = mkAny
-typeOf (Lambda t _ _ _) = t
--- The new operator is annotated with the _value_ type that it allocates, but the expression
--- actually _evaluates_ to a reference type. This should be verified by the typechecking phase.
-typeOf (NewOperator (TST (TypeExpr {reference = False, valueExpr}) _) _) = TypeExpr {reference = True, valueExpr}
-typeOf (NewOperator _ _) = throwICE
+class TypeOf a where
+  typeOf :: a -> TypeExpr
+
+instance TypeOf Expr where
+  typeOf VoidLit = makeValueExpr Void
+  typeOf (BoolLit _) = makeValueExpr Bool
+  typeOf (IntLit _) = makeValueExpr Int
+  typeOf (Variable t _) = t
+  typeOf (BinaryOperator t _ _ _) = t
+  typeOf (UnaryOperator t _ _) = t
+  typeOf (FunctionCall {type_}) = type_
+  typeOf (ExprBody (Body t _)) = t
+  typeOf (IfThen t _ _ _) = t
+  typeOf (Builtin t _) = t
+  -- the type annotation on Boxed isn't the type of the expression (a boxed expression is always of
+  -- the Any type), but rather the type of the interior, boxed expression
+  typeOf (Boxed _ _) = mkAny
+  typeOf (Lambda t _ _ _) = t
+  -- The new operator is annotated with the _value_ type that it allocates, but the expression
+  -- actually _evaluates_ to a reference type. This should be verified by the typechecking phase.
+  typeOf (NewOperator (TST (TypeExpr {reference = False, valueExpr}) _) _) = TypeExpr {reference = True, valueExpr}
+  typeOf (NewOperator _ _) = throwICE
+  typeOf (Dereference t _) = t
+
+instance TypeOf LValue where
+  typeOf (LVariable t _) = t
 
 data LValue = LVariable TypeExpr VarName
   deriving (Eq)
@@ -210,6 +218,7 @@ instance Show Expr where
           Just arg -> tell $ show arg
           Nothing -> tell ", "
       tell ")"
+  show (Dereference _ expr) = printf "*%s" (show expr)
 
 instance Show LValue where
   show (LVariable _ name) = T.unpack $ getVarText name

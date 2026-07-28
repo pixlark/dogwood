@@ -39,6 +39,7 @@ lowerOperator AST.Multiply = L.Multiply
 lowerOperator AST.Divide = L.Divide
 lowerOperator AST.Not = L.Not
 lowerOperator AST.Modulo = L.Modulo
+lowerOperator AST.Dereference = error "unreachable"
 
 lowerExpr :: AST.AST AST.Expr -> L.LST L.Expr
 lowerExpr (AST.AST (AST.IfChain ((condition, body) :| []) elseBody) span) =
@@ -62,7 +63,9 @@ lowerExpr ast = lowerAST ast $ \case
   AST.BinaryOperator op left right ->
     L.BinaryOperator (lowerOperator op) (lowerExpr left) (lowerExpr right)
   AST.UnaryOperator op operand ->
-    L.UnaryOperator (lowerOperator op) (lowerExpr operand)
+    if op == AST.Dereference
+      then L.Dereference (lowerExpr operand)
+      else L.UnaryOperator (lowerOperator op) (lowerExpr operand)
   AST.FunctionCall fn args ->
     L.FunctionCall (lowerExpr fn) (map lowerExpr args)
   AST.ExprBody body -> L.ExprBody (lowerBody body)

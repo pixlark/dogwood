@@ -55,6 +55,7 @@ data Expr
   | Builtin Text
   | Lambda {params :: [(NST TypeExpr, NST VarName)], returnType :: NST TypeExpr, body :: NST Expr}
   | NewOperator {ty :: NST TypeExpr, arguments :: [NST Expr]}
+  | Dereference (NST Expr)
   deriving (Eq)
 
 newtype LValue = LVariable VarName
@@ -174,6 +175,7 @@ instance Show Expr where
           Just arg -> tell $ show arg
           Nothing -> tell ", "
       tell ")"
+  show (Dereference expr) = printf "*%s" (show expr)
 
 instance Show LValue where
   show (LVariable name) = show name

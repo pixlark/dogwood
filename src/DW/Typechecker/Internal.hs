@@ -6,8 +6,6 @@ module DW.Typechecker.Internal where
 import DW.AST (SyntaxTree (..))
 import DW.Common
 import DW.Error (markSpan)
--- import DW.LexicalScopes hiding (lookupVariable)
--- import DW.LexicalScopes qualified as LexicalScopes
 import DW.NameResolutionPass.Names
 import DW.NamedAST (NST (..))
 import DW.NamedAST qualified as N
@@ -18,6 +16,7 @@ import DW.Util
 import Control.Monad (join)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
+import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
 import Effectful.State.Static.Local (modifyM)
 
@@ -112,6 +111,26 @@ operatorSupportsType op ty =
     || (op `elem` numericOperators && ty == T.makeValueExpr T.Int)
     || (op `elem` booleanOperators && ty == T.makeValueExpr T.Bool)
 
+-- tryCoerceRef :: T.TypeExpr -> T.TypeExpr -> Maybe T.TypeExpr
+-- tryCoerceRef t into
+--   | t.reference && not into.reference =
+--       let coerced = t {T.reference = False}
+--        in if coerced `unifies` into then Just coerced else Nothing
+-- tryCoerceRef t into = if t `unifies` into then Just t else Nothing
+
+-- -- | If the provided type is a reference, coerce it to a value t
+-- coerceReference :: T.TypeExpr -> T.TypeExpr
+
+-- disabled because I decided against auto-dereferencing for the time being
+-- -- | If the provided expression is a reference type, then wrap it in a dereference.
+-- potentiallyInsertDeref :: T.TypeExpr -> TST T.Expr -> TST T.Expr
+-- potentiallyInsertDeref coerceTo expr
+--   | isValueType coerceTo = case typeOf (node expr) of
+--       T.TypeExpr {reference = True, valueExpr} ->
+--         TST (T.Dereference (T.TypeExpr {reference = False, valueExpr}) expr) (spanOf expr)
+--       _ -> expr
+--   | otherwise = expr
+
 unifies :: T.TypeExpr -> T.TypeExpr -> Bool
 -- the `any` type unifies with everything
 unifies (T.TypeExpr {valueExpr = T.Any}) _ = True
@@ -121,6 +140,18 @@ unifies t1 t2 = t1 == t2
 
 doesNotUnify :: T.TypeExpr -> T.TypeExpr -> Bool
 doesNotUnify t1 t2 = not (t1 `unifies` t2)
+
+isValueType :: T.TypeExpr -> Bool
+isValueType T.TypeExpr {reference} = not reference
+
+isReferenceType :: T.TypeExpr -> Bool
+isReferenceType T.TypeExpr {reference} = reference
+
+canDereference :: T.ValueTypeExpr -> Bool
+canDereference T.Void = True
+canDereference T.Int = True
+canDereference T.Bool = True
+canDereference _ = False
 
 typecheckBody ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
@@ -207,8 +238,8 @@ typecheckExpr (NST (N.FunctionCall {function, arguments}) span) = do
     when (tyArg `doesNotUnify` tyParam) $ markSpan (spanOf tArg) (typeMismatch tyParam tyArg)
     -- If a function's parameter has the type "any", then the value passed through that argument
     -- will get coerced to "any", meaning it has to be boxed up.
-    tArg' <- potentiallyBox tyParam `traverse` tArg
-    return tArg'
+    tArg'' <- potentiallyBox tyParam `traverse` tArg
+    return tArg''
   return $ TST (T.FunctionCall {type_ = node ret, function = tFunction, arguments = tArguments}) span
 typecheckExpr (NST (N.ExprBody body) span) = do
   tBody <- typecheckBody (NST body span)
@@ -272,6 +303,19 @@ typecheckExpr (NST (N.NewOperator (NST ty tySpan) args) span) = do
           markSpan tySpan $ typeMismatch ty (typeOf (node tArg))
         return tArg
       return $ TST (T.NewOperator (TST tTy tySpan) tArgs) span
+typecheckExpr (NST (N.Dereference expr) span) = do
+  tExpr <- typecheckExpr expr
+  let ty = typeOf (node tExpr)
+  case typeOf (node tExpr) of
+    T.TypeExpr {reference = False} -> do
+      markSpan span $ DereferencedValueType (Text.show ty)
+      return $ TST (T.Dereference ty tExpr) span
+    T.TypeExpr {valueExpr} | not (canDereference valueExpr) -> do
+      markSpan span $ NonDereferenceableType (Text.show ty)
+      return $ TST (T.Dereference ty tExpr) span
+    T.TypeExpr {valueExpr} -> do
+      let innerTy = T.TypeExpr {reference = False, valueExpr}
+      return $ TST (T.Dereference innerTy tExpr) span
 
 typeMismatch :: T.TypeExpr -> T.TypeExpr -> ErrorKind
 typeMismatch expected got = TypeMismatch {expectedType = Text.show expected, gotType = Text.show got}
@@ -289,32 +333,47 @@ typecheckStmt ::
   => NST N.Stmt
   -> Eff es (TST T.Stmt)
 typecheckStmt (NST (N.Let {name, type_, value}) span) = do
-  tValue <- typecheckExpr value
+  withRegion (format "Typechecking let for {}" (Only (getVarText (node name)))) do
+    tValue <- typecheckExpr value
 
-  -- If they provided a type annotation, then make sure it's correct
-  maybeBoxedTValue <- forM type_ $ \type_ -> do
-    let typeAnnotation = convertNST $ convertTypeExpr <$> type_
-    let expectType = typeOf (node tValue)
-    when (node typeAnnotation `doesNotUnify` expectType) do
-      markSpan (spanOf value) (typeMismatch (node typeAnnotation) expectType)
+    -- If they provided a type annotation, then make sure it's correct
+    let typeAnnotation = fmap (\t -> convertNST $ convertTypeExpr <$> t) type_
+    scribe $ format "Provided type annotation: {}" (Only (Shown typeAnnotation))
 
-    -- Also, if the type annotation is `any`, then we need to auto-box the value
-    potentiallyBox (node typeAnnotation) `traverse` tValue
+    maybeBoxedValue <- forM typeAnnotation $ \typeAnnotation -> do
+      -- Check that the type annotation is correct
+      let expectType = typeOf (node tValue)
+      when (node typeAnnotation `doesNotUnify` expectType) do
+        markSpan (spanOf value) (typeMismatch (node typeAnnotation) expectType)
 
-  let tValue' = maybeBoxedTValue `orElse` tValue
+      -- Similarly to auto-dereferencing -- if they use an explicitly provided 'any'
+      -- type, then we want to automatically box that for them.
+      potentiallyBox (node typeAnnotation) `traverse` tValue
 
-  -- If they provided a type annotation, then we take that as canonical.
-  -- Otherwise, we use the inferred type.
-  -- Generally they'll be the same, but subtyping introduces some subtlety here
-  let boundTy = (convertNST <$> convertTypeExpr <$$> type_) `orElse` (typeOf <$> tValue')
+    let isBoxed (T.Boxed _ _) = True
+        isBoxed _ = False
+    when ((isBoxed . node <$> maybeBoxedValue) `orElse` False) do
+      scribe "Value was automatically boxed"
 
-  scribe $ format "Binding variable {} (type: {})" (Shown (node name), Shown type_)
-  bindVariable (node name) (node boundTy)
+    let boxedValue = maybeBoxedValue `orElse` tValue
 
-  return $ TST (T.Let {name = convertNST name, type_ = boundTy, value = tValue'}) span
+    -- If they provided a type annotation, then we take that as canonical.
+    -- Otherwise, we use the inferred type.
+    -- Generally they'll be the same, but subtyping introduces some subtlety here
+    let boundTy = typeAnnotation `orElse` (typeOf <$> boxedValue)
+    scribe $ format "Final canonical type: {}" (Only (Shown boundTy))
+
+    scribe $ format "Binding variable {} (type: {})" (Shown (node name), Shown type_)
+    bindVariable (node name) (node boundTy)
+
+    return $ TST (T.Let {name = convertNST name, type_ = boundTy, value = boxedValue}) span
 typecheckStmt (NST (N.Assign {lvalue, value}) span) = do
   tLValue <- typecheckLValue lvalue
+
+  -- If the user assigns a reference to a value type, we want to automatically
+  -- dereference that for them.
   tValue <- typecheckExpr value
+
   let (T.LVariable tyL _) = node tLValue
       tyR = typeOf (node tValue)
 

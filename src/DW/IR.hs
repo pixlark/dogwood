@@ -39,6 +39,9 @@ data RHS
   | RParameter Int
   | -- Statics
     RLoadStatic StaticId
+  | -- References
+    RAllocRef T.TypeExpr
+  | RDereference Term
   | -- Misc
     RBuiltin Text
   | RBox T.TypeExpr Term
@@ -53,11 +56,15 @@ data Control = Halt | Ret Term | Jump BlockId | JumpIf Term BlockId BlockId
 data SSA = SSA {ty :: T.TypeExpr, term :: Term, rhs :: RHS, span :: Span}
   deriving (Eq)
 
+data WriteRef = WriteRef {ref :: Term, value :: Term, span :: Span}
+  deriving (Eq)
+
 data SetStatic = SetStatic {label :: Label, static :: StaticId, term :: Term, span :: Span}
   deriving (Eq)
 
 data Instruction
   = SSAInst SSA
+  | WriteRefInst WriteRef
   | SetStaticInst SetStatic
   deriving (Eq)
 
@@ -102,6 +109,8 @@ instance Show RHS where
   show (RLoadFn id) = printf "loadfn %s" (show id)
   show (RParameter idx) = printf "param %s" (show idx)
   show (RLoadStatic static) = printf "loadstatic %s" (show static)
+  show (RAllocRef ty) = printf "allocref %s" (show ty)
+  show (RDereference term) = printf "*%s" (show term)
   show (RBuiltin name) = Text.unpack name
   show (RBox ty term) = printf "box %s : %s" (show term) (show ty)
 
@@ -125,11 +134,13 @@ instance Show Control where
 
 instance Show Instruction where
   show (SSAInst SSA {ty, term, rhs}) = printf "%s: %s = %s" (show term) (show ty) (show rhs)
+  show (WriteRefInst WriteRef {ref, value}) = printf "writeref %s <- %s" (show ref) (show value)
   show (SetStaticInst SetStatic {static, term}) = printf "setstatic %s <- %s" (show static) (show term)
 
 instance ShowWithSource Instruction where
   showWithSource source inst = case inst of
     SSAInst (SSA {span}) -> print span
+    WriteRefInst (WriteRef {span}) -> print span
     SetStaticInst (SetStatic {span}) -> print span
     where
       left = show inst

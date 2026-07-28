@@ -3,7 +3,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module DW.EmitC.Internal.EmitEffect (Emit, emit, preamble, flush, abort, runEmit) where
+module DW.EmitC.Internal.EmitEffect (Emit, emit, preamble, flush, abort, getUnique, runEmit) where
 
 import DW.Common
 
@@ -20,6 +20,7 @@ data Emit :: Effect where
   Preamble :: m () -> Emit m ()
   Flush :: Emit m ()
   Abort :: Emit m ()
+  GetUnique :: Emit m Text
 
 -- | Write some text into the current `Emit` context.
 emit :: (Emit :> es) => Text -> Eff es ()
@@ -39,17 +40,33 @@ flush = send Flush
 abort :: (Emit :> es) => Eff es ()
 abort = send Abort
 
+-- | Get a unique string in this emit context
+getUnique :: (Emit :> es) => Eff es Text
+getUnique = send GetUnique
+
 type instance DispatchOf Emit = Dynamic
 
-data EmitState = EmitState {text :: Builder, emitBuffer :: Builder}
+data EmitFrame = EmitFrame {text :: Builder, emitBuffer :: Builder}
 
-mkEmitState = EmitState {text = mempty, emitBuffer = mempty}
+data EmitState = EmitState {frames :: NonEmpty EmitFrame, uniqCounter :: Int}
 
-modifyCurrent :: (State (NonEmpty EmitState) :> es) => (EmitState -> EmitState) -> Eff es ()
+mkEmitFrame = EmitFrame {text = mempty, emitBuffer = mempty}
+
+mkEmitState =
+  EmitState
+    { frames = NE.singleton mkEmitFrame,
+      uniqCounter = 0
+    }
+
+modifyCurrent :: (State EmitState :> es) => (EmitFrame -> EmitFrame) -> Eff es ()
 modifyCurrent f = do
-  current <- NE.head <$> get
+  current <- NE.head <$> gets frames
   let current' = f current
-  modify (\(_ :| rest) -> current' :| rest)
+  modifyFrameStack (\(_ :| rest) -> current' :| rest)
+
+modifyFrameStack :: (State EmitState :> es) => (NonEmpty EmitFrame -> NonEmpty EmitFrame) -> Eff es ()
+modifyFrameStack f =
+  modify (\s -> s {frames = f s.frames})
 
 runEmit :: Eff (Emit : es) () -> Eff es Text
 runEmit = reinterpret evaluator $ \env -> \case
@@ -58,26 +75,32 @@ runEmit = reinterpret evaluator $ \env -> \case
   Emit text -> modifyCurrent (\s -> s {emitBuffer = s.emitBuffer <> fromText text})
   Preamble f -> do
     -- Push a new state to the stack
-    modify (\e -> mkEmitState :| NE.toList e)
+    modifyFrameStack (\e -> mkEmitFrame :| NE.toList e)
     -- Then, perform the preamble
     localSeqUnlift env $ \unlift -> do
       unlift f
     -- Perform a final flush (in case the user didn't)
     modifyCurrent flusher
     -- Grab the final result from this state
-    final <- text . NE.head <$> get
+    final <- text . NE.head <$> gets frames
     -- Pop it from the stack
-    modify (\(_ :| rest) -> NE.fromList rest)
+    modifyFrameStack (\(_ :| rest) -> NE.fromList rest)
     -- Then write the final result directly into our text
     modifyCurrent (\s -> s {text = s.text <> final})
   -- Flush everything in the emit buffer into the final text.
   Flush -> modifyCurrent flusher
   -- Abort the current emit buffer, wipe it clean
   Abort -> modifyCurrent (\s -> s {emitBuffer = mempty})
+  -- Get a unique string
+  GetUnique -> do
+    uniq <- gets uniqCounter
+    modify (\s -> s {uniqCounter = uniq + 1})
+    return $ Text.pack $ printf "_%d" uniq
   where
     flusher s = s {text = s.text <> s.emitBuffer, emitBuffer = mempty}
     evaluator e = do
-      (s :| _) <- execState (NE.singleton mkEmitState) e
+      s <- execState mkEmitState e
+      let f = NE.head s.frames
       -- Perform one final flush
-      let s' = flusher s
-      return $ LazyText.toStrict $ toLazyText s'.text
+      let f' = flusher f
+      return $ LazyText.toStrict $ toLazyText f'.text

@@ -113,6 +113,10 @@ runExprVisitor v expr@(TST (NewOperator ty args) _) = do
     runTypeExprVisitor v ty
     forM_ args $ \arg -> do
       runExprVisitor v arg
+runExprVisitor v expr@(TST (Dereference ty val) span) = do
+  onExpr v expr do
+    runTypeExprVisitor v (TST ty span)
+    runExprVisitor v val
 
 runStmtVisitor :: (Monad m) => Visitor m -> TST Stmt -> m ()
 runStmtVisitor v stmt@(TST (Let _ type_ value) _) =

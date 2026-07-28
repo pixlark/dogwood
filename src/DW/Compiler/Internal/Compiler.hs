@@ -310,6 +310,13 @@ emit ty rhs span = do
 
   return term
 
+emitWriteRef :: (HasCallStack, State Compiler :> es) => Term -> Term -> Span -> Eff es ()
+emitWriteRef ref value span = do
+  let writeRef = WriteRef {ref, value, span}
+  activeBlock <- gets activeBlock
+  modifyBlock activeBlock $ \block@Block {instructions} -> do
+    return block {instructions = instructions ++ [WriteRefInst writeRef]}
+
 emitSetStatic :: (HasCallStack, State Compiler :> es) => StaticId -> Term -> Span -> Eff es ()
 emitSetStatic static term span = do
   label <- mkLabel

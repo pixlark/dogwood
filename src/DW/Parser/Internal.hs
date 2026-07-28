@@ -236,6 +236,7 @@ parseUnary = produceSpannedAST $ do
           Glyph "+" -> Just A.Plus
           Glyph "-" -> Just A.Minus
           Glyph "!" -> Just A.Not
+          Glyph "*" -> Just A.Dereference
           _ -> Nothing
   case operator of
     Just op -> do

@@ -30,6 +30,8 @@ data ErrorKind
   | CannotAllocateReference
   | NonConstructibleType
   | WrongConstructorCount {expectedCount :: Int, gotCount :: Int}
+  | DereferencedValueType {gotType :: Text}
+  | NonDereferenceableType {gotType :: Text}
   deriving (Eq)
 
 data Err = Err ErrorKind Span
@@ -59,3 +61,5 @@ instance Show ErrorKind where
   show CannotAllocateReference = printf "Cannot allocate reference type (only constructible value types can be allocated)"
   show NonConstructibleType = printf "Type is not constructible (cannot be allocated with 'new')"
   show (WrongConstructorCount expected got) = printf "Type constructor expects %d arguments (got %d)" expected got
+  show (DereferencedValueType ty) = printf "Can't dereference value type (%s)" (show ty)
+  show (NonDereferenceableType ty) = printf "Type %s is non-dereferenceable" (show ty)

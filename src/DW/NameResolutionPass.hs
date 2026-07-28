@@ -164,6 +164,9 @@ resolveExpr (LST (L.NewOperator ty args) span) = do
   nTy <- resolveType ty
   nArgs <- resolveExpr `traverse` args
   return $ NST (N.NewOperator nTy nArgs) span
+resolveExpr (LST (L.Dereference expr) span) = do
+  nExpr <- resolveExpr expr
+  return $ NST (N.Dereference nExpr) span
 
 resolveTopLevel ::
   (State NameResolver :> es, Errors Err :> es)

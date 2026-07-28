@@ -93,20 +93,37 @@ emitOperator Divide = "/"
 emitOperator Not = "!"
 emitOperator Modulo = "%"
 
-emitRuntimeTypeInfo :: (Emit :> es) => ValueTypeExpr -> Eff es ()
-emitRuntimeTypeInfo Any = emit "make_type_any()"
-emitRuntimeTypeInfo Void = emit "make_type_void()"
-emitRuntimeTypeInfo Bool = emit "make_type_bool()"
-emitRuntimeTypeInfo Int = emit "make_type_int()"
-emitRuntimeTypeInfo (Function args (TST TypeExpr {valueExpr = ret} _)) = do
+emitRuntimeTypeInfo :: (Emit :> es) => TypeExpr -> Eff es ()
+emitRuntimeTypeInfo (TypeExpr {reference = True, valueExpr}) = do
+  innerTypeId <- ("_ref_inner_type" `Text.append`) <$> getUnique
   preamble do
-    emit "  Type _function_type;\n"
+    emit "  Type "
+    emit innerTypeId
+    emit " = "
+    emitValueExprRTTI valueExpr
+    emit ";\n"
+  emit "make_type_reference("
+  emit innerTypeId
+  emit ")"
+emitRuntimeTypeInfo (TypeExpr {reference = False, valueExpr}) = emitValueExprRTTI valueExpr
+
+emitValueExprRTTI :: (Emit :> es) => ValueTypeExpr -> Eff es ()
+emitValueExprRTTI Any = emit "make_type_any()"
+emitValueExprRTTI Void = emit "make_type_void()"
+emitValueExprRTTI Bool = emit "make_type_bool()"
+emitValueExprRTTI Int = emit "make_type_int()"
+emitValueExprRTTI (Function args (TST ret _)) = do
+  fnTypeId <- ("_function_type" `Text.append`) <$> getUnique
+  preamble do
+    emit "  Type "
+    emit fnTypeId
+    emit ";\n"
     emit "  {\n"
     emit "    Type _return_type = "
     emitRuntimeTypeInfo ret
     emit ";\n"
 
-    forM_ (args `zip` [0 :: Int ..]) $ uncurry \(TST TypeExpr {valueExpr = arg} _) i -> do
+    forM_ (args `zip` [0 :: Int ..]) $ uncurry \(TST arg _) i -> do
       emit "    Type _arg"
       emit $ Text.show i
       emit " = "
@@ -123,12 +140,14 @@ emitRuntimeTypeInfo (Function args (TST TypeExpr {valueExpr = ret} _)) = do
       Nothing -> emit ", "
     emit "};\n"
 
-    emit "    _function_type = make_type_fn(_return_type, "
+    emit "    "
+    emit fnTypeId
+    emit " = make_type_fn(_return_type, "
     emit $ Text.show $ length args
     emit ", _args);\n"
 
     emit "  }\n"
-  emit "_function_type"
+  emit fnTypeId
 
 emitRHS :: (Emit :> es) => RHS -> Eff es ()
 emitRHS RVoid = emit "0"
@@ -161,12 +180,19 @@ emitRHS (RLoadStatic (StaticId staticId)) = do
   emit $ Text.show staticId
 emitRHS (RBuiltin name) = do
   emit name
-emitRHS (RBox TypeExpr {valueExpr = ty} term) = do
+emitRHS (RBox ty term) = do
   emit "box_value(&"
   emit $ Text.show term
   emit ", "
   emitRuntimeTypeInfo ty
   emit ")"
+emitRHS (RAllocRef ty) = do
+  emit "malloc(sizeof("
+  emitType (return ()) ty
+  emit "))"
+emitRHS (RDereference term) = do
+  emit "*"
+  emit $ Text.show term
 
 emitFn :: (Emit :> es, Errors Err :> es) => FnDef -> Eff es ()
 emitFn (FnDef ty blocks) = do
@@ -190,6 +216,7 @@ emitFn (FnDef ty blocks) = do
           emit " = "
           emitZeroValue ty
           emit ";\n"
+        WriteRefInst (WriteRef {}) -> return ()
         SetStaticInst (SetStatic {}) -> return ()
     forM_ phis $ \(Phi {ty, term}) -> do
       emit "  "
@@ -216,6 +243,12 @@ emitFn (FnDef ty blocks) = do
           emit $ Text.show term
           emit " = "
           emitRHS rhs
+          emit ";\n"
+        WriteRefInst (WriteRef {ref, value}) -> do
+          emit "  *"
+          emit $ Text.show ref
+          emit " = "
+          emit $ Text.show value
           emit ";\n"
         SetStaticInst (SetStatic {static = (StaticId static), term}) -> do
           emit "  _static_"

@@ -17,6 +17,7 @@ typedef enum {
     TYPE_BOOL,
     TYPE_INT,
     TYPE_FN,
+    TYPE_REFERENCE,
 } TypeTag;
 
 typedef struct Type {
@@ -35,6 +36,7 @@ Type make_type_void();
 Type make_type_bool();
 Type make_type_int();
 Type make_type_fn(Type ret, size_t arg_count, Type *args);
+Type make_type_reference(Type inner);
 Box box_value(void *value, Type type);
 
 uint8_t builtin_print(Box box);
