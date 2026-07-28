@@ -199,6 +199,26 @@ compileStmt (TST (Assign (TST (LVariable _ name) _) value) span) = do
       (static, _) <- lookupStaticVariable name <&> unwrapICE
       emitSetStatic static valTerm span
       return Nothing
+compileStmt (TST (Assign (TST (LDereference _ inner) _) value) span) = do
+  valueTerm <- compileExpr value
+  let refName = case inner of
+        TST (LDereference _ _) _ -> throwICE
+        TST (LVariable _ name) _ -> name
+  maybeVar <- lookupVariable refName
+  case maybeVar of
+    Just (AbstractVariable {name}) -> do
+      activeBlock <- gets activeBlock
+      refTerm <- determineTermInBlock name activeBlock
+      emitWriteRef refTerm valueTerm span
+    Nothing -> do
+      -- For now top-level variables are really limited, so we literally
+      -- can't make them a reference. Meaning in the compiler phase here
+      -- we don't have to worry about if the lvalue points to a static
+      -- variable -- it literally can't.
+      -- This will change eventually though once we introduce implicitly
+      -- delayed initializers for top-level variables.
+      throwICE
+  return Nothing
 compileStmt (TST (ExprStmt expr semicolon) _) = do
   term <- compileExpr expr
   if semicolon then return Nothing else return (Just term)

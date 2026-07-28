@@ -58,7 +58,9 @@ data Expr
   | Dereference (NST Expr)
   deriving (Eq)
 
-newtype LValue = LVariable VarName
+data LValue
+  = LVariable VarName
+  | LDereference (NST LValue)
   deriving (Eq)
 
 newtype Body = Body [NST Stmt]
@@ -179,6 +181,7 @@ instance Show Expr where
 
 instance Show LValue where
   show (LVariable name) = show name
+  show (LDereference lv) = printf "*%s" (show lv)
 
 instance Show Body where
   show (Body stmts) = execWriter $ do

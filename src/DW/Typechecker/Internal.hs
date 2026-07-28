@@ -327,6 +327,19 @@ typecheckLValue :: (State Typechecker :> es, Errors Err :> es) => NST N.LValue -
 typecheckLValue (NST (N.LVariable name) span) = do
   ty <- lookupVariable name `orElseMarkSpanM` (span, UnboundVariable (getVarText name), T.mkAny)
   return $ TST (T.LVariable ty name) span
+typecheckLValue (NST (N.LDereference inner) span) = do
+  tInner <- typecheckLValue inner
+  let innerTy = typeOf (node tInner)
+  if isReferenceType innerTy
+    then do
+      let T.TypeExpr {valueExpr} = innerTy
+          derefTy = T.TypeExpr {reference = False, valueExpr}
+      return $ TST (T.LDereference derefTy tInner) span
+    else do
+      markSpan span $ DereferencedValueType (Text.show innerTy)
+      -- For the purposes of finding more errors, assume the user meant
+      -- to use the inner value type here.
+      return tInner
 
 typecheckStmt ::
   (HasCallStack, State Typechecker :> es, Errors Err :> es, Log :> es)
@@ -374,7 +387,7 @@ typecheckStmt (NST (N.Assign {lvalue, value}) span) = do
   -- dereference that for them.
   tValue <- typecheckExpr value
 
-  let (T.LVariable tyL _) = node tLValue
+  let tyL = typeOf (node tLValue)
       tyR = typeOf (node tValue)
 
   when (tyL `doesNotUnify` tyR) do

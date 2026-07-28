@@ -57,6 +57,9 @@ runLValueVisitor :: (Monad m) => Visitor m -> AST LValue -> m ()
 runLValueVisitor v lv@(AST (LVariable _) _) =
   onLValue v lv $
     return ()
+runLValueVisitor v lv@(AST (LDereference inner) _) =
+  onLValue v lv $
+    runLValueVisitor v inner
 
 runBodyVisitor :: (Monad m) => Visitor m -> AST Body -> m ()
 runBodyVisitor v body@(AST (Body stmts) _) =

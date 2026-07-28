@@ -107,8 +107,11 @@ instance TypeOf Expr where
 
 instance TypeOf LValue where
   typeOf (LVariable t _) = t
+  typeOf (LDereference t _) = t
 
-data LValue = LVariable TypeExpr VarName
+data LValue
+  = LVariable TypeExpr VarName
+  | LDereference TypeExpr (TST LValue)
   deriving (Eq)
 
 data Body = Body TypeExpr [TST Stmt]
@@ -222,6 +225,7 @@ instance Show Expr where
 
 instance Show LValue where
   show (LVariable _ name) = T.unpack $ getVarText name
+  show (LDereference _ lv) = printf "*%s" (show lv)
 
 instance Show Body where
   show (Body t stmts) = execWriter $ do

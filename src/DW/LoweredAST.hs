@@ -57,7 +57,9 @@ data Expr
   | Dereference (LST Expr)
   deriving (Eq)
 
-newtype LValue = LVariable T.Text
+data LValue
+  = LVariable T.Text
+  | LDereference (LST LValue)
   deriving (Eq)
 
 newtype Body = Body [LST Stmt]
@@ -178,6 +180,7 @@ instance Show Expr where
 
 instance Show LValue where
   show (LVariable name) = T.unpack name
+  show (LDereference lv) = printf "*%s" (show lv)
 
 instance Show Body where
   show (Body stmts) = execWriter $ do

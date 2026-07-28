@@ -82,7 +82,9 @@ lowerExpr ast = lowerAST ast $ \case
   AST.NewOperator ty args -> L.NewOperator (lowerTypeExpr ty) (lowerExpr <$> args)
 
 lowerLValue :: AST.AST AST.LValue -> L.LST L.LValue
-lowerLValue ast = lowerAST ast $ \(AST.LVariable name) -> L.LVariable name
+lowerLValue ast = lowerAST ast $ \case
+  AST.LVariable name -> L.LVariable name
+  AST.LDereference inner -> L.LDereference (lowerLValue inner)
 
 lowerBody :: AST.Body -> L.Body
 lowerBody (AST.Body stmts) = L.Body (map lowerStmt stmts)

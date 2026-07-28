@@ -71,6 +71,22 @@ resolveBody (LST (L.Body stmts) span) = do
   popScope <&> unwrapICE
   return $ NST (N.Body nStmts) span
 
+resolveLValue :: (State NameResolver :> es, Errors Err :> es) => LST L.LValue -> Eff es (NST N.LValue)
+resolveLValue (LST (L.LVariable text) span) = do
+  name <- lookupVariable text
+  name <- case name of
+    Nothing -> do
+      markSpan span (UnboundVariable text)
+      -- Mint a fresh name just so we have something to continue with, in case
+      -- there are other errors the user might want to know about
+      name <- mkVar text
+      return name
+    Just name -> return name
+  return $ NST (N.LVariable name) span
+resolveLValue (LST (L.LDereference inner) span) = do
+  nInner <- resolveLValue inner
+  return $ NST (N.LDereference nInner) span
+
 resolveStmt :: (State NameResolver :> es, Errors Err :> es) => LST L.Stmt -> Eff es (NST N.Stmt)
 resolveStmt (LST (L.Let {name = (LST text textSpan), type_, value}) span) = do
   nTy <- resolveType `traverse` type_
@@ -83,18 +99,9 @@ resolveStmt (LST (L.Let {name = (LST text textSpan), type_, value}) span) = do
   name <- mkVar text
   bindNewVariable text name
   return $ NST (N.Let {name = NST name textSpan, type_ = nTy, value = nValue}) span
-resolveStmt (LST (L.Assign (LST (L.LVariable text) lValueSpan) value) span) = do
+resolveStmt (LST (L.Assign lValue value) span) = do
   nValue <- resolveExpr value
-  name <- lookupVariable text
-  name <- case name of
-    Nothing -> do
-      markSpan lValueSpan (UnboundVariable text)
-      -- Mint a fresh name just so we have something to continue with, in case
-      -- there are other errors the user might want to know about
-      name <- mkVar text
-      return name
-    Just name -> return name
-  let nLValue = NST (N.LVariable name) lValueSpan
+  nLValue <- resolveLValue lValue
   return $ NST (N.Assign {lvalue = nLValue, value = nValue}) span
 resolveStmt (LST (L.ExprStmt {value, semicolon}) span) = do
   nValue <- resolveExpr value

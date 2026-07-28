@@ -71,7 +71,9 @@ data Expr
   | NewOperator {ty :: AST TypeExpr, arguments :: [AST Expr]}
   deriving (Eq)
 
-newtype LValue = LVariable T.Text
+data LValue
+  = LVariable T.Text
+  | LDereference (AST LValue)
   deriving (Eq)
 
 newtype Body = Body [AST Stmt]
@@ -201,6 +203,7 @@ instance Show Expr where
 
 instance Show LValue where
   show (LVariable name) = T.unpack name
+  show (LDereference lv) = printf "*%s" (show lv)
 
 instance Show Body where
   show (Body stmts) = execWriter $ do

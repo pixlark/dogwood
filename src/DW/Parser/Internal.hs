@@ -452,9 +452,13 @@ attempt f = do
 
 tryParseLValue :: (HasCallStack, State Parser :> es, Errors Err :> es) => Eff es (Maybe (AST A.LValue))
 tryParseLValue =
-  fmap invert $ produceSpannedAST $ do
+  fmap invert $ produceSpannedAST do
     cur <- gets current
     case cur.kind of
+      Glyph "*" -> do
+        advance
+        inner <- tryParseLValue
+        returnWrap $ A.LDereference <$> inner
       Symbol sym -> do
         advance
         cur <- gets current

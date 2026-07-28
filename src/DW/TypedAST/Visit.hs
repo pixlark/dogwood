@@ -54,9 +54,13 @@ runTypeExprVisitor v te@(TST (TypeExpr _ valueExpr) span_) =
     runValueTypeExprVisitor v (TST valueExpr span_)
 
 runLValueVisitor :: (Monad m) => Visitor m -> TST LValue -> m ()
-runLValueVisitor v lv@(TST (LVariable typeExpr _) span_) =
+runLValueVisitor v lv@(TST (LVariable typeExpr _) span) =
   onLValue v lv $
-    runTypeExprVisitor v (TST typeExpr span_)
+    runTypeExprVisitor v (TST typeExpr span)
+runLValueVisitor v lv@(TST (LDereference typeExpr inner) span) =
+  onLValue v lv do
+    runTypeExprVisitor v (TST typeExpr span)
+    runLValueVisitor v inner
 
 runBodyVisitor :: (Monad m) => Visitor m -> TST Body -> m ()
 runBodyVisitor v body@(TST (Body typeExpr stmts) span_) =
