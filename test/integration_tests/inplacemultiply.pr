@@ -1,0 +1,12 @@
+let mul = fn(a: &int, b: int) {
+    *a = *a * b;
+};
+
+let main = fn() {
+    let print = builtin print;
+    let x = new int(5);
+    mul(x, 2);
+    print(x);
+    mul(x, 3);
+    print(*x);
+};

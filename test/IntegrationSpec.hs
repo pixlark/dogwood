@@ -65,3 +65,9 @@ spec = do
       void $ integrationTest "mutualrecursion.pr"
     it "can define and use a higher-order function" do
       void $ integrationTest "higherorderfn.pr"
+    it "can allocate and dereference references" do
+      void $ integrationTest "newandderef.pr"
+    it "can assign through a dereferenced lvalue" do
+      void $ integrationTest "refassign.pr"
+    it "can perform in-place multiplication" do
+      void $ integrationTest "inplacemultiply.pr"

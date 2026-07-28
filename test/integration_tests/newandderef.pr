@@ -1,0 +1,9 @@
+let main = fn() {
+    let print = builtin print;
+
+    let x = new int(42);
+    print(*x);
+
+    let y = new bool(true);
+    print(*y);
+};
